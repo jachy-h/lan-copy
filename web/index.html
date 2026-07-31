@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#111827" />
+    <title>Lan Copy · 局域网快传</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="brand">
+          <div class="logo" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M7 7.5A3.5 3.5 0 0 1 10.5 4h5A4.5 4.5 0 0 1 20 8.5v5a3.5 3.5 0 0 1-3.5 3.5H16v-2h.5a1.5 1.5 0 0 0 1.5-1.5v-5A2.5 2.5 0 0 0 15.5 6h-5A1.5 1.5 0 0 0 9 7.5V8H7v-.5Z"
+              />
+              <path
+                d="M4 10.5A2.5 2.5 0 0 1 6.5 8h5a4.5 4.5 0 0 1 4.5 4.5v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 17.5v-7Zm2 0v7c0 .28.22.5.5.5h7c.28 0 .5-.22.5-.5v-5a2.5 2.5 0 0 0-2.5-2.5h-5a.5.5 0 0 0-.5.5Z"
+              />
+            </svg>
+          </div>
+          <div>
+            <h1>Lan Copy</h1>
+            <p>同一网络，文件与文字即刻抵达</p>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <div class="status" id="serviceStatus">
+            <span class="status-dot"></span>
+            <span class="status-label">局域网在线</span>
+          </div>
+          <button
+            class="shutdown-btn"
+            id="shutdownBtn"
+            type="button"
+            title="关闭 Lan Copy"
+            aria-label="关闭 Lan Copy 软件"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3v9m5.7-6.7a8 8 0 1 1-11.4 0" />
+            </svg>
+            <span>关闭软件</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="access-card" aria-labelledby="accessTitle">
+        <div class="access-copy">
+          <span class="access-eyebrow">移动设备快捷访问</span>
+          <h2 id="accessTitle">手机扫码，立即打开</h2>
+          <p>手机与电脑连接同一局域网后，扫描二维码即可访问</p>
+          <div class="access-address">
+            <span>局域网访问地址</span>
+            <a id="accessAddress" href="#">正在获取局域网地址…</a>
+          </div>
+          <div class="access-url-row">
+            <select id="accessUrl" aria-label="二维码访问地址">
+              <option>正在获取局域网地址…</option>
+            </select>
+            <button id="copyAccessUrl" type="button">复制地址</button>
+          </div>
+        </div>
+        <div
+          class="qr-code loading"
+          id="qrCode"
+          role="img"
+          aria-label="局域网访问二维码"
+        ></div>
+      </section>
+
+      <nav class="share-tabs" aria-label="选择共享类型">
+        <button
+          class="active"
+          type="button"
+          data-mode="file"
+          aria-pressed="true"
+        >
+          发送文件
+        </button>
+        <button type="button" data-mode="text" aria-pressed="false">
+          共享文本
+        </button>
+      </nav>
+
+      <section class="upload-card" id="dropZone">
+        <input id="fileInput" type="file" multiple hidden />
+        <div class="upload-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
+            />
+          </svg>
+        </div>
+        <h2>把文件拖到这里</h2>
+        <p>或点击选择文件，可一次传送多个</p>
+        <button class="primary" id="chooseBtn" type="button">选择文件</button>
+      </section>
+
+      <section class="text-card hidden" id="textPanel">
+        <div class="text-compose-head">
+          <div class="text-icon" aria-hidden="true">Aa</div>
+          <div>
+            <h2>共享一段文本</h2>
+            <p>链接、验证码、命令或临时笔记</p>
+          </div>
+        </div>
+        <textarea
+          id="textInput"
+          rows="7"
+          placeholder="在这里粘贴或输入文字…"
+          aria-label="要共享的文本"
+        ></textarea>
+        <div class="text-compose-foot">
+          <span id="textCount">0 B / 64 KiB</span>
+          <button class="primary" id="shareTextBtn" type="button">
+            发布文本
+          </button>
+        </div>
+      </section>
+
+      <section class="queue hidden" id="queue" aria-live="polite">
+        <div class="queue-head">
+          <strong id="queueTitle">正在传送</strong
+          ><span id="queuePercent">0%</span>
+        </div>
+        <div class="progress"><span id="progressBar"></span></div>
+        <p id="queueDetail"></p>
+      </section>
+
+      <section class="files-section text-section">
+        <div class="section-head">
+          <div>
+            <h2>共享文本</h2>
+            <p id="textSummary">正在读取…</p>
+          </div>
+        </div>
+        <div class="text-list" id="textList"></div>
+        <div class="empty hidden" id="textEmptyState">
+          <div>“ ”</div>
+          <strong>还没有共享文本</strong>
+          <p>发布后，局域网内的设备可以一键复制</p>
+        </div>
+      </section>
+
+      <section class="files-section">
+        <div class="section-head">
+          <div>
+            <h2>共享文件</h2>
+            <p id="summary">正在读取…</p>
+          </div>
+          <button
+            class="icon-btn"
+            id="refreshBtn"
+            type="button"
+            title="刷新"
+            aria-label="刷新共享内容"
+          >
+            <svg viewBox="0 0 24 24">
+              <path
+                d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"
+              />
+            </svg>
+          </button>
+        </div>
+        <div class="file-list" id="fileList"></div>
+        <div class="empty hidden" id="emptyState">
+          <div>◎</div>
+          <strong>还没有文件</strong>
+          <p>从任意一台设备上传后，就会出现在这里</p>
+        </div>
+      </section>
+
+      <footer>
+        文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问
+      </footer>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/qrcode.js" defer></script>
+    <script src="/app.js" defer></script>
+  </body>
+</html>

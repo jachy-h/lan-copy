@@ -1,0 +1,7 @@
+lan-copy
+lan-copy.exe
+lan-copy-data/
+dist/
+tmp/
+.DS_Store
+.pi-lens/
