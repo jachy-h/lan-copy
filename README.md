@@ -56,7 +56,7 @@ lan-copy-macos-arm64.tar.gz
 SHA256SUMS
 ```
 
-Windows 压缩包同时包含静默版 `lan-copy.exe` 和控制台版 `lan-copy-console.exe`。使用 `make clean` 可清理上述制品，`make test` 可运行测试。
+Windows 压缩包仅包含无控制台窗口的 `lan-copy.exe`。使用 `make clean` 可清理上述制品，`make test` 可运行测试。
 
 ## 编译成极小单文件
 
