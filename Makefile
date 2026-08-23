@@ -1,7 +1,7 @@
 SHELL := /bin/sh
 
 GO ?= go
-DIST_DIR ?= dist
+DIST_DIR ?= release
 STAGE_DIR := $(DIST_DIR)/.stage
 LDFLAGS := -s -w
 
@@ -30,7 +30,7 @@ $(DIST_DIR)/lan-copy-windows-%.zip: $(SOURCES)
 	rm -rf "$$stage" "$@"; \
 	mkdir -p "$$stage"; \
 	echo "Building Windows/$*..."; \
-	CGO_ENABLED=0 GOOS=windows GOARCH=$* $(GO) build -trimpath -ldflags='$(LDFLAGS) -H=windowsgui' -o "$$stage/lan-copy.exe" .; \
+	CGO_ENABLED=0 GOOS=windows GOARCH=$* $(GO) build -trimpath -ldflags='$(LDFLAGS)' -o "$$stage/lan-copy.exe" .; \
 	cp README.md "$$stage/README.md"; \
 	(cd "$(STAGE_DIR)" && zip -qr "../$(@F)" "$$name"); \
 	rm -rf "$$stage"

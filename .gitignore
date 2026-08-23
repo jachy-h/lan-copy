@@ -1,7 +1,10 @@
 lan-copy
 lan-copy.exe
 lan-copy-data/
+lan-copy.syso
+lan-copy.ico
 dist/
+release/
 tmp/
 .DS_Store
 .pi-lens/

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3977f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2362df;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- 背景 -->
+  <rect x="1" y="1" width="14" height="14" rx="3" ry="3" fill="url(#grad1)"/>
+  
+  <!-- 左侧设备 -->
+  <rect x="3" y="4" width="4" height="6" rx="1" ry="1" fill="#ffffff" opacity="0.9"/>
+  
+  <!-- 右侧设备 -->
+  <rect x="9" y="4" width="4" height="6" rx="1" ry="1" fill="#ffffff" opacity="0.9"/>
+  
+  <!-- 连接线 -->
+  <path d="M7 7 L9 7" stroke="#ffffff" stroke-width="1" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- 文件图标 -->
+  <path d="M6 9 L10 9 L12 11 L12 14 L4 14 Z" fill="#ffffff" opacity="0.9"/>
+</svg>

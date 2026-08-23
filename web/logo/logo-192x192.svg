@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3977f6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2362df;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#14213d;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a2b4a;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="3" dy="3" stdDeviation="5" flood-color="#14213d" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- 背景圆角矩形 -->
+  <rect x="16" y="16" width="160" height="160" rx="32" ry="32" fill="url(#grad2)" filter="url(#shadow)"/>
+  
+  <!-- 左侧设备图标 -->
+  <g transform="translate(40, 56)">
+    <!-- 设备主体 -->
+    <rect x="0" y="0" width="40" height="56" rx="4" ry="4" fill="#ffffff" opacity="0.9"/>
+    <!-- 屏幕 -->
+    <rect x="4" y="4" width="32" height="32" rx="2" ry="2" fill="#3977f6"/>
+    <!-- 摄像头 -->
+    <circle cx="20" cy="40" r="2" fill="#3977f6" opacity="0.7"/>
+    <!-- 底座 -->
+    <path d="M8 56 L32 56 L36 62 L4 62 Z" fill="#ffffff" opacity="0.8"/>
+  </g>
+  
+  <!-- 右侧设备图标 -->
+  <g transform="translate(112, 64)">
+    <!-- 手机主体 -->
+    <rect x="0" y="0" width="32" height="56" rx="4" ry="4" fill="#ffffff" opacity="0.9"/>
+    <!-- 屏幕 -->
+    <rect x="4" y="4" width="24" height="44" rx="2" ry="2" fill="#3977f6"/>
+    <!-- 听筒 -->
+    <rect x="10" y="5" width="12" height="2" rx="1" ry="1" fill="#ffffff" opacity="0.7"/>
+    <!-- 摄像头 -->
+    <circle cx="16" cy="10" r="1.5" fill="#ffffff" opacity="0.7"/>
+    <!-- 主页按钮 -->
+    <circle cx="16" cy="52" r="2.5" fill="#3977f6" opacity="0.7"/>
+  </g>
+  
+  <!-- 连接线 -->
+  <path d="M80 84 L112 84" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.8"/>
+  
+  <!-- 传输箭头 -->
+  <g transform="translate(88, 76)">
+    <!-- 向右箭头 -->
+    <path d="M0 8 L12 8 L12 0 L20 8 L12 16 L12 8 L0 8 Z" fill="#ffffff" opacity="0.9"/>
+  </g>
+  
+  <!-- 文件图标 -->
+  <g transform="translate(76, 104)">
+    <path d="M0 0 L20 0 L28 8 L28 32 L0 32 Z" fill="#ffffff" opacity="0.9"/>
+    <path d="M20 0 L20 8 L28 8" fill="none" stroke="#2362df" stroke-width="2"/>
+    <line x1="5" y1="12" x2="23" y2="12" stroke="#2362df" stroke-width="2" opacity="0.7"/>
+    <line x1="5" y1="17" x2="23" y2="17" stroke="#2362df" stroke-width="2" opacity="0.7"/>
+    <line x1="5" y1="22" x2="18" y2="22" stroke="#2362df" stroke-width="2" opacity="0.7"/>
+  </g>
+  
+  <!-- 网络节点装饰 -->
+  <circle cx="48" cy="40" r="4" fill="#ffffff" opacity="0.4"/>
+  <circle cx="144" cy="48" r="4" fill="#ffffff" opacity="0.4"/>
+  <circle cx="96" cy="144" r="4" fill="#ffffff" opacity="0.4"/>
+  
+  <!-- 网络连接线装饰 -->
+  <path d="M48 44 L96 144" stroke="#ffffff" stroke-width="1" stroke-dasharray="4,4" opacity="0.2"/>
+  <path d="M144 52 L96 144" stroke="#ffffff" stroke-width="1" stroke-dasharray="4,4" opacity="0.2"/>
+</svg>

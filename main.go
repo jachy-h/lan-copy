@@ -575,25 +575,36 @@ func main() {
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
 	flag.Parse()
 
+	setupConsole()
+
 	app, err := newServer(*dir, *maxGB<<30)
 	if err != nil {
 		log.Fatal(err)
 	}
+	listener, err := net.Listen("tcp", *listen)
+	if err != nil {
+		if notifyAlreadyRunning(*listen, *dir) {
+			return
+		}
+		log.Fatal(err)
+	}
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)
-	log.Printf("本机访问: http://localhost%s", *listen)
-	for _, address := range localURLs(*listen) {
+	log.Printf("本机访问: http://localhost:%s", port)
+	for _, address := range localURLs(fmt.Sprintf(":%s", port)) {
 		log.Printf("局域网访问: %s", address)
 	}
+	fmt.Printf("\n请在浏览器打开 http://localhost:%s 查看功能。\n", port)
 	httpServer := &http.Server{
-		Addr:              *listen,
 		Handler:           app.routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
 	serveErrors := make(chan error, 1)
 	go func() {
-		serveErrors <- httpServer.ListenAndServe()
+		serveErrors <- httpServer.Serve(listener)
 	}()
+	waitForAnyKeyToCloseConsole()
 
 	select {
 	case err := <-serveErrors:

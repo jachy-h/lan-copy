@@ -1,113 +1,55 @@
 # Lan Copy
 
-一个极小、零依赖的局域网快传工具。只需在一台电脑运行，家中同一 Wi-Fi / 局域网内的其他设备打开网页，即可传递文件或共享一段文字。
+简体中文 | [English](README.en.md)
 
-- **文件快传**：拖拽上传、批量传输、下载和删除文件
-- **文本共享**：传递链接、验证码、命令或临时笔记，一键复制
-- **单文件部署**：Go 编译出的一个可执行文件，网页资源已内嵌
-- **零客户端**：电脑、手机、平板有浏览器就能用
-- **扫码访问**：自动检测可达的局域网地址并生成二维码，手机一扫即开
-- **实时同步**：文件上传或删除后，所有已打开的客户端立即刷新
-- **本机操作**：服务所在电脑可从网页直接打开文件或所在目录
-- **移动适配**：适配安全区域、触控尺寸和窄屏布局，避免误缩放
-- **传大文件**：上传采用流式写盘，不会把整个文件载入内存
-- **覆盖保护**：同名文件自动保存为 `文件 (2).ext`
-- **网页关闭**：可在页面右上角确认并关闭服务
-- **零外部依赖**：仅使用 Go 标准库，无数据库
+> 一个文件，整个局域网互传。无需安装、无需登录、无需网盘。
+
+Lan Copy 是一个极小、零依赖的局域网快传工具。只需在一台电脑运行，同一 Wi-Fi / 局域网内的手机、平板、电脑打开网页即可互传文件和文字。
+
+## 什么时候用它
+
+- **手机 ↔ 电脑**：照片、视频、安装包，拖一下就过去，告别数据线
+- **家人同事之间**：同一网络里互传大文件，不压缩、不限速、不过第三方
+- **临时共享文字**：链接、验证码、命令、临时笔记，发出去对方一键复制
 
 ## 快速开始
 
-需要 Go 1.22 或更新版本：
+1. **下载**：到 [Releases](https://github.com/jachy-h/lan-copy/releases/latest) 下载对应系统的压缩包并解压（Windows / macOS，x64 与 Apple Silicon 均支持）
+2. **运行**：
+   - Windows：双击 `lan-copy.exe`
+   - macOS：终端执行 `./lan-copy`
+3. **使用**：
+   - 本机浏览器打开 <http://localhost:8080>
+   - 同一 Wi-Fi 下的其他设备，打开控制台显示的局域网地址（或用页面上的二维码扫码）
+4. **停止**：在网页右上角点击"关闭软件"
+
+启动后的黑框框（控制台）只是提示信息，按任意键即可关闭，服务会继续在后台运行；再次双击程序会显示同样的提示界面，不会重复占用端口。
+
+> 设备打不开？请允许 `lan-copy` 通过系统防火墙，并确认连接的是同一个局域网（访客 Wi-Fi 通常会隔离设备）。
+
+不想下载？有 Go 1.22+ 环境也可以直接源码运行：
 
 ```bash
+git clone https://github.com/jachy-h/lan-copy.git
+cd lan-copy
 go run .
 ```
 
-启动后终端会显示地址，例如：
+## 它有什么特别
 
-```text
-局域网访问: http://192.168.1.23:8080
-```
+- **单文件**：Go 编译出的一个可执行文件，网页资源已内嵌，拷走就能用
+- **零客户端**：电脑、手机、平板，有浏览器就能用
+- **实时同步**：文件上传或删除后，所有已打开的页面立即刷新
+- **传大文件**：流式写盘上传，不会把整个文件载入内存，默认单次上限 10 GiB
+- **扫码访问**：自动检测可达的局域网地址并生成二维码
+- **本机操作**：服务所在电脑可从网页直接打开文件或所在目录
+- **覆盖保护**：同名文件自动保存为 `文件 (2).ext`
+- **移动适配**：适配安全区域、触控尺寸和窄屏布局
+- **零外部依赖**：仅使用 Go 标准库，无数据库
 
-在另一台电脑的浏览器打开这个地址：可以直接拖放文件，也可以切换到“共享文本”发布文字。文本和文件都会持久化保存在运行 Lan Copy 的电脑上。
+## 文档
 
-> 如果另一台设备打不开，请允许 `lan-copy` 通过系统防火墙，并确认两台设备连接的是同一个局域网（访客 Wi-Fi 通常会隔离设备）。
-
-## 使用 Make 构建制品
-
-在 macOS 或 Linux 上运行以下命令，可以交叉构建 Windows 与 macOS 的 x64、ARM64 制品：
-
-```bash
-# 构建全部 Windows 和 macOS 制品，并生成 SHA-256 校验文件
-make build
-
-# 也可以按平台单独构建
-make windows
-make macos
-```
-
-构建结果保存在 `dist/`：
-
-```text
-lan-copy-windows-amd64.zip
-lan-copy-windows-arm64.zip
-lan-copy-macos-amd64.tar.gz
-lan-copy-macos-arm64.tar.gz
-SHA256SUMS
-```
-
-Windows 压缩包仅包含无控制台窗口的 `lan-copy.exe`。使用 `make clean` 可清理上述制品，`make test` 可运行测试。
-
-## 编译成极小单文件
-
-macOS / Linux：
-
-```bash
-CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o lan-copy .
-./lan-copy
-```
-
-Windows PowerShell：
-
-```powershell
-$env:CGO_ENABLED=0
-# 静默版：双击后不显示控制台，通过网页右上角的“关闭软件”退出
-go build -trimpath -ldflags="-s -w -H=windowsgui" -o lan-copy.exe .
-# 控制台版：用于查看启动地址或排查错误
-go build -trimpath -ldflags="-s -w" -o lan-copy-console.exe .
-```
-
-运行静默版后打开 <http://localhost:8080>。关闭控制台版的窗口会同时退出程序。
-
-也可以交叉编译：
-
-```bash
-# Windows x64 静默版
-GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -H=windowsgui" -o lan-copy.exe .
-# macOS Apple Silicon
-GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o lan-copy-macos-arm64 .
-```
-
-## Docker
-
-```bash
-docker build -t lan-copy .
-docker run --rm -p 8080:8080 -v "$PWD/lan-copy-data:/data" lan-copy
-```
-
-## 参数
-
-```text
--listen string   监听地址（默认 ":8080"）
--dir string      文件存储目录（默认 "./lan-copy-data"）
--max-gb int      单次上传总大小上限 GiB（默认 10）
-```
-
-示例：使用 9000 端口，并把文件保存到下载目录：
-
-```bash
-./lan-copy -listen :9000 -dir "$HOME/Downloads/LanCopy" -max-gb 20
-```
+- **开发者文档**（构建、测试、架构、发布）：[docs/DEVELOPING.md](docs/DEVELOPING.md)
 
 ## 安全说明
 
