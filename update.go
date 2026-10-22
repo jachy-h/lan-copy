@@ -89,7 +89,7 @@ func (s *server) appInfo(w http.ResponseWriter, r *http.Request) {
 	enabled := reason == ""
 	_, keyErr := trustedUpdateKey(updatePublicKey)
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]any{"version": version, "os": runtime.GOOS, "arch": runtime.GOARCH, "local": local, "updateEnabled": enabled, "updateDisabledReason": reason, "signedUpdates": keyErr == nil, "updateID": os.Getenv("LAN_COPY_UPDATE_ID")})
+	writeJSON(w, http.StatusOK, map[string]any{"version": version, "os": runtime.GOOS, "arch": runtime.GOARCH, "local": local, "canShutdown": isLoopbackRequest(r), "updateEnabled": enabled, "updateDisabledReason": reason, "signedUpdates": keyErr == nil, "updateID": os.Getenv("LAN_COPY_UPDATE_ID")})
 }
 func validUpdateRequest(r *http.Request) bool {
 	if r.Header.Get("X-Lan-Copy-Action") != "update" {
@@ -207,7 +207,7 @@ func (s *server) installUpdatePackage(w http.ResponseWriter, r *http.Request, on
 	if f, ok := w.(http.Flusher); ok {
 		f.Flush()
 	}
-	s.shutdownOnce.Do(func() { close(s.shutdownRequested) })
+	s.requestShutdown("update")
 }
 
 // Only read known regular files; archive paths are never used as disk paths.

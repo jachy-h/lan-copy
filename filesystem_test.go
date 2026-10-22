@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +13,54 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestDirectorySearchBudgetAndCancellation(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one.txt", "two.txt", "three.txt"} {
+		if err := os.WriteFile(filepath.Join(app.dir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousLimit := maxDirectorySearchEntries
+	maxDirectorySearchEntries = 2
+	t.Cleanup(func() { maxDirectorySearchEntries = previousLimit })
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, httptest.NewRequest(http.MethodGet, "/api/filesystem?q=txt", nil))
+	if result.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("search budget status = %d, want %d", result.Code, http.StatusRequestEntityTooLarge)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/filesystem?q=txt", nil).WithContext(ctx)
+	result = httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Body.Len() != 0 {
+		t.Fatalf("canceled search wrote a response: %s", result.Body.String())
+	}
+}
+
+func TestFilesystemListingsDoNotHoldMutationLock(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.dir, "visible.txt"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.fileMu.Lock()
+	defer app.fileMu.Unlock()
+	for _, target := range []string{"/api/files", "/api/filesystem"} {
+		result := httptest.NewRecorder()
+		app.routes().ServeHTTP(result, httptest.NewRequest(http.MethodGet, target, nil))
+		if result.Code != http.StatusOK {
+			t.Fatalf("GET %s while mutation lock held: status %d: %s", target, result.Code, result.Body.String())
+		}
+	}
+}
 
 func TestFilesystemLifecycle(t *testing.T) {
 	app, err := newServer(t.TempDir(), 1<<20)
@@ -115,6 +166,21 @@ func TestFilesystemRejectsUnsafeOperations(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join(app.dir, "two.txt"))
 	if err != nil || string(data) != "original" {
 		t.Fatal("existing destination was modified")
+	}
+}
+
+func TestSharedPathUsesPortableComponentRules(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".UPLOAD-private/file.txt", ".LaN-CoPy-private/file.txt", "folder/CON.txt", "folder/Lpt9.log", "folder/trailing.", "folder/name:stream"} {
+		if _, err := app.sharedPath(name); err == nil {
+			t.Errorf("sharedPath(%q) unexpectedly accepted", name)
+		}
+	}
+	if _, err := app.sharedPath("资料/document.txt"); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("valid portable path should proceed to lookup, got %v", err)
 	}
 }
 

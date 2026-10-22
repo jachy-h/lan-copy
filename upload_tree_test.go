@@ -119,10 +119,122 @@ func TestEmptyFolderUpload(t *testing.T) {
 	}
 }
 
+func TestStartupRecoversInterruptedUploadTransaction(t *testing.T) {
+	dir := t.TempDir()
+	txn := filepath.Join(dir, uploadTransactionPrefix+"interrupted")
+	stage := filepath.Join(txn, "stage")
+	backup := filepath.Join(txn, "backup")
+	for _, name := range []string{filepath.Join(dir, "target"), stage, backup} {
+		if err := os.MkdirAll(name, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Simulate a process exit after the replacement and a new root were installed.
+	if err := os.Mkdir(filepath.Join(dir, "target", "folder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "target", "folder", "file.txt"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(backup, "folder"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "folder", "file.txt"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "target", "new.txt"), []byte("new root"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record, err := json.Marshal(uploadTransactionRecord{Destination: "target", Roots: []string{"folder", "new.txt"}, Replaced: []string{"folder"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(txn, "transaction.json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newServer(dir, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "target", "folder", "file.txt"))
+	if err != nil || string(got) != "original" {
+		t.Fatalf("original replacement content = %q, %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "target", "new.txt")); !os.IsNotExist(err) {
+		t.Fatalf("partially installed root remains: %v", err)
+	}
+	if _, err := os.Stat(txn); !os.IsNotExist(err) {
+		t.Fatalf("recovered transaction remains: %v", err)
+	}
+}
+
+func TestStartupKeepsCommittedUploadTransaction(t *testing.T) {
+	dir := t.TempDir()
+	txn := filepath.Join(dir, uploadTransactionPrefix+"committed")
+	if err := os.MkdirAll(filepath.Join(dir, "target"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(txn, "stage"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(txn, "backup"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "target", "kept.txt"), []byte("committed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(txn, "committed"), []byte(uploadCommitMarker), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newServer(dir, 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "target", "kept.txt")); err != nil || string(data) != "committed" {
+		t.Fatalf("committed upload = %q, %v", data, err)
+	}
+	if _, err := os.Stat(txn); !os.IsNotExist(err) {
+		t.Fatalf("committed transaction remains: %v", err)
+	}
+}
+
+func TestLegacyUploadEndpointRemoved(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, httptest.NewRequest(http.MethodPost, "/api/upload", strings.NewReader("")))
+	if result.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("legacy upload endpoint status = %d, want %d", result.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestFileNameConflictSkipsNamesInSameUploadBatch(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.dir, "a.txt"), []byte("existing"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entries := []uploadTreeEntry{{Path: "a.txt"}, {Path: "a (2).txt"}}
+	parts := []treeTestPart{{field: "file-0", body: "first"}, {field: "file-1", body: "second"}}
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, treeRequest(t, entries, parts))
+	if result.Code != http.StatusCreated {
+		t.Fatalf("upload status = %d: %s", result.Code, result.Body.String())
+	}
+	for name, want := range map[string]string{"a.txt": "existing", "a (2).txt": "second", "a (3).txt": "first"} {
+		data, err := os.ReadFile(filepath.Join(app.dir, name))
+		if err != nil || string(data) != want {
+			t.Fatalf("%s = %q, %v; want %q", name, data, err, want)
+		}
+	}
+}
+
 func TestFolderUploadRejectsInvalidManifests(t *testing.T) {
 	cases := [][]uploadTreeEntry{
 		nil, {{Path: "../outside"}}, {{Path: "/absolute"}}, {{Path: "a\\b"}}, {{Path: "a/../b"}}, {{Path: "a//b"}}, {{Path: "a/./b"}},
-		{{Path: "a:x"}}, {{Path: "a/b."}}, {{Path: "a/ b"}}, {{Path: ".upload-private/a"}}, {{Path: ".UPLOAD-private/a"}}, {{Path: "a/.lan-copy-texts.json"}},
+		{{Path: "a:x"}}, {{Path: "a/b."}}, {{Path: "a/ b"}}, {{Path: ".upload-private/a"}}, {{Path: ".UPLOAD-private/a"}}, {{Path: "a/.lan-copy-texts.json"}}, {{Path: "CON.txt"}}, {{Path: "nested/Lpt9.log"}},
 		{{Path: "a"}, {Path: "a/b.txt"}}, {{Path: "a"}, {Path: "a"}}, {{Path: "Photo/a"}, {Path: "photo/b"}}, {{Path: "a"}, {Path: "A"}},
 		{{Path: strings.Repeat("a/", 64) + "file"}},
 	}
@@ -234,22 +346,25 @@ func TestConcurrentFolderUploadsRequireConfirmation(t *testing.T) {
 
 func TestUploadConflictLeavesEntireBatchUntouched(t *testing.T) {
 	app, _ := newServer(t.TempDir(), 1<<20)
-	if err := os.WriteFile(filepath.Join(app.dir, "existing.txt"), []byte("original"), 0600); err != nil {
+	if err := os.Mkdir(filepath.Join(app.dir, "existing"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	entries := []uploadTreeEntry{{Path: "existing.txt"}, {Path: "new.txt"}}
+	if err := os.WriteFile(filepath.Join(app.dir, "existing", "keep.txt"), []byte("original"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries := []uploadTreeEntry{{Path: "existing", Directory: true}, {Path: "existing/new.txt"}, {Path: "new.txt"}}
 	result := httptest.NewRecorder()
-	app.routes().ServeHTTP(result, treeRequest(t, entries, []treeTestPart{{"file-0", "replacement"}, {"file-1", "new"}}))
+	app.routes().ServeHTTP(result, treeRequest(t, entries, []treeTestPart{{"file-1", "replacement"}, {"file-2", "new"}}))
 	if result.Code != 409 {
 		t.Fatalf("%d: %s", result.Code, result.Body.String())
 	}
 	var response struct {
 		Conflicts []string `json:"conflicts"`
 	}
-	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil || len(response.Conflicts) != 1 || response.Conflicts[0] != "existing.txt" {
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil || len(response.Conflicts) != 1 || response.Conflicts[0] != "existing" {
 		t.Fatalf("invalid conflicts: %+v %v", response, err)
 	}
-	data, err := os.ReadFile(filepath.Join(app.dir, "existing.txt"))
+	data, err := os.ReadFile(filepath.Join(app.dir, "existing", "keep.txt"))
 	if err != nil || string(data) != "original" {
 		t.Fatal("original changed before confirmation")
 	}

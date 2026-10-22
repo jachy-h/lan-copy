@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,10 @@ import (
 	"strings"
 	"time"
 )
+
+var maxDirectorySearchEntries = 10000
+
+var errDirectorySearchLimit = errors.New("directory search traversal limit reached")
 
 type directoryEntry struct {
 	Name        string    `json:"name"`
@@ -34,8 +39,7 @@ func (s *server) sharedPath(name string) (string, error) {
 	}
 	current := s.dir
 	for _, component := range strings.Split(name, "/") {
-		clean, err := safeName(component)
-		if err != nil || clean != component || strings.ContainsAny(component, ":*?\"<>|") || strings.HasSuffix(component, ".") {
+		if err := validateSharedComponent(component); err != nil {
 			return "", fs.ErrInvalid
 		}
 		current = filepath.Join(current, component)
@@ -48,6 +52,29 @@ func (s *server) sharedPath(name string) (string, error) {
 		}
 	}
 	return current, nil
+}
+
+// validateSharedComponent is the common cross-platform rule for every path
+// component that can enter or be addressed inside the shared directory.
+func validateSharedComponent(component string) error {
+	if component == "" || component == "." || component == ".." || strings.TrimSpace(component) != component || strings.ContainsAny(component, "/\\:*?\"<>|") || strings.HasSuffix(component, ".") || strings.ContainsRune(component, 0) {
+		return fs.ErrInvalid
+	}
+	lower := strings.ToLower(component)
+	if strings.HasPrefix(lower, ".upload-") || strings.HasPrefix(lower, ".lan-copy-") {
+		return fs.ErrInvalid
+	}
+	for _, char := range component {
+		if char < 32 || char == 127 {
+			return fs.ErrInvalid
+		}
+	}
+	// Windows reserves these device names even when an extension is present.
+	stem := strings.ToUpper(strings.TrimSuffix(component, path.Ext(component)))
+	if stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || (len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9') {
+		return fs.ErrInvalid
+	}
+	return nil
 }
 
 func filesystemError(w http.ResponseWriter, err error) {
@@ -64,60 +91,81 @@ func filesystemError(w http.ResponseWriter, err error) {
 }
 
 func (s *server) listDirectory(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	name := r.URL.Query().Get("path")
-	dir, err := s.sharedPath(name)
-	if err != nil {
-		filesystemError(w, err)
-		return
-	}
-	info, err := os.Stat(dir)
-	if err != nil {
-		filesystemError(w, err)
-		return
-	}
-	if !info.IsDir() {
-		filesystemError(w, fs.ErrInvalid)
-		return
-	}
 	query := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
-	result := make([]directoryEntry, 0)
-	err = filepath.WalkDir(dir, func(filePath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if filePath == dir {
-			return nil
-		}
-		relative, err := filepath.Rel(s.dir, filePath)
+	result, err := func() ([]directoryEntry, error) {
+		// Browsing and search are best-effort reads. Releasing fileMu lets
+		// uploads and mutations proceed while the filesystem is being walked.
+		dir, err := s.sharedPath(name)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		sharedName := filepath.ToSlash(relative)
-		if _, err := s.sharedPath(sharedName); err != nil {
-			if entry.IsDir() {
+		info, err := os.Stat(dir)
+		if err != nil {
+			return nil, err
+		}
+		if !info.IsDir() {
+			return nil, fs.ErrInvalid
+		}
+		result := make([]directoryEntry, 0)
+		visited := 0
+		err = filepath.WalkDir(dir, func(filePath string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				if errors.Is(walkErr, fs.ErrNotExist) {
+					return nil // An in-app mutation removed this entry during the search.
+				}
+				return walkErr
+			}
+			if err := r.Context().Err(); err != nil {
+				return err
+			}
+			if filePath == dir {
+				return nil
+			}
+			visited++
+			if visited > maxDirectorySearchEntries {
+				return errDirectorySearchLimit
+			}
+			relative, err := filepath.Rel(s.dir, filePath)
+			if err != nil {
+				return err
+			}
+			sharedName := filepath.ToSlash(relative)
+			if _, err := s.sharedPath(sharedName); err != nil {
+				if entry.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if (info.IsDir() || info.Mode().IsRegular()) && (query == "" || strings.Contains(strings.ToLower(entry.Name()), query)) {
+				mediaType := ""
+				if !info.IsDir() {
+					mediaType = previewContentType(sharedName)
+				}
+				result = append(result, directoryEntry{Name: entry.Name(), Path: sharedName, Directory: info.IsDir(), Size: info.Size(), Modified: info.ModTime(), PreviewType: mediaType})
+			}
+			if query == "" && entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		info, err := entry.Info()
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if (info.IsDir() || info.Mode().IsRegular()) && (query == "" || strings.Contains(strings.ToLower(entry.Name()), query)) {
-			mediaType := ""
-			if !info.IsDir() {
-				mediaType = previewContentType(sharedName)
-			}
-			result = append(result, directoryEntry{Name: entry.Name(), Path: sharedName, Directory: info.IsDir(), Size: info.Size(), Modified: info.ModTime(), PreviewType: mediaType})
-		}
-		if query == "" && entry.IsDir() {
-			return filepath.SkipDir
-		}
-		return nil
-	})
+		return result, nil
+	}()
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		if errors.Is(err, errDirectorySearchLimit) {
+			writeError(w, http.StatusRequestEntityTooLarge, "搜索范围过大，请缩小搜索范围")
+			return
+		}
 		filesystemError(w, err)
 		return
 	}
@@ -143,8 +191,8 @@ func (s *server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "文件操作数据格式无效")
 		return
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
 	source, err := s.sharedPath(input.Path)
 	if err != nil {
 		filesystemError(w, err)
@@ -168,8 +216,7 @@ func (s *server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
 				name = path.Base(input.Path)
 			}
 		}
-		clean, err := safeName(name)
-		if err != nil || name != clean || strings.ContainsAny(name, "\\/:*?\"<>|") || strings.HasSuffix(name, ".") {
+		if err := validateSharedComponent(name); err != nil {
 			filesystemError(w, fs.ErrInvalid)
 			return
 		}

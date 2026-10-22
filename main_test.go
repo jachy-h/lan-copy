@@ -2,15 +2,17 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
-	"mime/multipart"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -80,6 +82,34 @@ func TestDuplicateNamesArePreserved(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(app.dir, name)); err != nil {
 			t.Errorf("expected %q: %v", name, err)
 		}
+	}
+}
+
+func TestAvailableNameReturnsFilesystemErrors(t *testing.T) {
+	want := os.ErrPermission
+	_, err := availableNameWithLstat(t.TempDir(), "file.txt", func(string) (os.FileInfo, error) {
+		return nil, want
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("availableName error = %v, want %v", err, want)
+	}
+}
+
+func TestAvailableNameStopsAfterBoundedConflicts(t *testing.T) {
+	info, err := os.Stat(os.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	_, err = availableNameWithLstat(t.TempDir(), "file.txt", func(string) (os.FileInfo, error) {
+		calls++
+		return info, nil
+	})
+	if !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("availableName error = %v, want %v", err, fs.ErrExist)
+	}
+	if calls != maxAvailableNameAttempts {
+		t.Fatalf("lstat calls = %d, want %d", calls, maxAvailableNameAttempts)
 	}
 }
 
@@ -296,6 +326,7 @@ func TestShutdownEndpoint(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	unsigned := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
 	unsigned.RemoteAddr = "127.0.0.1:12345"
+	unsigned.Host = "localhost"
 	handler.ServeHTTP(recorder, unsigned)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("unauthorized status = %d, want %d", recorder.Code, http.StatusForbidden)
@@ -323,6 +354,7 @@ func TestShutdownEndpoint(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
 	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "localhost"
 	request.Header.Set("X-Lan-Copy-Action", "shutdown")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -337,11 +369,121 @@ func TestShutdownEndpoint(t *testing.T) {
 
 	request = httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
 	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "localhost"
 	request.Header.Set("X-Lan-Copy-Action", "shutdown")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusAccepted {
 		t.Fatalf("repeated shutdown status = %d, want %d", recorder.Code, http.StatusAccepted)
+	}
+}
+
+func TestShutdownWarnsAndRequiresTypedConfirmationForTransfers(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !app.transfers.begin(transferUpload) || !app.transfers.begin(transferDownload) {
+		t.Fatal("failed to register active transfers")
+	}
+	statusRequest := httptest.NewRequest(http.MethodGet, "/api/shutdown/status", nil)
+	statusRequest.RemoteAddr = "127.0.0.1:12345"
+	statusRequest.Host = "localhost"
+	statusResult := httptest.NewRecorder()
+	app.routes().ServeHTTP(statusResult, statusRequest)
+	var status transferCounts
+	if statusResult.Code != http.StatusOK || json.Unmarshal(statusResult.Body.Bytes(), &status) != nil || status != (transferCounts{Uploads: 1, Downloads: 1}) {
+		t.Fatalf("shutdown status = %d %+v: %s", statusResult.Code, status, statusResult.Body.String())
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "localhost"
+	request.Header.Set("X-Lan-Copy-Action", "shutdown")
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusConflict {
+		t.Fatalf("unconfirmed shutdown status = %d, want %d: %s", result.Code, http.StatusConflict, result.Body.String())
+	}
+	var warning struct {
+		Uploads              int  `json:"uploads"`
+		Downloads            int  `json:"downloads"`
+		RequiresConfirmation bool `json:"requiresConfirmation"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &warning); err != nil {
+		t.Fatal(err)
+	}
+	if warning.Uploads != 1 || warning.Downloads != 1 || !warning.RequiresConfirmation {
+		t.Fatalf("unexpected transfer warning: %+v", warning)
+	}
+	select {
+	case <-app.shutdownRequested:
+		t.Fatal("unconfirmed shutdown was accepted")
+	default:
+	}
+
+	app.transfers.end(transferUpload)
+	request = httptest.NewRequest(http.MethodPost, "/api/shutdown", strings.NewReader(`{"confirmation":"强制关闭","uploads":1,"downloads":1}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "localhost"
+	request.Header.Set("X-Lan-Copy-Action", "shutdown")
+	result = httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusConflict {
+		t.Fatalf("stale-count shutdown status = %d, want %d: %s", result.Code, http.StatusConflict, result.Body.String())
+	}
+	select {
+	case <-app.shutdownRequested:
+		t.Fatal("stale transfer count triggered shutdown")
+	default:
+	}
+	request = httptest.NewRequest(http.MethodPost, "/api/shutdown", strings.NewReader(`{"confirmation":"强制关闭","uploads":0,"downloads":1}`))
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "localhost"
+	request.Header.Set("X-Lan-Copy-Action", "shutdown")
+	result = httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusAccepted {
+		t.Fatalf("confirmed shutdown status = %d: %s", result.Code, result.Body.String())
+	}
+	if app.transfers.begin(transferDownload) {
+		t.Fatal("new transfer started after shutdown admission closed")
+	}
+	select {
+	case <-app.shutdownRequested:
+	default:
+		t.Fatal("confirmed shutdown did not signal the server")
+	}
+	app.transfers.end(transferDownload)
+}
+
+func TestShutdownRequiresLoopbackAddress(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	request.RemoteAddr = "192.0.2.42:12345"
+	request.Header.Set("X-Lan-Copy-Action", "shutdown")
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusForbidden {
+		t.Fatalf("non-loopback shutdown status = %d, want %d", result.Code, http.StatusForbidden)
+	}
+}
+
+func TestShutdownRejectsNonLocalhostHostHeader(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
+	request.Host = "lan-copy.example:8080"
+	request.Header.Set("X-Lan-Copy-Action", "shutdown")
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusForbidden {
+		t.Fatalf("non-localhost host status = %d, want %d", result.Code, http.StatusForbidden)
 	}
 }
 
@@ -357,7 +499,7 @@ func TestSafeName(t *testing.T) {
 			t.Errorf("safeName(%q) = %q, %v; want %q", input, got, err, want)
 		}
 	}
-	for _, input := range []string{"", ".", "..", ".upload-reserved", "bad\x00name"} {
+	for _, input := range []string{"", ".", "..", ".upload-reserved", ".UPLOAD-reserved", ".LAN-COPY-private", "CON.txt", "lpt9.log", "bad\x00name", "trailing."} {
 		if _, err := safeName(input); err == nil {
 			t.Errorf("safeName(%q) unexpectedly succeeded", input)
 		}
@@ -366,21 +508,16 @@ func TestSafeName(t *testing.T) {
 
 func uploadRequest(t *testing.T, files map[string]string) *http.Request {
 	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	for name, contents := range files {
-		part, err := writer.CreateFormFile("files", name)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := io.WriteString(part, contents); err != nil {
-			t.Fatal(err)
-		}
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
+	sort.Strings(names)
+	entries := make([]uploadTreeEntry, len(names))
+	parts := make([]treeTestPart, len(names))
+	for i, name := range names {
+		entries[i] = uploadTreeEntry{Path: name}
+		parts[i] = treeTestPart{field: fmt.Sprintf("file-%d", i), body: files[name]}
 	}
-	request := httptest.NewRequest(http.MethodPost, "/api/upload", &body)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	return request
+	return treeRequest(t, entries, parts)
 }

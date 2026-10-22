@@ -31,5 +31,44 @@
     queue = result.catch(() => {});
     return result;
   }
-  window.LanCopyDialog = {confirm};
+  function confirmText({title = '需要输入确认信息', message, requiredText, confirmText = '确认', danger = true}) {
+    const result = queue.then(() => new Promise(resolve => {
+      const previousFocus = document.activeElement;
+      const dialog = document.createElement('dialog');
+      dialog.className = 'app-dialog confirm-dialog';
+      dialog.setAttribute('aria-labelledby', 'confirmTitle');
+      dialog.setAttribute('aria-describedby', 'confirmMessage');
+      dialog.innerHTML = '<h2 id="confirmTitle"></h2><p id="confirmMessage" class="confirm-message"></p><label class="confirm-input-label">请输入 <strong></strong><input class="confirm-input" type="text" autocomplete="off" spellcheck="false" /></label><div class="dialog-actions"><button class="secondary" type="button" autofocus>取消</button><button class="primary" type="button" disabled></button></div>';
+      dialog.querySelector('h2').textContent = title;
+      dialog.querySelector('p').textContent = message;
+      dialog.querySelector('strong').textContent = requiredText;
+      const input = dialog.querySelector('input');
+      input.setAttribute('aria-label', `请输入${requiredText}`);
+      const [cancel, accept] = dialog.querySelectorAll('button');
+      accept.textContent = confirmText;
+      accept.classList.toggle('danger', danger);
+      input.addEventListener('input', () => { accept.disabled = input.value !== requiredText; });
+      let accepted = false;
+      cancel.addEventListener('click', () => dialog.close());
+      accept.addEventListener('click', () => {
+        if (input.value !== requiredText) return;
+        accepted = true;
+        dialog.close();
+      });
+      dialog.addEventListener('close', () => {
+        dialog.remove();
+        if (previousFocus?.isConnected) previousFocus.focus();
+        resolve(accepted);
+      }, {once: true});
+      for (const name of ['dragenter', 'dragover', 'dragleave', 'drop']) {
+        dialog.addEventListener(name, event => { event.preventDefault(); event.stopPropagation(); });
+      }
+      document.body.append(dialog);
+      dialog.showModal();
+      input.focus();
+    }));
+    queue = result.catch(() => {});
+    return result;
+  }
+  window.LanCopyDialog = {confirm, confirmText};
 })();

@@ -1071,6 +1071,8 @@ button:disabled { opacity: .5; cursor: default; }
 .settings-layout { display: grid; grid-template-columns: 140px minmax(0, 1fr); min-height: 350px; }
 .settings-menu { display: flex; flex-direction: column; gap: 6px; padding: 18px 12px; background: #f8fafc; border-right: 1px solid var(--line); }
 .settings-menu button { border: 0; padding: 11px 16px; text-align: left; border-radius: 9px; background: transparent; color: #475569; font: inherit; cursor: pointer; }
+.settings-menu .update-tab-dot { display: inline-block; width: 7px; height: 7px; margin: 0 0 2px 7px; border-radius: 50%; background: #dc2626; }
+.settings-menu .update-tab-dot[hidden] { display: none; }
 .settings-menu button[aria-selected="true"] { color: var(--blue-dark); background: #eaf1ff; font-weight: 600; }
 .settings-content { padding: 26px; min-width: 0; }
 .settings-content h3 { margin: 14px 0; font-size: 22px; }
@@ -1110,6 +1112,10 @@ button:disabled { opacity: .5; cursor: default; }
 /* Confirmation, file actions and settings share the same modal surface. */
 .app-dialog { background: white; }
 .confirm-message { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.confirm-input-label { display: grid; gap: 8px; margin-top: 16px; font-size: 13px; color: var(--muted); }
+.confirm-input-label strong { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.confirm-input { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #dbe3ef; border-radius: 9px; color: var(--ink); background: #fafcff; font: inherit; }
+.confirm-input:focus { outline: 2px solid #3977f633; border-color: var(--blue); }
 .danger { color: #b42318; border-color: #f3c7c2; background: #fff6f5; }
 .primary.danger { color: white; background: #b42318; border-color: #b42318; }
 .danger:hover:not(:disabled) { color: #912018; background: #fee9e7; }

@@ -34,8 +34,8 @@ async function main() {
  const window={LanCopyDialog:{confirm:async()=>true},LanCopyFileUI:{notify(){}},dispatchEvent(){}};
  vm.runInNewContext(fs.readFileSync('web/settings.js','utf8'),{document,window,fetch,AbortSignal,location:{reload(){reloads++;}},setTimeout:fn=>{fn();return 0;},Event});
  const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
- gear.handlers.get('click')();await settle();assert.equal(checks,0);
- tabs[2].handlers.get('click')();await settle();assert.equal(checks,1);
+ gear.handlers.get('click')();await settle();assert.equal(checks,1);
+ tabs[2].handlers.get('click')();await settle();assert.equal(checks,2);
  assert.match(get('.release-status').textContent,/1.1.0/);
  assert.equal(get('.release-status').classes.has('success'),true);
  assert.equal(get('.release-install').hidden,false);assert.equal(get('.release-install').disabled,false);
@@ -44,7 +44,7 @@ async function main() {
  assert.equal(get('.update-dropzone').disabled,true);
  assert.equal(get('.release-install').disabled,true);
  await settle();assert.equal(posts,1);assert.equal(reloads,1);
- get('.settings-close').handlers.get('click')();gear.handlers.get('click')();await settle();assert.equal(checks,2);
+ get('.settings-close').handlers.get('click')();gear.handlers.get('click')();await settle();assert.equal(checks,3);
  failed=true;get('.release-check').handlers.get('click')();await settle();
  assert.match(get('.release-status').textContent,/GitHub unavailable/);
  assert.equal(get('.release-status').classes.has('success'),false);

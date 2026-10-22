@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -17,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"sort"
@@ -45,7 +44,8 @@ type server struct {
 	autostart         *autostartService
 	dir               string
 	maxUpload         int64
-	mu                sync.Mutex
+	fileMu            sync.Mutex
+	textMu            sync.Mutex
 	web               http.Handler
 	probeURLs         func(context.Context, []string) []string
 	openPath          func(string, string) error
@@ -53,11 +53,21 @@ type server struct {
 	fileSubscribers   map[chan struct{}]struct{}
 	shutdownRequested chan struct{}
 	shutdownOnce      sync.Once
+	shutdownReason    string
+	appContext        context.Context
+	cancelApp         context.CancelFunc
+	transfers         transferTracker
 }
 
 func newServer(dir string, maxUpload int64) (*server, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create storage directory: %w", err)
+	}
+	if err := recoverTextStore(dir); err != nil {
+		return nil, fmt.Errorf("recover shared text store: %w", err)
+	}
+	if err := recoverUploadTransactions(dir); err != nil {
+		return nil, fmt.Errorf("recover upload transactions: %w", err)
 	}
 	webRoot, err := fs.Sub(webFiles, "web")
 	if err != nil {
@@ -77,6 +87,7 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 		}
 		files.ServeHTTP(w, r)
 	})
+	appContext, cancelApp := context.WithCancel(context.Background())
 	return &server{
 		releases:          newReleaseService(),
 		dir:               dir,
@@ -86,6 +97,8 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 		openPath:          openLocalPath,
 		fileSubscribers:   make(map[chan struct{}]struct{}),
 		shutdownRequested: make(chan struct{}),
+		appContext:        appContext,
+		cancelApp:         cancelApp,
 	}, nil
 }
 
@@ -102,16 +115,16 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/files", s.listFiles)
 	mux.HandleFunc("GET /api/filesystem", s.listDirectory)
 	mux.HandleFunc("POST /api/filesystem/{action}", s.mutateDirectory)
-	mux.HandleFunc("POST /api/upload", s.uploadFiles)
-	mux.HandleFunc("POST /api/upload-tree", s.uploadTree)
+	mux.Handle("POST /api/upload-tree", s.trackTransfer(transferUpload, http.HandlerFunc(s.uploadTree)))
 	mux.HandleFunc("POST /api/files/{name}/{action}", s.handleLocalFileAction)
 	mux.HandleFunc("DELETE /api/files/{name}", s.deleteFile)
-	mux.HandleFunc("GET /files/{name}", s.downloadFile)
-	mux.HandleFunc("GET /preview-files/{name}", s.previewFile)
+	mux.Handle("GET /files/{name}", s.trackTransfer(transferDownload, http.HandlerFunc(s.downloadFile)))
+	mux.Handle("GET /preview-files/{name}", s.trackTransfer(transferDownload, http.HandlerFunc(s.previewFile)))
 	mux.HandleFunc("GET /thumbnails/{name}", s.thumbnailFile)
 	mux.HandleFunc("GET /api/texts", s.listTexts)
 	mux.HandleFunc("POST /api/texts", s.createText)
 	mux.HandleFunc("DELETE /api/texts/{id}", s.deleteText)
+	mux.HandleFunc("GET /api/shutdown/status", s.shutdownStatus)
 	mux.HandleFunc("GET /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -171,6 +184,8 @@ func (s *server) fileEvents(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-s.appContext.Done():
+			return
 		case <-updates:
 			if _, err := io.WriteString(w, "event: files\ndata: refresh\n\n"); err != nil {
 				return
@@ -214,7 +229,7 @@ func (s *server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "仅支持 POST 请求")
 		return
 	}
-	if !isLocalRequest(r) {
+	if !isLoopbackRequest(r) {
 		writeError(w, http.StatusForbidden, "仅运行 Lan Copy 的电脑可以关闭软件")
 		return
 	}
@@ -222,9 +237,62 @@ func (s *server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "无效的关闭请求")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]string{"status": "shutting_down"})
-	s.shutdownOnce.Do(func() {
-		close(s.shutdownRequested)
+	var input struct {
+		Confirmation string `json:"confirmation"`
+		Uploads      *int   `json:"uploads"`
+		Downloads    *int   `json:"downloads"`
+	}
+	if r.ContentLength != 0 {
+		r.Body = http.MaxBytesReader(w, r.Body, 1024)
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || ensureJSONEnd(decoder) != nil {
+			writeError(w, http.StatusBadRequest, "关停确认数据无效")
+			return
+		}
+	}
+	if input.Confirmation != "" && input.Confirmation != shutdownConfirmation {
+		writeError(w, http.StatusBadRequest, "确认信息不匹配")
+		return
+	}
+	if (input.Uploads == nil) != (input.Downloads == nil) || (input.Uploads != nil && (*input.Uploads < 0 || *input.Downloads < 0)) {
+		writeError(w, http.StatusBadRequest, "关停传输计数无效")
+		return
+	}
+	var expected *transferCounts
+	if input.Uploads != nil {
+		expected = &transferCounts{Uploads: *input.Uploads, Downloads: *input.Downloads}
+	}
+	counts, started := s.transfers.beginShutdown(input.Confirmation == shutdownConfirmation, expected)
+	if !started {
+		message := "仍有文件传输正在进行。确认强制关闭可能中断这些传输。"
+		if expected != nil && *expected != counts {
+			message = "文件传输数量已变化，请核对最新数量后再次确认。"
+		}
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":                message,
+			"uploads":              counts.Uploads,
+			"downloads":            counts.Downloads,
+			"requiresConfirmation": true,
+		})
+		return
+	}
+	s.requestShutdown("web")
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "shutting_down", "uploads": counts.Uploads, "downloads": counts.Downloads})
+}
+
+const shutdownConfirmation = "强制关闭"
+
+func (s *server) shutdownStatus(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRequest(r) {
+		writeError(w, http.StatusForbidden, "仅 localhost 可以查看关停状态")
+		return
+	}
+	counts, stopping := s.transfers.snapshot()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"uploads":   counts.Uploads,
+		"downloads": counts.Downloads,
+		"stopping":  stopping,
 	})
 }
 
@@ -239,11 +307,15 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (s *server) listFiles(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Listing is a best-effort read. Do not hold the mutation lock during a
+	// potentially slow recursive disk walk; an entry changed during the walk is
+	// omitted (or reported as a walk error) and the client can refresh.
 	files := make([]fileInfo, 0)
 	err := filepath.WalkDir(s.dir, func(filePath string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
+			if errors.Is(walkErr, fs.ErrNotExist) {
+				return nil // An in-app mutation removed this entry during the snapshot.
+			}
 			return walkErr
 		}
 		if filePath == s.dir {
@@ -261,7 +333,10 @@ func (s *server) listFiles(w http.ResponseWriter, _ *http.Request) {
 			return nil
 		}
 		info, err := entry.Info()
-		if err == nil && info.Mode().IsRegular() {
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
 			files = append(files, fileInfo{Name: name, Size: info.Size(), ModTime: info.ModTime(), Type: contentType(name), PreviewType: previewContentType(name)})
 		}
 		return nil
@@ -273,132 +348,6 @@ func (s *server) listFiles(w http.ResponseWriter, _ *http.Request) {
 
 	sort.Slice(files, func(i, j int) bool { return files[i].ModTime.After(files[j].ModTime) })
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
-}
-
-func (s *server) uploadFiles(w http.ResponseWriter, r *http.Request) {
-	destination := r.URL.Query().Get("path")
-	s.mu.Lock()
-	target, pathErr := s.sharedPath(destination)
-	if pathErr == nil {
-		info, err := os.Stat(target)
-		if err != nil {
-			pathErr = err
-		} else if !info.IsDir() {
-			pathErr = fs.ErrInvalid
-		}
-	}
-	s.mu.Unlock()
-	if pathErr != nil {
-		filesystemError(w, pathErr)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, s.maxUpload)
-	reader, err := r.MultipartReader()
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "请选择要上传的文件")
-		return
-	}
-
-	saved := make([]fileInfo, 0)
-	for {
-		part, err := reader.NextPart()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			cleanupFiles(s.dir, saved)
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				writeError(w, http.StatusRequestEntityTooLarge, "文件总大小超过上传限制")
-			} else {
-				writeError(w, http.StatusBadRequest, "上传数据不完整")
-			}
-			return
-		}
-		if part.FileName() == "" {
-			_ = part.Close()
-			continue
-		}
-
-		name, err := safeName(part.FileName())
-		if err != nil {
-			_ = part.Close()
-			cleanupFiles(s.dir, saved)
-			writeError(w, http.StatusBadRequest, "文件名无效")
-			return
-		}
-		stored, err := s.savePartTo(part, name, destination)
-		_ = part.Close()
-		if err != nil {
-			cleanupFiles(s.dir, saved)
-			var maxErr *http.MaxBytesError
-			if errors.As(err, &maxErr) {
-				writeError(w, http.StatusRequestEntityTooLarge, "文件总大小超过上传限制")
-			} else {
-				writeError(w, http.StatusInternalServerError, "保存文件失败")
-			}
-			return
-		}
-		saved = append(saved, stored)
-	}
-
-	if len(saved) == 0 {
-		writeError(w, http.StatusBadRequest, "没有找到可上传的文件")
-		return
-	}
-	s.notifyFilesChanged()
-	writeJSON(w, http.StatusCreated, map[string]any{"files": saved})
-}
-
-func (s *server) savePart(src io.Reader, originalName string) (fileInfo, error) {
-	return s.savePartTo(src, originalName, "")
-}
-
-func (s *server) savePartTo(src io.Reader, originalName, destination string) (fileInfo, error) {
-	token := make([]byte, 8)
-	if _, err := rand.Read(token); err != nil {
-		return fileInfo{}, err
-	}
-	tmpName := ".upload-" + hex.EncodeToString(token)
-	tmpPath := filepath.Join(s.dir, tmpName)
-	file, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		return fileInfo{}, err
-	}
-
-	size, copyErr := io.Copy(file, src)
-	closeErr := file.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(tmpPath)
-		return fileInfo{}, errors.Join(copyErr, closeErr)
-	}
-
-	s.mu.Lock()
-	target, err := s.sharedPath(destination)
-	if err != nil {
-		s.mu.Unlock()
-		_ = os.Remove(tmpPath)
-		return fileInfo{}, err
-	}
-	info, statErr := os.Stat(target)
-	if statErr != nil || !info.IsDir() {
-		s.mu.Unlock()
-		_ = os.Remove(tmpPath)
-		if statErr != nil {
-			return fileInfo{}, statErr
-		}
-		return fileInfo{}, fs.ErrInvalid
-	}
-	finalName := availableName(target, originalName)
-	finalPath := filepath.Join(target, finalName)
-	err = os.Rename(tmpPath, finalPath)
-	s.mu.Unlock()
-	if err != nil {
-		_ = os.Remove(tmpPath)
-		return fileInfo{}, err
-	}
-	return fileInfo{Name: path.Join(destination, finalName), Size: size, ModTime: time.Now(), Type: contentType(finalName), PreviewType: previewContentType(finalName)}, nil
 }
 
 func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
@@ -490,14 +439,7 @@ func (s *server) handleLocalFileAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func isLocalRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	if zone := strings.LastIndexByte(host, '%'); zone >= 0 {
-		host = host[:zone]
-	}
-	requestIP := net.ParseIP(strings.Trim(host, "[]"))
+	requestIP := remoteIP(r)
 	if requestIP == nil {
 		return false
 	}
@@ -516,6 +458,34 @@ func isLocalRequest(r *http.Request) bool {
 	return false
 }
 
+func isLoopbackRequest(r *http.Request) bool {
+	requestIP := remoteIP(r)
+	if requestIP == nil || !requestIP.IsLoopback() {
+		return false
+	}
+	host, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host = strings.Trim(r.Host, "[]")
+	}
+	if strings.EqualFold(strings.TrimSuffix(host, "."), "localhost") {
+		return true
+	}
+	hostIP := net.ParseIP(strings.Trim(host, "[]"))
+	return hostIP != nil && hostIP.IsLoopback()
+}
+
+func remoteIP(r *http.Request) net.IP {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if zone := strings.LastIndexByte(host, '%'); zone >= 0 {
+		host = host[:zone]
+	}
+	requestIP := net.ParseIP(strings.Trim(host, "[]"))
+	return requestIP
+}
+
 func openLocalPath(filePath, action string) error {
 	target := filePath
 	if action == "folder" {
@@ -525,8 +495,8 @@ func openLocalPath(filePath, action string) error {
 }
 
 func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.fileMu.Lock()
+	defer s.fileMu.Unlock()
 	name := r.PathValue("name")
 	resolved, err := s.sharedPath(name)
 	if err != nil || name == "" {
@@ -554,29 +524,39 @@ func safeName(name string) (string, error) {
 	name = strings.ReplaceAll(name, "\\", "/")
 	name = path.Base(name)
 	name = strings.TrimSpace(name)
-	if name == "" || name == "." || name == ".." || strings.HasPrefix(name, ".upload-") || strings.HasPrefix(name, ".lan-copy-") || strings.ContainsRune(name, 0) {
+	if err := validateSharedComponent(name); err != nil {
 		return "", errors.New("invalid file name")
-	}
-	for _, char := range name {
-		if char < 32 || char == 127 {
-			return "", errors.New("invalid control character")
-		}
 	}
 	return name, nil
 }
 
-func availableName(dir, name string) string {
-	if _, err := os.Lstat(filepath.Join(dir, name)); errors.Is(err, os.ErrNotExist) {
-		return name
+const maxAvailableNameAttempts = 10000
+
+func availableName(dir, name string) (string, error) {
+	return availableNameWithLstat(dir, name, os.Lstat)
+}
+
+func availableNameWithLstat(dir, name string, lstat func(string) (os.FileInfo, error)) (string, error) {
+	if _, err := lstat(filepath.Join(dir, name)); err == nil {
+		// Try numbered names below.
+	} else if errors.Is(err, os.ErrNotExist) {
+		return name, nil
+	} else {
+		return "", err
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
-	for i := 2; ; i++ {
+	for i := 2; i <= maxAvailableNameAttempts; i++ {
 		candidate := base + " (" + strconv.Itoa(i) + ")" + ext
-		if _, err := os.Lstat(filepath.Join(dir, candidate)); errors.Is(err, os.ErrNotExist) {
-			return candidate
+		if _, err := lstat(filepath.Join(dir, candidate)); err == nil {
+			continue
+		} else if errors.Is(err, os.ErrNotExist) {
+			return candidate, nil
+		} else {
+			return "", err
 		}
 	}
+	return "", fs.ErrExist
 }
 
 func contentType(name string) string {
@@ -584,12 +564,6 @@ func contentType(name string) string {
 		return value
 	}
 	return "application/octet-stream"
-}
-
-func cleanupFiles(dir string, files []fileInfo) {
-	for _, file := range files {
-		_ = os.Remove(filepath.Join(dir, file.Name))
-	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
@@ -739,6 +713,8 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
+	signalContext, stopSignals := signal.NotifyContext(context.Background(), shutdownSignals()...)
+	defer stopSignals()
 	serveErrors := make(chan error, 1)
 	go func() {
 		serveErrors <- httpServer.Serve(listener)
@@ -757,18 +733,23 @@ func main() {
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
+		return
+	case <-signalContext.Done():
+		app.requestShutdown("system signal")
 	case <-app.shutdownRequested:
-		log.Print("收到网页关闭请求，正在停止 Lan Copy")
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := httpServer.Shutdown(shutdownContext); err != nil {
-			log.Printf("优雅关闭失败: %v", err)
-			if closeErr := httpServer.Close(); closeErr != nil {
-				log.Printf("强制关闭失败: %v", closeErr)
-			}
+	}
+	log.Printf("正在停止 Lan Copy（%s）", app.shutdownReason)
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(shutdownContext); err != nil {
+		log.Printf("优雅关闭失败: %v", err)
+		counts, _ := app.transfers.snapshot()
+		log.Printf("关闭期限到达；强制终止时仍有上传 %d 个、下载 %d 个", counts.Uploads, counts.Downloads)
+		if closeErr := httpServer.Close(); closeErr != nil {
+			log.Printf("强制关闭失败: %v", closeErr)
 		}
-		if err := <-serveErrors; !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
-		}
+	}
+	if err := <-serveErrors; !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
 	}
 }

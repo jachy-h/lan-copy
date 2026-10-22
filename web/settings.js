@@ -11,7 +11,7 @@
    <nav class="settings-menu" aria-label="设置菜单" role="tablist" aria-orientation="vertical">
     <button type="button" role="tab" id="aboutTab" aria-selected="true" aria-controls="aboutSettings">关于</button>
     <button type="button" role="tab" id="generalTab" aria-selected="false" aria-controls="generalSettings" tabindex="-1">通用</button>
-    <button type="button" role="tab" id="updateTab" aria-selected="false" aria-controls="updateSettings" tabindex="-1">更新</button>
+    <button type="button" role="tab" id="updateTab" aria-selected="false" aria-controls="updateSettings" tabindex="-1">更新<span class="update-tab-dot" aria-label="有新版本" hidden></span></button>
    </nav>
    <div class="settings-content">
     <section id="aboutSettings" role="tabpanel" aria-labelledby="aboutTab">
@@ -52,19 +52,51 @@
  let info, busy = false, shutdownPending = false, stopped = false;
  const shutdownButton = $('#shutdownBtn'), shutdownHint = $('#shutdownHint');
  function showShutdownAvailability() {
-  shutdownButton.disabled = !info?.local || busy || shutdownPending || stopped;
-  shutdownHint.textContent = stopped ? '服务已关闭，可以关闭此页面。' : shutdownPending ? '正在关闭…' : !info?.local ? '仅运行 Lan Copy 的电脑可以关闭软件。' : busy ? '请等待更新完成后再关闭软件。' : '仅运行 Lan Copy 的电脑可以操作，关闭前需要确认。';
+  shutdownButton.disabled = !info?.canShutdown || busy || shutdownPending || stopped;
+  shutdownHint.textContent = stopped ? '服务已关闭，可以关闭此页面。' : shutdownPending ? '正在关闭…' : !info?.canShutdown ? '请通过本机 localhost 页面关闭软件。' : busy ? '请等待更新完成后再关闭软件。' : '关闭前会检查正在进行的文件传输。';
  }
  shutdownButton.addEventListener('click', async () => {
-  if (!info?.local || busy || shutdownPending || stopped) return;
+  if (!info?.canShutdown || busy || shutdownPending || stopped) return;
   shutdownPending = true;
   shutdownButton.disabled = true; showReleaseAvailability();
   try {
-   const accepted = await window.LanCopyDialog.confirm({title: '关闭 Lan Copy？', message: '关闭后，所有设备都将无法继续访问。共享文件和文本会保留，可在此电脑上重新启动 Lan Copy。', confirmText: '关闭软件', danger: true});
+   const statusResponse = await fetch('/api/shutdown/status', {cache:'no-store'});
+   const transfers = await statusResponse.json();
+   if (!statusResponse.ok) throw new Error(transfers.error || '无法读取文件传输状态');
+   if (transfers.stopping) throw new Error('服务正在关闭');
+   let acknowledged = {uploads: transfers.uploads, downloads: transfers.downloads};
+   const transferWarning = acknowledged.uploads + acknowledged.downloads
+    ? `\n\n当前有 ${acknowledged.uploads} 个上传、${acknowledged.downloads} 个下载正在进行。继续关闭可能中断这些传输。`
+    : '\n\n当前没有正在进行的文件传输。';
+   const accepted = await window.LanCopyDialog.confirm({title: '关闭 Lan Copy？', message: `关闭后，所有设备都将无法继续访问。共享文件和文本会保留，可在此电脑上重新启动 Lan Copy。${transferWarning}`, confirmText: '继续关闭', danger: true});
    if (!accepted) return;
-   shutdownHint.textContent = '正在关闭…';
-   const response = await fetch('/api/shutdown', {method: 'POST', headers: {'X-Lan-Copy-Action': 'shutdown'}});
+   const sendShutdown = (confirmation, counts) => fetch('/api/shutdown', {method: 'POST', headers: {'X-Lan-Copy-Action': 'shutdown', 'Content-Type': 'application/json'}, body: JSON.stringify({confirmation, ...counts})});
+   let confirmation = '';
+   const requestTypedConfirmation = counts => window.LanCopyDialog.confirmText({title: '确认中断文件传输', message: `当前有 ${counts.uploads} 个上传、${counts.downloads} 个下载。继续关闭可能中断这些传输。请输入“强制关闭”确认。`, requiredText: '强制关闭', confirmText: '强制关闭'});
+   if (acknowledged.uploads + acknowledged.downloads) {
+    if (!await requestTypedConfirmation(acknowledged)) return;
+    confirmation = '强制关闭';
+   }
+   let response;
+   for (let attempt = 0; attempt < 5; attempt++) {
+    response = await sendShutdown(confirmation, acknowledged);
+    if (response.status !== 409) break;
+    const conflict = await response.json();
+    if (!conflict.requiresConfirmation) throw new Error(conflict.error || '关闭失败，请重试');
+    acknowledged = {uploads: conflict.uploads, downloads: conflict.downloads};
+    const countWarning = acknowledged.uploads + acknowledged.downloads
+     ? `传输数量已变化。当前有 ${acknowledged.uploads} 个上传、${acknowledged.downloads} 个下载；强制关闭可能中断这些传输。`
+     : '传输数量已变化，目前没有正在进行的上传或下载。';
+    if (!await window.LanCopyDialog.confirm({title: '请核对最新传输状态', message: countWarning, confirmText: '继续关闭', danger: true})) return;
+    confirmation = '';
+    if (acknowledged.uploads + acknowledged.downloads) {
+     if (!await requestTypedConfirmation(acknowledged)) return;
+     confirmation = '强制关闭';
+    }
+   }
+   if (response.status === 409) throw new Error('文件传输状态持续变化，请等待传输稳定后再关闭。');
    if (!response.ok) { const result = await response.json(); throw new Error(result.error || '关闭失败，请重试'); }
+   shutdownHint.textContent = '正在关闭…';
    stopped = true;
    window.dispatchEvent(new Event('lan-copy:shutdown'));
    shutdownButton.textContent = '已关闭';
@@ -75,7 +107,7 @@
    return;
   } finally {
    shutdownPending = false;
-   shutdownButton.disabled = !info?.local || busy || stopped; showReleaseAvailability();
+   shutdownButton.disabled = !info?.canShutdown || busy || stopped; showReleaseAvailability();
    if (modal.open && !shutdownButton.disabled) shutdownButton.focus();
   }
   showShutdownAvailability();
@@ -89,7 +121,7 @@
  }
  async function checkRelease() {
   if (busy || checking || shutdownPending || stopped) return;
-  checking = true; releaseInfo = null; downloadButton.hidden = true; releaseLink.hidden = true; showReleaseAvailability();
+  checking = true; releaseInfo = null; $('.update-tab-dot').hidden = true; downloadButton.hidden = true; releaseLink.hidden = true; showReleaseAvailability();
   releaseStatus.textContent = '正在检查 GitHub 最新版本…';
   releaseStatus.classList.remove('success');
   try {
@@ -98,8 +130,9 @@
    const result = await response.json();
    if (!response.ok) throw new Error(result.error || '检查更新失败');
    releaseInfo = result;
+   $('.update-tab-dot').hidden = !result.available;
    if (result.available) releaseStatus.textContent = `发现新版本 ${result.version}${result.reason ? ' · ' + result.reason : ''}`;
-   else if (!result.comparable) releaseStatus.textContent = result.reason;
+   else if (!result.comparable) releaseStatus.textContent = `最新版本: ${result.version}`;
    else releaseStatus.textContent = `当前无需更新（最新正式版 ${result.version}）。`;
    releaseStatus.classList.add('success');
    downloadButton.hidden = !result.available;
@@ -181,7 +214,7 @@
    startupStatus.textContent = error.message; startupStatus.classList.add('error');
   }
  });
- gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { if ($('#updateTab').getAttribute('aria-selected') === 'true') checkRelease(); else loadInfo(); loadStartup(); } });
+ gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { checkRelease(); loadStartup(); } });
  $('.settings-close').addEventListener('click', () => modal.close());
  modal.addEventListener('click', event => { if (event.target === modal) { const r=modal.getBoundingClientRect(); if (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) modal.close(); } });
  // Consume all modal drops so the shared-space uploader never receives a package.

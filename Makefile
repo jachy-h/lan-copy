@@ -83,6 +83,11 @@ checksums: windows macos
 
 test:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
+	node scripts/test-service-status.cjs
+	node scripts/test-delete-confirmation.cjs
+	node scripts/test-dialog.cjs
+	node scripts/test-upload-tree.cjs
+	node scripts/test-settings-update.cjs
 	$(GO) test ./...
 
 clean:
