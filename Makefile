@@ -6,6 +6,7 @@ DIST_DIR ?= release
 STAGE_DIR := $(DIST_DIR)/.stage
 VERSION_FILE ?= VERSION
 VERSION ?=
+PUBLISH_REMOTE ?= origin
 # Packaging subtargets use the saved version; make build chooses the next patch.
 BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
 UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
@@ -19,7 +20,7 @@ WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/局域网快传-Windows-,$(addsuffi
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
 SOURCES := Makefile go.mod $(wildcard *.go) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build artifacts windows macos checksums test clean dist-clean FORCE
+.PHONY: all build publish artifacts windows macos checksums test clean dist-clean FORCE
 
 FORCE:
 
@@ -29,6 +30,10 @@ build:
 	+@python3 scripts/build_release.py --version-file "$(VERSION_FILE)" --version "$(VERSION)" \
 		$(foreach artifact,$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS),--artifact "$(artifact)") \
 		--artifact "$(DIST_DIR)/SHA256SUMS" -- $(MAKE) --no-print-directory artifacts
+
+publish:
+	+@PYTHONDONTWRITEBYTECODE=1 python3 scripts/publish_release.py --version-file "$(VERSION_FILE)" --version "$(VERSION)" \
+		--remote "$(PUBLISH_REMOTE)" -- $(MAKE) --no-print-directory build
 
 artifacts: checksums
 

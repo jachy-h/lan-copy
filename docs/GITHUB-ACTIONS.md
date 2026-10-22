@@ -32,7 +32,32 @@ gh variable set LAN_COPY_UPDATE_PUBLIC_KEY --repo jachy-h/lan-copy < .config/upd
 
 GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代码签名或 macOS 签名公证。Windows 系统代码签名仍按 [WINDOWS-SECURITY.md](WINDOWS-SECURITY.md) 单独处理。
 
-## 版本与发布
+## 一键发布：make publish
+
+本地代码全部提交后，在 `main` 分支执行：
+
+```bash
+make publish
+```
+
+构建前会提示 `请确认是否发布 x.y.z 版本 [y/n]:`。输入 `y` 后继续；输入 `n`、按 Ctrl+C 或关闭输入会取消，不构建、不修改版本、不提交、不创建标签或推送。其他输入会重新提示。
+
+命令会依次完成：
+
+1. 检查暂存区、工作区和未跟踪文件；有未提交改动就提示先 `git commit` 并停止。已忽略的 `.config/` 和 `release/` 不算未提交改动。
+2. 检查当前分支为 `main`、远端可访问、没有落后或分叉，以及目标版本标签在本地和远端都不存在。
+3. 调用签名构建，默认递增 patch；也可用 `make publish VERSION=1.2.3` 指定更高版本。
+4. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v版本号`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
+5. 将发布提交和版本标签通过一次 `git push --atomic` 推送至 `origin`，两者全部成功或全部拒绝。可通过 `PUBLISH_REMOTE` 指定其他远端。
+6. GitHub Actions 在远端重新测试、构建签名包，全部通过后公开 Release。命令在推送后返回，最终发布状态在 Actions 页面查看。
+
+该命令会实际创建 Git 提交、标签并推送。可以先执行 `make -n publish` 查看计划，预览不会构建或修改版本、提交、标签及远端。
+
+构建失败时不创建版本提交或标签。若推送失败，本地已生成的版本提交和标签会保留，脚本打印精确的推送重试命令；先解决网络、权限或远端冲突，再使用该命令重试。不要直接再次执行 `make publish`，以免生成下一个版本。Git 服务不支持原子推送时命令会失败，不会退回分别推送。
+
+首次加入发布脚本时，脚本及文档本身也需要先提交，才能使用 `make publish`。
+
+## 手动构建与发布
 
 本地 `make build` 仍会递增 patch。CI 使用已提交的 `VERSION`，不递增、不自动提交，也不推送版本改动。这样分支构建、标签构建及失败重跑都使用同一个版本。
 
@@ -54,3 +79,5 @@ GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代
 提交并推送工作流及相关脚本后生效。首次远端运行才能确认 GitHub runner 和仓库权限配置；本地检查不能替代一次实际 Actions 运行。
 
 官方参考：[push 触发规则](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#push)、[GitHub CLI Release 命令](https://cli.github.com/manual/gh_release_create)。
+
+Git 参考：[原子推送](https://git-scm.com/docs/git-push#Documentation/git-push.txt---atomic)、[仅提交指定路径](https://git-scm.com/docs/git-commit)。

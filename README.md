@@ -57,9 +57,12 @@ go run .
 make test                    # 运行构建脚本与 Go 测试
 make build                   # 自动签名、递增 patch 版本并打印构建信息
 make build VERSION=1.2.3     # 也可指定版本
+make publish                 # 干净的 main 分支：构建、提交版本、打标签并推送发布
 ```
 
 构建从 `VERSION` 读取基线，全部成功后才保存新版本；分发 `release/` 中对应系统的压缩包。`VERSION` 应随发布代码提交，`.config/` 和 `release/` 已被 Git 忽略。
+
+`make publish` 要求先提交所有代码，并输入 `y` 确认目标版本（`n` 取消），自动递增版本并仅提交 `VERSION`，创建版本标签后推送到 `origin`，由 Actions 完成正式发布。
 
 推送 `main` 后，GitHub Actions 自动测试并构建签名包；推送与 `VERSION` 一致的 `v版本号` 标签后发布 GitHub Release。首次需配置仓库签名密钥，见[自动构建与发布](docs/GITHUB-ACTIONS.md)。
 

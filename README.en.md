@@ -57,9 +57,12 @@ Requires Go, Make, and Python 3. Before the first build, follow the [update rele
 make test                    # Run build-script and Go tests
 make build                   # Sign packages, bump patch, and print build details
 make build VERSION=1.2.3     # Or choose an explicit version
+make publish                 # Build, commit VERSION, tag, and push from clean main
 ```
 
 Builds read the baseline from `VERSION` and save the new version only after all packages succeed. Distribute the matching archives from `release/`. Commit `VERSION` with release changes; `.config/` and `release/` are ignored by Git.
+
+`make publish` requires all code changes to be committed first and asks you to confirm the target version with `y` (`n` cancels). It increments the version, commits only `VERSION`, creates the release tag, and pushes to `origin` so Actions can publish the release.
 
 Pushing `main` runs tests and builds signed packages in GitHub Actions. Pushing a `vVERSION` tag matching the committed `VERSION` publishes a GitHub Release. Configure repository signing credentials first; see [automated builds and releases](docs/GITHUB-ACTIONS.md).
 

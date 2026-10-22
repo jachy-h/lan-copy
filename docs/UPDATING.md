@@ -67,6 +67,8 @@ Windows PowerShell 发布流程使用 `LAN_COPY_UPDATE_PUBLIC_KEY` 环境变量�
 
 ## GitHub 自动构建
 
+代码提交后，可在 `main` 上执行 `make publish`，自动完成签名构建、版本递增、版本提交、标签和推送；有未提交文件时会停止并提示先 commit。最终 Release 由 GitHub Actions 测试通过后发布。
+
 推送 `main` 自动测试和构建，推送版本标签后发布 Release。CI 需要一次性配置与本地相同的签名密钥，使用已提交的 `VERSION` 且不递增。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。
 
 ## 验证
