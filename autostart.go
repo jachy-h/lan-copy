@@ -100,7 +100,7 @@ func validAutostartRequest(r *http.Request) bool {
 
 func (s *server) autostartSettings(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	if !isLocalRequest(r) {
+	if r.Method == http.MethodPut && !isLocalRequest(r) {
 		writeError(w, http.StatusForbidden, "请在运行 Lan Copy 的电脑上修改开机自启动")
 		return
 	}
@@ -142,7 +142,19 @@ func (s *server) autostartSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, a.state())
+	state := a.state()
+	if !isLocalRequest(r) {
+		state.Available = false
+		if state.Reason == "" {
+			if state.Enabled {
+				state.Reason = "服务主机已开启开机自启动。"
+			} else {
+				state.Reason = "服务主机未开启开机自启动。"
+			}
+		}
+		state.Reason += "仅运行 Lan Copy 的电脑可以修改。"
+	}
+	writeJSON(w, http.StatusOK, state)
 }
 
 // A short Windows Run command avoids its 260-character limit. The full launch

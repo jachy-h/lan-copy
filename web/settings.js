@@ -34,9 +34,10 @@
      </div>
     </section>
     <section id="updateSettings" role="tabpanel" aria-labelledby="updateTab" hidden>
-     <h3>更新 Lan Copy</h3><p class="settings-version">正在读取版本…</p>
+     <h3>自动更新</h3><p class="settings-version">正在读取版本…</p>
      <p class="release-status" role="status" aria-live="polite">进入此菜单后自动检查新版本。</p>
      <div class="release-actions"><button class="primary release-install" type="button" hidden disabled>下载并更新</button><a class="release-page" target="_blank" rel="noopener noreferrer" hidden>前往查看 ↗</a><button class="secondary release-check" type="button">重新检查</button></div>
+     <h3 class="manual-update-title">手动更新</h3>
      <p class="update-explanation">拖入本机系统对应的新版发布包，校验通过后自动安装并重启。共享文件和文字会保留，请先等待其他文件传输完成。</p>
      <button class="update-dropzone" type="button" disabled><strong>拖入更新包，或点击选择</strong><span>支持 .zip / .tar.gz · 最大 128 MiB</span></button>
      <input class="update-picker" type="file" accept=".zip,.gz,.tgz" hidden />
@@ -90,6 +91,7 @@
   if (busy || checking || shutdownPending || stopped) return;
   checking = true; releaseInfo = null; downloadButton.hidden = true; releaseLink.hidden = true; showReleaseAvailability();
   releaseStatus.textContent = '正在检查 GitHub 最新版本…';
+  releaseStatus.classList.remove('success');
   try {
    await loadInfo();
    const response = await fetch('/api/update/check', {cache:'no-store', signal:AbortSignal.timeout(15000)});
@@ -99,6 +101,7 @@
    if (result.available) releaseStatus.textContent = `发现新版本 ${result.version}${result.reason ? ' · ' + result.reason : ''}`;
    else if (!result.comparable) releaseStatus.textContent = result.reason;
    else releaseStatus.textContent = `当前无需更新（最新正式版 ${result.version}）。`;
+   releaseStatus.classList.add('success');
    downloadButton.hidden = !result.available;
    releaseLink.href = result.pageURL; releaseLink.hidden = !result.available && result.comparable;
   } catch (error) { releaseStatus.textContent = error.name === 'TimeoutError' ? '检查超时，请重试或使用离线更新包。' : error.message; }

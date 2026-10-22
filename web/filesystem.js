@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 let currentPath = new URLSearchParams(location.hash.slice(1)).get("path") || "";
 let entries = [];
 let editing = null;
+let editingExtension = "";
 let moving = null;
 let destination = "";
 let toastTimer;
@@ -175,16 +176,21 @@ async function mutate(action, data) {
 }
 function openEdit(item = null) {
   editing = item;
+  const dot = item && !item.directory ? item.name.lastIndexOf(".") : -1;
+  editingExtension = dot > 0 ? item.name.slice(dot) : "";
   $("#editTitle").textContent = item ? "重命名" : "新建文件夹";
-  $("#entryName").value = item ? item.name : "";
+  $("#entryName").value = item ? item.name.slice(0, item.name.length - editingExtension.length) : "";
+  $("#entryExtension").textContent = editingExtension ? `后缀名 ${editingExtension} 将自动保留` : "";
+  $("#entryExtension").classList.toggle("hidden", !editingExtension);
   $("#editError").textContent = "";
   $("#editDialog").showModal();
   $("#entryName").focus(); $("#entryName").select();
 }
 $("#editForm").addEventListener("submit", async event => {
   event.preventDefault();
-  const name = $("#entryName").value.trim();
-  if (!name || /[\\/:*?"<>|\x00-\x1f\x7f]/.test(name) || name === "." || name === ".." || name.endsWith(".")) { $("#editError").textContent = "请输入有效名称，不可包含斜线或特殊字符"; return; }
+  const baseName = $("#entryName").value.trim();
+  if (!baseName || /[\\/:*?"<>|\x00-\x1f\x7f]/.test(baseName) || baseName === "." || baseName === ".." || baseName.endsWith(".")) { $("#editError").textContent = "请输入有效名称，不可包含斜线或特殊字符"; return; }
+  const name = baseName + editingExtension;
   if (editing && name === editing.name) { $("#editDialog").close(); return; }
   const submit = event.submitter;
   submit.disabled = true;

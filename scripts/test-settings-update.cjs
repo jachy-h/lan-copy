@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 function element() {
  const handlers = new Map(), attrs = {}, classes = new Set();
- return {handlers, attrs, disabled:false, hidden:false, textContent:'', value:0,
+ return {handlers, attrs, classes, disabled:false, hidden:false, textContent:'', value:0,
   addEventListener(name,fn) {handlers.set(name,fn);},
   setAttribute(k,v) {attrs[k]=v;},getAttribute(k) {return attrs[k];},
   classList:{add:c=>classes.add(c),remove:c=>classes.delete(c),toggle:(c,on)=>on?classes.add(c):classes.delete(c)},
@@ -17,7 +17,7 @@ async function main() {
  const gear=element(),modal=element();
  modal.querySelector=get;
  modal.querySelectorAll=selector=>selector==='[role="tab"]'?tabs:[get('.settings-version')];
- let created=0, checks=0, posts=0, restarted=false, reloads=0, failed=false, available=true;
+ let created=0, checks=0, posts=0, restarted=false, reloads=0, failed=false, available=true, startupEnabled=false;
  const document={createElement:()=>created++===0?gear:modal,querySelector:get,getElementById:id=>get('#'+id),body:{append(){}}};
  const info={version:'1.0.0',os:'windows',arch:'amd64',local:true,updateEnabled:true,signedUpdates:true};
  const calls=[];
@@ -25,7 +25,7 @@ async function main() {
   calls.push(url);
   let result;
   if(url==='/api/app')result=restarted?{...info,version:'1.1.0',updateID:'test-update'}:info;
-  else if(url==='/api/settings/autostart')result={available:true,enabled:false};
+  else if(url==='/api/settings/autostart')result={available:info.local,enabled:startupEnabled};
   else if(url==='/api/update/check') {checks++;if(failed)throw Error('GitHub unavailable');result={version:'1.1.0',comparable:true,available,canInstall:available,pageURL:'https://github.com/jachy-h/lan-copy/releases/tag/v1.1.0'};}
   else if(url==='/api/update/download'){posts++;assert.equal(opts.method,'POST');assert.equal(opts.headers['X-Lan-Copy-Action'],'update');restarted=true;result={updateID:'test-update'};}
   else throw Error(url);
@@ -37,6 +37,7 @@ async function main() {
  gear.handlers.get('click')();await settle();assert.equal(checks,0);
  tabs[2].handlers.get('click')();await settle();assert.equal(checks,1);
  assert.match(get('.release-status').textContent,/1.1.0/);
+ assert.equal(get('.release-status').classes.has('success'),true);
  assert.equal(get('.release-install').hidden,false);assert.equal(get('.release-install').disabled,false);
  assert.equal(get('.release-page').hidden,false);
  get('.release-install').handlers.get('click')();
@@ -46,10 +47,21 @@ async function main() {
  get('.settings-close').handlers.get('click')();gear.handlers.get('click')();await settle();assert.equal(checks,2);
  failed=true;get('.release-check').handlers.get('click')();await settle();
  assert.match(get('.release-status').textContent,/GitHub unavailable/);
+ assert.equal(get('.release-status').classes.has('success'),false);
  assert.equal(get('.release-install').hidden,true);assert.equal(get('.update-dropzone').disabled,false);
  failed=false;available=false;get('.release-check').handlers.get('click')();await settle();
  assert.match(get('.release-status').textContent,/无需更新/);
+ assert.equal(get('.release-status').classes.has('success'),true);
  assert.equal(get('.release-install').hidden,true);assert.equal(get('.release-page').hidden,true);
+ info.local=false;
+ startupEnabled=true;
+ gear.handlers.get('click')();await settle();
+ assert.equal(get('.autostart-toggle').checked,true);
+ assert.equal(get('.autostart-toggle').disabled,true);
+ startupEnabled=false;
+ gear.handlers.get('click')();await settle();
+ assert.equal(get('.autostart-toggle').checked,false);
+ assert.equal(get('.autostart-toggle').disabled,true);
  console.log('Settings online update tests passed');
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

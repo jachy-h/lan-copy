@@ -87,7 +87,8 @@
 <dialog id="editDialog" class="app-dialog fs-dialog">
   <form id="editForm">
     <h2 id="editTitle">新建文件夹</h2>
-    <label for="entryName">名称</label><input id="entryName" required maxlength="200" autocomplete="off" />
+    <label for="entryName">名称</label><input id="entryName" required maxlength="200" autocomplete="off" aria-describedby="entryExtension" />
+    <p id="entryExtension" class="file-meta hidden"></p>
     <p id="editError" class="dialog-error" role="alert"></p>
     <div class="dialog-actions"><button class="secondary" type="button" data-close="editDialog">取消</button><button class="primary" type="submit">保存</button></div>
   </form>

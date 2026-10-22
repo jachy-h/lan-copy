@@ -34,11 +34,13 @@ func TestAutostartSettings(t *testing.T) {
 		code, writes                                     int
 		disabled                                         string
 		fail                                             bool
+		enabled                                          bool
 	}{
 		{name: "read", method: "GET", remote: "127.0.0.1:123", code: 200},
 		{name: "enable", method: "PUT", remote: "127.0.0.1:123", action: "autostart", origin: "http://localhost:8080", site: "same-origin", body: `{"enabled":true}`, code: 200, writes: 1},
 		{name: "disable", method: "PUT", remote: "[::1]:123", action: "autostart", body: `{"enabled":false}`, code: 200, writes: 1},
-		{name: "remote read", method: "GET", remote: "192.0.2.10:123", code: 403},
+		{name: "remote read disabled", method: "GET", remote: "192.0.2.10:123", code: 200},
+		{name: "remote read enabled", method: "GET", remote: "192.0.2.10:123", enabled: true, code: 200},
 		{name: "remote write", method: "PUT", remote: "192.0.2.10:123", action: "autostart", body: `{"enabled":true}`, code: 403},
 		{name: "missing action", method: "PUT", remote: "127.0.0.1:123", body: `{"enabled":true}`, code: 403},
 		{name: "cross origin", method: "PUT", remote: "127.0.0.1:123", action: "autostart", origin: "http://evil.example", body: `{"enabled":true}`, code: 403},
@@ -53,7 +55,7 @@ func TestAutostartSettings(t *testing.T) {
 		{name: "OS failure", method: "PUT", remote: "127.0.0.1:123", action: "autostart", body: `{"enabled":true}`, fail: true, code: 500, writes: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeStartup{}
+			fake := &fakeStartup{enabled: tc.enabled}
 			if tc.fail {
 				fake.writeErr = errors.New("access denied")
 			}
@@ -76,8 +78,15 @@ func TestAutostartSettings(t *testing.T) {
 				if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
 					t.Fatal(err)
 				}
-				if !state.Available || state.Enabled != strings.Contains(tc.body, ":true") {
+				wantEnabled := tc.enabled
+				if tc.method == http.MethodPut {
+					wantEnabled = strings.Contains(tc.body, ":true")
+				}
+				if state.Available != isLocalRequest(r) || state.Enabled != wantEnabled {
 					t.Fatalf("unexpected state: %+v", state)
+				}
+				if !isLocalRequest(r) && !strings.Contains(state.Reason, "仅运行 Lan Copy 的电脑可以修改") {
+					t.Fatalf("missing read-only explanation: %+v", state)
 				}
 			}
 		})

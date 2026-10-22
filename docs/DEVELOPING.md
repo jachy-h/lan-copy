@@ -181,8 +181,8 @@ GitHub Actions builds on pushes to `main` and publishes releases on matching ver
 
 ## 开机自启动 / Start at Login
 
-设置 → 通用中的开关通过本机限定的 `GET/PUT /api/settings/autostart` 读写系统启动项。PUT 要求 `X-Lan-Copy-Action: autostart`，并校验同源请求。开关默认关闭，只影响下一次用户登录；关闭当前服务不会移除启动项。
-The General settings switch uses the local-only `GET/PUT /api/settings/autostart` endpoint. PUT requires the action header and same-origin validation. It is off by default, applies at the next user login, and survives quitting the service.
+设置 → 通用中的开关通过 `GET/PUT /api/settings/autostart` 读写系统启动项。GET 允许访客查看服务主机的实际状态，访客端开关只读（`available=false`）；PUT 仅限本机，要求 `X-Lan-Copy-Action: autostart`，并校验同源请求。开关默认关闭，只影响下一次用户登录；关闭当前服务不会移除启动项。
+The General settings switch uses `GET/PUT /api/settings/autostart`. GET lets guests view the service host's actual state with a read-only switch (`available=false`). PUT is local-only and requires the action header and same-origin validation. It is off by default, applies at the next user login, and survives quitting the service.
 
 - macOS：`~/Library/LaunchAgents/com.lan-copy.autostart.plist`，使用 `RunAtLoad`，不配置自动重启，不在切换开关时加载或卸载当前任务。
 - Windows：当前用户的 `Software\Microsoft\Windows\CurrentVersion\Run` 中的 `LanCopy` 值；完整参数保存在 `%APPDATA%\LanCopy\startup.json`，避免 Run 命令的长度限制。
