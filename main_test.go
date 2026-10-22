@@ -294,7 +294,9 @@ func TestShutdownEndpoint(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/shutdown", nil))
+	unsigned := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	unsigned.RemoteAddr = "127.0.0.1:12345"
+	handler.ServeHTTP(recorder, unsigned)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("unauthorized status = %d, want %d", recorder.Code, http.StatusForbidden)
 	}
@@ -304,7 +306,23 @@ func TestShutdownEndpoint(t *testing.T) {
 	default:
 	}
 
+	remote := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	remote.RemoteAddr = "192.0.2.42:12345"
+	remote.Header.Set("X-Lan-Copy-Action", "shutdown")
+	remote.Header.Set("X-Forwarded-For", "127.0.0.1")
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, remote)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("remote shutdown status = %d, want %d", recorder.Code, http.StatusForbidden)
+	}
+	select {
+	case <-app.shutdownRequested:
+		t.Fatal("remote request triggered shutdown")
+	default:
+	}
+
 	request := httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
 	request.Header.Set("X-Lan-Copy-Action", "shutdown")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
@@ -318,6 +336,7 @@ func TestShutdownEndpoint(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/shutdown", nil)
+	request.RemoteAddr = "127.0.0.1:12345"
 	request.Header.Set("X-Lan-Copy-Action", "shutdown")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

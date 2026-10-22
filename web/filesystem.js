@@ -221,14 +221,15 @@ $("#confirmMove").addEventListener("click", async () => {
   else $("#confirmMove").disabled = false;
 });
 async function deleteEntry(item) {
-  if (mutationPending || !confirm(`确定删除“${item.name}”吗？${item.directory ? "" : "文件将从共享电脑中删除。"}`)) return;
+  if (mutationPending) return;
   mutationPending = true;
   try {
+    if (!await window.LanCopyDialog.confirm({title: "删除文件夹或文件？", message: `确定删除“${item.name}”吗？${item.directory ? "" : "文件将从共享电脑中删除。"}`, confirmText: "删除", danger: true})) return;
     try {
       await api("/api/filesystem/delete", {path: item.path});
     } catch (error) {
       if (!item.directory || !error.requiresConfirmation) throw error;
-      if (!confirm(`“${item.name}”包含内容。确定删除整个文件夹及其中所有文件和子文件夹吗？此操作无法恢复。`)) return;
+      if (!await window.LanCopyDialog.confirm({title: "删除整个文件夹？", message: `“${item.name}”包含内容。确定删除整个文件夹及其中所有文件和子文件夹吗？此操作无法恢复。`, confirmText: "删除全部内容", danger: true})) return;
       await api("/api/filesystem/delete", {path: item.path, recursive: true});
     }
     notify("已删除");
@@ -339,7 +340,7 @@ async function uploadToFolder(collect) {
     if (!error.conflicts) throw error;
     for (const name of error.conflicts) {
      const folder = entries.some(entry => entry.path.startsWith(name + "/") || (entry.path === name && entry.directory));
-     if (!confirm(`目标位置已存在“${name}”，是否替换？${folder ? "\n将替换整个同名文件或文件夹，原有内容将被删除。" : "\n原文件或同名文件夹将被替换。"}\n取消将停止本次上传，保留原有内容。`)) {
+     if (!await window.LanCopyDialog.confirm({title: "替换同名内容？", message: `目标位置已存在“${name}”，是否替换？${folder ? "\n将替换整个同名文件或文件夹，原有内容将被删除。" : "\n原文件或同名文件夹将被替换。"}\n取消将停止本次上传，保留原有内容。`, confirmText: "替换", danger: true})) {
       $("#spaceUploadProgress").value = 0;
       $("#spaceUploadLabel").textContent = "已取消上传，原有内容已保留";
       notify("已取消上传");

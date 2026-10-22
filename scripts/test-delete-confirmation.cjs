@@ -6,7 +6,7 @@ const start = source.indexOf('async function deleteEntry(item)');
 const end = source.indexOf('\ndocument.querySelectorAll',start);
 async function run(directory, answers) {
  const requests=[],questions=[],messages=[];let refreshes=0;
- const context={mutationPending:false,confirm(message){questions.push(message);return answers.shift();},
+ const context={mutationPending:false,window:{LanCopyDialog:{async confirm({message}){questions.push(message);return answers.shift();}}},
   async api(url,body){requests.push(body);if(directory&&!body.recursive)throw Object.assign(new Error('confirm'),{requiresConfirmation:true});},
   notify(message){messages.push(message);},async loadDirectory(){refreshes++;}};
  vm.createContext(context);vm.runInContext(source.slice(start,end),context);

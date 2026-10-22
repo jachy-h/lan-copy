@@ -1,5 +1,4 @@
 (() => {
- const button = document.querySelector("#shutdownBtn");
  const status = document.querySelector("#serviceStatus");
  const statusAccess = document.querySelector("#statusAccess");
  const panel = document.querySelector("#serviceStatusPopover");
@@ -43,30 +42,9 @@
  });
  window.addEventListener("lan-copy:shutdown", () => {
   stopped = true;
+  status.classList.add("offline");
+  status.setAttribute("aria-label", "服务已关闭");
+  status.querySelector(".status-label").textContent = "服务已关闭";
   hint.textContent = "服务已关闭，已停止自动更新";
- });
- button.addEventListener("click", async () => {
-  if (!confirm("确定关闭 Lan Copy 吗？关闭后，所有设备都将无法继续访问。")) return;
-  button.disabled = true;
-  try {
-   const response = await fetch("/api/shutdown", {method: "POST", headers: {"X-Lan-Copy-Action": "shutdown"}});
-   if (!response.ok) throw new Error("关闭失败，请重试");
-   window.dispatchEvent(new Event("lan-copy:shutdown"));
-   status.classList.add("offline");
-   status.setAttribute("aria-label", "服务已关闭");
-   status.querySelector(".status-label").textContent = "服务已关闭";
-   button.querySelector("span").textContent = "已关闭";
-   button.title = "服务已关闭";
-   button.setAttribute("aria-label", "服务已关闭");
-   const toast = document.querySelector("#toast");
-   toast.textContent = "Lan Copy 已关闭，可以关闭此页面";
-   toast.className = "toast show";
-  } catch (error) {
-   button.disabled = false;
-   const toast = document.querySelector("#toast");
-   toast.textContent = error.message || "关闭失败，请重试";
-   toast.className = "toast show error";
-   setTimeout(() => toast.className = "toast", 3000);
-  }
  });
 })();

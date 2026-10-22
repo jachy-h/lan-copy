@@ -10,6 +10,7 @@
   <script src="/qrcode.js" defer></script>
   <script src="/file-ui.js" defer></script>
   <script src="/access.js" defer></script>
+  <script src="/dialog.js" defer></script>
   <script src="/shell.js" defer></script>
   <script src="/settings.js" defer></script>
   <script src="/upload-tree.js" defer></script>
@@ -64,18 +65,7 @@
               <span class="status-refresh-hint" id="dataRefreshHint">每分钟自动更新</span>
             </div>
           </div>
-          <button
-            class="shutdown-btn"
-            id="shutdownBtn"
-            type="button"
-            title="关闭 Lan Copy"
-            aria-label="关闭 Lan Copy 软件"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3v9m5.7-6.7a8 8 0 1 1-11.4 0" />
-            </svg>
-            <span>关闭软件</span>
-          </button>
+
         </div>
 
 </header>
@@ -94,7 +84,7 @@
   </section>
   <footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer>
 </main>
-<dialog id="editDialog" class="fs-dialog">
+<dialog id="editDialog" class="app-dialog fs-dialog">
   <form id="editForm">
     <h2 id="editTitle">新建文件夹</h2>
     <label for="entryName">名称</label><input id="entryName" required maxlength="200" autocomplete="off" />
@@ -102,7 +92,7 @@
     <div class="dialog-actions"><button class="secondary" type="button" data-close="editDialog">取消</button><button class="primary" type="submit">保存</button></div>
   </form>
 </dialog>
-<dialog id="moveDialog" class="fs-dialog">
+<dialog id="moveDialog" class="app-dialog fs-dialog">
   <h2>移动到文件夹</h2><p id="moveSource" class="file-meta"></p>
   <nav id="moveBreadcrumbs" class="breadcrumbs" aria-label="目标文件夹路径"></nav>
   <div id="moveFolders" class="move-folders"></div>

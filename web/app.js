@@ -180,7 +180,7 @@ $("#textList").addEventListener("click", async (event) => {
 		notify(copied ? "文本已复制" : "复制失败，请手动选择", !copied);
 		return;
 	}
-	if (!confirm("确定删除这段共享文本吗？")) return;
+	if (!await window.LanCopyDialog.confirm({title: "删除共享文本？", message: "确定删除这段共享文本吗？删除后将无法恢复。", confirmText: "删除", danger: true})) return;
 	const response = await fetch(`/api/texts/${button.dataset.id}`, {
 		method: "DELETE",
 	});

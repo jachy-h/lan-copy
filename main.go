@@ -193,6 +193,10 @@ func (s *server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "仅支持 POST 请求")
 		return
 	}
+	if !isLocalRequest(r) {
+		writeError(w, http.StatusForbidden, "仅运行 Lan Copy 的电脑可以关闭软件")
+		return
+	}
 	if r.Header.Get("X-Lan-Copy-Action") != "shutdown" {
 		writeError(w, http.StatusForbidden, "无效的关闭请求")
 		return

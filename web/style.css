@@ -901,9 +901,9 @@ button:disabled { opacity: .5; cursor: default; }
 .folder-name:hover, .download-name:hover { color: var(--blue-dark); }
 .explorer-hint { padding: 8px 0 3px; font-size: 11px; line-height: 1.7; color: var(--muted); }
 .drop-target { background: #edf4ff !important; outline: 2px dashed var(--blue); outline-offset: -2px; border-radius: 9px; }
-.fs-dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 26px; border: 1px solid var(--line); border-radius: 20px; color: var(--ink); box-shadow: 0 24px 100px #14213d33; }
-.fs-dialog::backdrop { background: #14213d66; backdrop-filter: blur(4px); }
-.fs-dialog h2 { font-size: 18px; margin-bottom: 18px; }
+.app-dialog { width: min(440px, calc(100% - 32px)); max-height: calc(100dvh - 48px); overflow: auto; padding: 26px; border: 1px solid var(--line); border-radius: 20px; color: var(--ink); box-shadow: 0 24px 100px #14213d33; }
+.app-dialog::backdrop { background: #14213d66; backdrop-filter: blur(4px); }
+.app-dialog h2 { font-size: 18px; margin-bottom: 18px; }
 .fs-dialog label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
 .fs-dialog input { width: 100%; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
@@ -923,7 +923,7 @@ button:disabled { opacity: .5; cursor: default; }
  .explorer-actions .secondary { padding: 5px; font-size: 11px; }
  .explorer-actions .secondary, .secondary, .crumb, .folder-choice { min-height: 44px; }
  .fs-dialog input { font-size: 16px; }
- .fs-dialog { padding: 22px; }
+ .app-dialog { padding: 22px; }
 }
 
 @supports not (scrollbar-gutter: stable) {
@@ -1064,8 +1064,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 /* Shared application settings. */
-.settings-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 18px; color: var(--ink, #172033); background: white; box-shadow: 0 24px 80px #17203333; }
-.settings-dialog::backdrop { background: #14213b66; }
+.settings-dialog { width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; }
 .settings-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; border-bottom: 1px solid var(--line); }
 .settings-header h2 { margin: 0; font-size: 18px; }
 .settings-close { border: 0; background: transparent; font-size: 26px; color: #64748b; cursor: pointer; width: 36px; height: 36px; }
@@ -1100,3 +1099,17 @@ button:disabled { opacity: .5; cursor: default; }
 .status-popover-label { color: var(--muted); font-size: 12px; }
 .status-popover time { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .status-refresh-hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+
+/* Confirmation, file actions and settings share the same modal surface. */
+.app-dialog { background: white; }
+.confirm-message { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; white-space: pre-line; overflow-wrap: anywhere; }
+.danger { color: #b42318; border-color: #f3c7c2; background: #fff6f5; }
+.primary.danger { color: white; background: #b42318; border-color: #b42318; }
+.danger:hover:not(:disabled) { color: #912018; background: #fee9e7; }
+.primary.danger:hover:not(:disabled) { color: white; background: #912018; }
+.danger:disabled { opacity: .5; cursor: not-allowed; }
+.app-dialog button:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; }
+.shutdown-setting { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
+.shutdown-setting .secondary { margin-top: 8px; }
+.settings-content #shutdownHint { font-size: 12px; }
