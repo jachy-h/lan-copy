@@ -21,6 +21,11 @@
      <a href="https://github.com/jachy-h/lan-copy" target="_blank" rel="noopener noreferrer">项目主页 ↗</a>
     </section>
     <section id="generalSettings" role="tabpanel" aria-labelledby="generalTab" hidden>
+     <h3>启动设置</h3>
+     <label class="autostart-option"><span>开机自启动</span><input type="checkbox" class="autostart-toggle" role="switch" disabled /></label>
+     <p>登录此电脑后，自动在后台启动 Lan Copy，不打开浏览器。关闭软件后，下次登录仍会启动。</p>
+     <p>开启后请保留程序与共享文件夹的位置；移动程序后需重新开启此选项。</p>
+     <p class="autostart-status" role="status" aria-live="polite">正在读取启动设置…</p>
      <div class="shutdown-setting">
       <h3>关闭软件</h3>
       <p>关闭后，所有设备都将无法继续访问。共享文件和文本会保留。</p>
@@ -60,7 +65,7 @@
    stopped = true;
    window.dispatchEvent(new Event('lan-copy:shutdown'));
    shutdownButton.textContent = '已关闭';
-   zone.disabled = true;
+   zone.disabled = true; startupToggle.disabled = true;
    window.LanCopyFileUI.notify('Lan Copy 已关闭，可以关闭此页面');
   } catch (error) {
    shutdownHint.textContent = error.message || '关闭失败，请重试';
@@ -102,7 +107,41 @@
    if (!busy) showStatus(info.updateEnabled ? '更新期间服务会短暂离线，完成后此页面将自动刷新。' : info.updateDisabledReason);
   } catch (error) { info = null; showShutdownAvailability(); zone.disabled = true; showStatus(error.message, true); }
  }
- gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { loadInfo(); } });
+ const startupToggle = $('.autostart-toggle'), startupStatus = $('.autostart-status');
+ let startupBusy = false;
+ function showStartup(state) {
+  startupToggle.checked = state.enabled;
+  startupToggle.disabled = !state.available || startupBusy;
+  startupStatus.textContent = state.reason || (state.enabled ? '已开启，下次登录时自动启动。' : '未开启开机自启动。');
+  startupStatus.classList.remove('error');
+ }
+ async function loadStartup() {
+  if (startupBusy) return;
+  startupToggle.disabled = true;
+  try {
+   const response = await fetch('/api/settings/autostart', {cache:'no-store'});
+   const state = await response.json();
+   if (!response.ok) throw new Error(state.error || '无法读取启动设置');
+   showStartup(state);
+  } catch (error) { startupToggle.disabled = true; startupStatus.textContent = error.message; startupStatus.classList.add('error'); }
+ }
+ startupToggle.addEventListener('change', async () => {
+  if (startupBusy) return;
+  const enabled = startupToggle.checked;
+  startupBusy = true; startupToggle.disabled = true; startupStatus.textContent = '正在保存…';
+  try {
+   const response = await fetch('/api/settings/autostart', {method:'PUT', headers:{'Content-Type':'application/json','X-Lan-Copy-Action':'autostart'}, body:JSON.stringify({enabled})});
+   const state = await response.json();
+   if (!response.ok) throw new Error(state.error || '无法保存启动设置');
+   startupBusy = false; showStartup(state);
+  } catch (error) {
+   // A lost response may still have applied the change. Read back OS state.
+   startupBusy = false;
+   await loadStartup();
+   startupStatus.textContent = error.message; startupStatus.classList.add('error');
+  }
+ });
+ gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { loadInfo(); loadStartup(); } });
  $('.settings-close').addEventListener('click', () => modal.close());
  modal.addEventListener('click', event => { if (event.target === modal) { const r=modal.getBoundingClientRect(); if (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) modal.close(); } });
  // Consume all modal drops so the shared-space uploader never receives a package.

@@ -41,6 +41,7 @@ type fileInfo struct {
 
 type server struct {
 	updater           *updateService
+	autostart         *autostartService
 	dir               string
 	maxUpload         int64
 	mu                sync.Mutex
@@ -75,6 +76,8 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/app", s.appInfo)
+	mux.HandleFunc("GET /api/settings/autostart", s.autostartSettings)
+	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("POST /api/update", s.installUpdate)
 	mux.HandleFunc("GET /api/access", s.accessInfo)
 	mux.HandleFunc("GET /api/events", s.fileEvents)
@@ -645,6 +648,14 @@ func reachableLocalURLs(ctx context.Context, urls []string) []string {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "--internal-autostart" {
+		hideStartupConsole()
+		args, err := startupLaunchArgs()
+		if err != nil {
+			log.Fatal(err)
+		}
+		os.Args = append(os.Args[:1], args...)
+	}
 	if len(os.Args) == 3 && os.Args[1] == "--internal-updater" {
 		if err := runUpdateHelper(os.Args[2]); err != nil {
 			log.Print(err)
@@ -655,7 +666,17 @@ func main() {
 	listen := flag.String("listen", ":8080", "监听地址")
 	dir := flag.String("dir", defaultStorageName(systemLanguage()), "文件存储目录")
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
+	autostart := flag.Bool("autostart", false, "登录后静默启动（供系统启动项使用）")
+	workingDir := flag.String("working-dir", "", "启动工作目录（供系统启动项使用）")
 	flag.Parse()
+	if *autostart {
+		hideStartupConsole()
+	}
+	if *workingDir != "" {
+		if err := os.Chdir(*workingDir); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	customDir := false
 	flag.Visit(func(f *flag.Flag) {
@@ -668,7 +689,11 @@ func main() {
 	// never rename a directory that an already-running instance is using.
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
-		if notifyAlreadyRunning(*listen, *dir) {
+		if *autostart {
+			if found, _ := openRunningInstance(*listen, func(string) error { return nil }); found {
+				return
+			}
+		} else if notifyAlreadyRunning(*listen, *dir) {
 			return
 		}
 		log.Fatal(err)
@@ -683,6 +708,7 @@ func main() {
 		log.Fatal(err)
 	}
 	app.updater = configureUpdater(listener.Addr().String(), *dir)
+	app.autostart = configureAutostart(listener.Addr().String(), *dir, *maxGB)
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)
 	log.Printf("本机访问: http://localhost:%s", port)
@@ -699,12 +725,12 @@ func main() {
 	go func() {
 		serveErrors <- httpServer.Serve(listener)
 	}()
-	if os.Getenv("LAN_COPY_UPDATE_ID") == "" && openBrowserOnLaunch() {
+	if !*autostart && os.Getenv("LAN_COPY_UPDATE_ID") == "" && openBrowserOnLaunch() {
 		if err := openBrowser(fmt.Sprintf("http://localhost:%s", port)); err != nil {
 			log.Printf("无法自动打开浏览器，请手动访问 http://localhost:%s（%v）", port, err)
 		}
 	}
-	if os.Getenv("LAN_COPY_UPDATE_ID") == "" {
+	if !*autostart && os.Getenv("LAN_COPY_UPDATE_ID") == "" {
 		go waitForAnyKeyToCloseConsole()
 	}
 

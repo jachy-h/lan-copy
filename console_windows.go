@@ -129,3 +129,11 @@ func notifyAlreadyRunning(listen, _ string) bool {
 	}
 	return true
 }
+
+// Detach only a console created for this invocation.
+func hideStartupConsole() {
+	if ownsExclusiveConsole() {
+		procFreeConsole.Call()
+	}
+	log.SetOutput(io.Discard)
+}

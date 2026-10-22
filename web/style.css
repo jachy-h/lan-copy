@@ -1100,6 +1100,10 @@ button:disabled { opacity: .5; cursor: default; }
 .status-popover time { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .status-refresh-hint { color: var(--muted); font-size: 12px; line-height: 1.5; }
 
+.autostart-option { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 0; font-weight: 600; cursor: pointer; }
+.autostart-toggle { width: 20px; height: 20px; accent-color: var(--blue-dark); cursor: pointer; }
+.autostart-toggle:disabled { cursor: not-allowed; }
+.settings-content .autostart-status.error { color: #b42318; }
 
 /* Confirmation, file actions and settings share the same modal surface. */
 .app-dialog { background: white; }

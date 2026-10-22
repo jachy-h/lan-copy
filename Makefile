@@ -77,7 +77,7 @@ checksums: windows macos
 	echo "Checksums written to $(DIST_DIR)/SHA256SUMS"
 
 test:
-	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_build_release.py'
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
 	$(GO) test ./...
 
 clean:

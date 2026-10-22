@@ -31,6 +31,8 @@ Files and text stay on the computer running Lan Copy. The default shared folder 
 
 ---
 
+**Start at login**: On the computer running Lan Copy, open Settings → 通用 (General) → 开机自启动 (Start at login). Windows and macOS are supported; this is off by default. Changes apply at the next login and launch the service in the background without opening a browser. Quitting does not disable it. Keep the executable and shared folder in place; enable it again after moving them. Allow the app in your system startup/login settings if blocked.
+
 ## For developers
 
 **Regular users can ignore everything below. Release packages work without installing Go, building the app, or generating signing keys.**
@@ -58,6 +60,8 @@ make build VERSION=1.2.3     # Or choose an explicit version
 ```
 
 Builds read the baseline from `VERSION` and save the new version only after all packages succeed. Distribute the matching archives from `release/`. Commit `VERSION` with release changes; `.config/` and `release/` are ignored by Git.
+
+Pushing `main` runs tests and builds signed packages in GitHub Actions. Pushing a `vVERSION` tag matching the committed `VERSION` publishes a GitHub Release. Configure repository signing credentials first; see [automated builds and releases](docs/GITHUB-ACTIONS.md).
 
 - [Developer guide](docs/DEVELOPING.md): architecture, command-line options, tests, Docker, and cross-platform builds.
 - [Update release guide](docs/UPDATING.md): signing keys, versioning, package format, and recovery.

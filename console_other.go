@@ -9,6 +9,8 @@ import (
 
 func setupConsole() {}
 
+func hideStartupConsole() {}
+
 func openBrowserOnLaunch() bool { return false }
 
 func openBrowser(target string) error { return openDesktopPath(target) }
