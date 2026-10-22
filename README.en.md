@@ -25,7 +25,7 @@ Files and text stay on the computer running Lan Copy. The default shared folder 
 
 **Other devices cannot connect?** Check that they are on the same LAN and allow Lan Copy through the system firewall. Guest Wi-Fi may isolate devices.
 
-**Update the app**: download a newer release package for your system, click the gear → **更新** (Update), and drop in the complete archive. After signature verification, the app installs the update, restarts, and reloads the page, preserving shared content. Finish other file transfers first.
+**Update the app**: click the gear → **更新** (Update) to check the latest stable GitHub Release, then choose **下载并更新** (Download and update) or **前往查看** (View release). You can also download the package for your system manually and drop in the complete archive. After signature verification, the app installs the update, restarts, and reloads the page, preserving shared content. Finish other file transfers first.
 
 > Use a trusted local network. There are no accounts or passwords by default: others on the LAN can read, modify, or delete shared content and shut down the service. Do not expose it to the public internet.
 

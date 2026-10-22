@@ -35,6 +35,8 @@
     </section>
     <section id="updateSettings" role="tabpanel" aria-labelledby="updateTab" hidden>
      <h3>更新 Lan Copy</h3><p class="settings-version">正在读取版本…</p>
+     <p class="release-status" role="status" aria-live="polite">进入此菜单后自动检查新版本。</p>
+     <div class="release-actions"><button class="primary release-install" type="button" hidden disabled>下载并更新</button><a class="release-page" target="_blank" rel="noopener noreferrer" hidden>前往查看 ↗</a><button class="secondary release-check" type="button">重新检查</button></div>
      <p class="update-explanation">拖入本机系统对应的新版发布包，校验通过后自动安装并重启。共享文件和文字会保留，请先等待其他文件传输完成。</p>
      <button class="update-dropzone" type="button" disabled><strong>拖入更新包，或点击选择</strong><span>支持 .zip / .tar.gz · 最大 128 MiB</span></button>
      <input class="update-picker" type="file" accept=".zip,.gz,.tgz" hidden />
@@ -55,7 +57,7 @@
  shutdownButton.addEventListener('click', async () => {
   if (!info?.local || busy || shutdownPending || stopped) return;
   shutdownPending = true;
-  shutdownButton.disabled = true;
+  shutdownButton.disabled = true; showReleaseAvailability();
   try {
    const accepted = await window.LanCopyDialog.confirm({title: '关闭 Lan Copy？', message: '关闭后，所有设备都将无法继续访问。共享文件和文本会保留，可在此电脑上重新启动 Lan Copy。', confirmText: '关闭软件', danger: true});
    if (!accepted) return;
@@ -72,12 +74,46 @@
    return;
   } finally {
    shutdownPending = false;
-   shutdownButton.disabled = !info?.local || busy || stopped;
+   shutdownButton.disabled = !info?.local || busy || stopped; showReleaseAvailability();
    if (modal.open && !shutdownButton.disabled) shutdownButton.focus();
   }
   showShutdownAvailability();
  });
  const zone = $('.update-dropzone'), picker = $('.update-picker'), status = $('.update-status'), progress = $('.update-progress');
+ const releaseStatus = $('.release-status'), downloadButton = $('.release-install'), releaseLink = $('.release-page'), checkButton = $('.release-check');
+ let releaseInfo, checking = false;
+ function showReleaseAvailability() {
+  downloadButton.disabled = busy || shutdownPending || stopped || checking || !info?.updateEnabled || !releaseInfo?.canInstall;
+  checkButton.disabled = busy || checking || shutdownPending || stopped;
+ }
+ async function checkRelease() {
+  if (busy || checking || shutdownPending || stopped) return;
+  checking = true; releaseInfo = null; downloadButton.hidden = true; releaseLink.hidden = true; showReleaseAvailability();
+  releaseStatus.textContent = '正在检查 GitHub 最新版本…';
+  try {
+   await loadInfo();
+   const response = await fetch('/api/update/check', {cache:'no-store', signal:AbortSignal.timeout(15000)});
+   const result = await response.json();
+   if (!response.ok) throw new Error(result.error || '检查更新失败');
+   releaseInfo = result;
+   if (result.available) releaseStatus.textContent = `发现新版本 ${result.version}${result.reason ? ' · ' + result.reason : ''}`;
+   else if (!result.comparable) releaseStatus.textContent = result.reason;
+   else releaseStatus.textContent = `当前无需更新（最新正式版 ${result.version}）。`;
+   downloadButton.hidden = !result.available;
+   releaseLink.href = result.pageURL; releaseLink.hidden = !result.available && result.comparable;
+  } catch (error) { releaseStatus.textContent = error.name === 'TimeoutError' ? '检查超时，请重试或使用离线更新包。' : error.message; }
+  finally { checking = false; showReleaseAvailability(); }
+ }
+ checkButton.addEventListener('click', checkRelease);
+ downloadButton.addEventListener('click', () => {
+  if (!downloadButton.disabled) runInstall(async () => {
+   showStatus('正在下载更新包并校验，请稍候…');
+   const response = await fetch('/api/update/download', {method:'POST', headers:{'X-Lan-Copy-Action':'update'}});
+   const result = await response.json();
+   if (response.status !== 202) throw new Error(result.error || '下载更新失败');
+   return result;
+  });
+ });
  const showStatus = (message, error = false) => { status.textContent = message; status.classList.toggle('error', error); };
  function selectTab(index, focus = false) {
   tabs.forEach((tab, i) => {
@@ -85,6 +121,7 @@
    document.getElementById(tab.getAttribute('aria-controls')).hidden = i !== index;
   });
   if (focus) tabs[index].focus();
+  if (tabs[index].id === 'updateTab') checkRelease();
  }
  tabs.forEach((tab, i) => {
   tab.addEventListener('click', () => selectTab(i));
@@ -97,10 +134,10 @@
  });
  async function loadInfo() {
   try {
-   const response = await fetch('/api/app', {cache:'no-store'});
+   const response = await fetch('/api/app', {cache:'no-store', signal:AbortSignal.timeout(5000)});
    if (!response.ok) throw new Error('无法读取应用信息');
    info = await response.json();
-   showShutdownAvailability();
+   showShutdownAvailability(); showReleaseAvailability();
    modal.querySelectorAll('.settings-version').forEach(el => el.textContent = `当前版本 ${info.version} · ${info.os} / ${info.arch}`);
    zone.disabled = !info.updateEnabled || busy;
    $('.update-trust').textContent = info.signedUpdates ? '所有更新包必须通过内置可信公钥的签名验证。' : '尚未配置可信更新公钥，自动更新已禁用。';
@@ -141,7 +178,7 @@
    startupStatus.textContent = error.message; startupStatus.classList.add('error');
   }
  });
- gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { loadInfo(); loadStartup(); } });
+ gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { if ($('#updateTab').getAttribute('aria-selected') === 'true') checkRelease(); else loadInfo(); loadStartup(); } });
  $('.settings-close').addEventListener('click', () => modal.close());
  modal.addEventListener('click', event => { if (event.target === modal) { const r=modal.getBoundingClientRect(); if (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) modal.close(); } });
  // Consume all modal drops so the shared-space uploader never receives a package.
@@ -179,11 +216,15 @@
   if (busy || shutdownPending || stopped || !info?.updateEnabled) return;
   if (files.length!==1 || !/\.(zip|tar\.gz|tgz)$/i.test(files[0].name)) {showStatus('请选择一个 .zip 或 .tar.gz 发布包。',true);return;}
   if (files[0].size>128*1024*1024) {showStatus('更新包不能超过 128 MiB。',true);return;}
-  busy=true;showShutdownAvailability();zone.disabled=true;progress.hidden=false;progress.value=0;
+  await runInstall(() => upload(files[0]), true);
+ }
+ async function runInstall(start, uploading = false) {
+  if (busy || shutdownPending || stopped || !info?.updateEnabled) return;
+  busy=true;showShutdownAvailability();showReleaseAvailability();zone.disabled=true;progress.hidden=!uploading;progress.value=0;
   // Keep the modal open while installing, but allow closing and reopening it.
-  try {const result=await upload(files[0]);progress.hidden=true;showStatus('校验通过，正在安装并重启…');await waitForRestart(result);}
+  try {const result=await start();progress.hidden=true;showStatus('校验通过，正在安装并重启…');await waitForRestart(result);}
   catch(error){showStatus(error.message,true);}
-  finally {busy=false;showShutdownAvailability();progress.hidden=true;await refreshAvailability();}
+  finally {busy=false;showShutdownAvailability();progress.hidden=true;await refreshAvailability();showReleaseAvailability();}
  }
  async function refreshAvailability() {
   try {const response=await fetch('/api/app',{cache:'no-store',signal:AbortSignal.timeout(2000)});if(response.ok){info=await response.json();zone.disabled=!info.updateEnabled;modal.querySelectorAll('.settings-version').forEach(el=>el.textContent=`当前版本 ${info.version} · ${info.os} / ${info.arch}`);}}

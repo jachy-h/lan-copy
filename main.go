@@ -41,6 +41,7 @@ type fileInfo struct {
 
 type server struct {
 	updater           *updateService
+	releases          *releaseService
 	autostart         *autostartService
 	dir               string
 	maxUpload         int64
@@ -63,6 +64,7 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 		return nil, err
 	}
 	return &server{
+		releases:          newReleaseService(),
 		dir:               dir,
 		maxUpload:         maxUpload,
 		web:               http.FileServer(http.FS(webRoot)),
@@ -79,6 +81,8 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("POST /api/update", s.installUpdate)
+	mux.HandleFunc("GET /api/update/check", s.checkRelease)
+	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("GET /api/access", s.accessInfo)
 	mux.HandleFunc("GET /api/events", s.fileEvents)
 	mux.HandleFunc("GET /api/files", s.listFiles)

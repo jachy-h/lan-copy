@@ -1117,3 +1117,5 @@ button:disabled { opacity: .5; cursor: default; }
 .shutdown-setting { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--line); }
 .shutdown-setting .secondary { margin-top: 8px; }
 .settings-content #shutdownHint { font-size: 12px; }
+
+.release-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }

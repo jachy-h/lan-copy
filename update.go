@@ -107,6 +107,9 @@ func validUpdateRequest(r *http.Request) bool {
 	return true
 }
 func (s *server) installUpdate(w http.ResponseWriter, r *http.Request) {
+	s.installUpdatePackage(w, r, false)
+}
+func (s *server) installUpdatePackage(w http.ResponseWriter, r *http.Request, online bool) {
 	if !validUpdateRequest(r) {
 		writeError(w, http.StatusForbidden, "无效的更新请求，请从 Lan Copy 页面发起")
 		return
@@ -148,7 +151,23 @@ func (s *server) installUpdate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "无法暂存更新包")
 		return
 	}
-	_, err = io.Copy(archive, r.Body)
+	var source io.Reader = r.Body
+	expectedVersion := ""
+	if online {
+		body, expected, downloadErr := s.releasePackage(r.Context())
+		if downloadErr != nil {
+			archive.Close()
+			writeError(w, http.StatusBadGateway, downloadErr.Error())
+			return
+		}
+		defer body.Close()
+		source = body
+		expectedVersion = expected
+	}
+	size, err := io.Copy(archive, io.LimitReader(source, maxUpdateSize+1))
+	if size > maxUpdateSize {
+		err = errors.New("更新包超过 128 MiB")
+	}
 	closeErr := archive.Close()
 	if err != nil || closeErr != nil {
 		writeError(w, http.StatusBadRequest, "更新包读取失败或超过 128 MiB")
@@ -158,6 +177,10 @@ func (s *server) installUpdate(w http.ResponseWriter, r *http.Request) {
 	manifest, err := unpackUpdate(filepath.Join(stage, "package"), candidate, runtime.GOOS, runtime.GOARCH, updatePublicKey)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if online && manifest.Version != expectedVersion {
+		writeError(w, http.StatusBadRequest, "更新包版本与 Release 不一致")
 		return
 	}
 	currentHash, err := hashFile(u.executable)
