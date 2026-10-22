@@ -63,11 +63,25 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Browser assets must not inherit machine-specific MIME mappings (notably
+	// Windows registry entries that can classify .mjs modules as text/plain).
+	files := http.FileServer(http.FS(webRoot))
+	web := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch strings.ToLower(path.Ext(r.URL.Path)) {
+		case ".js", ".mjs":
+			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		case ".css":
+			w.Header().Set("Content-Type", "text/css; charset=utf-8")
+		case ".wasm":
+			w.Header().Set("Content-Type", "application/wasm")
+		}
+		files.ServeHTTP(w, r)
+	})
 	return &server{
 		releases:          newReleaseService(),
 		dir:               dir,
 		maxUpload:         maxUpload,
-		web:               http.FileServer(http.FS(webRoot)),
+		web:               web,
 		probeURLs:         reachableLocalURLs,
 		openPath:          openLocalPath,
 		fileSubscribers:   make(map[chan struct{}]struct{}),

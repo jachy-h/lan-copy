@@ -289,6 +289,22 @@ func TestUpdateProcessLifecycle(t *testing.T) {
 	}{{"success", newer, "integration-new"}, {"rollback", broken, "integration-old"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			work := t.TempDir()
+			t.Cleanup(func() {
+				// Windows keeps a running executable locked. Wait for the actual
+				// release of the helper/server files rather than sleeping once.
+				deadline := time.Now().Add(10 * time.Second)
+				for {
+					err := os.RemoveAll(work)
+					if err == nil {
+						return
+					}
+					if time.Now().After(deadline) {
+						t.Errorf("update processes did not release temporary files: %v", err)
+						return
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+			})
 			exe := filepath.Join(work, "lan-copy"+suffix)
 			if err := os.WriteFile(exe, oldBinary, 0700); err != nil {
 				t.Fatal(err)
@@ -384,6 +400,24 @@ func TestUpdateProcessLifecycle(t *testing.T) {
 				log, _ := os.ReadFile(filepath.Join(work, "lan-copy-update.log"))
 				t.Fatalf("unexpected restarted app: %v, log %s", info, log)
 			}
+			// HTTP readiness alone does not mean the helper has completed
+			// its own probe. Stopping the new server now can make that probe
+			// miss readiness and keep updater.exe alive during TempDir cleanup.
+			marker := "更新成功"
+			if tc.name == "rollback" {
+				marker = "已恢复旧版本"
+			}
+			deadline = time.Now().Add(10 * time.Second)
+			for {
+				log, err := os.ReadFile(filepath.Join(work, "lan-copy-update.log"))
+				if err == nil && strings.Contains(string(log), marker) {
+					break
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("helper did not finish %s: %s (read error: %v)", tc.name, log, err)
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
 			saved, err := os.ReadFile(filepath.Join(storage, "keep.txt"))
 			if err != nil || string(saved) != "keep me" {
 				t.Fatalf("shared data changed: %s %v", saved, err)
@@ -405,8 +439,6 @@ func TestUpdateProcessLifecycle(t *testing.T) {
 			if readUpdateInfo(client, base) != nil {
 				t.Fatal("restarted service did not stop")
 			}
-			// Let the helper close its executable/log handles before TempDir cleanup.
-			time.Sleep(250 * time.Millisecond)
 		})
 	}
 }

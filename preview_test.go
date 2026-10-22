@@ -1,6 +1,7 @@
 package main
 
 import (
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -116,6 +117,40 @@ func TestPreviewPageAndBundledPDFResources(t *testing.T) {
 		}
 		if target == "/preview.html" && (!strings.Contains(recorder.Header().Get("Content-Security-Policy"), "worker-src 'self'") || recorder.Header().Get("X-Frame-Options") != "DENY") {
 			t.Fatal("preview page security policy missing")
+		}
+	}
+}
+
+// Reproduce an incorrect Windows MIME registry mapping on every test platform.
+func TestBundledAssetTypesOverrideSystemMappings(t *testing.T) {
+	for _, ext := range []string{".js", ".mjs", ".css", ".wasm"} {
+		previous := mime.TypeByExtension(ext)
+		if err := mime.AddExtensionType(ext, "text/plain; charset=utf-8"); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if err := mime.AddExtensionType(ext, previous); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ url, contentType string }{
+		{"/preview.js", "text/javascript; charset=utf-8"},
+		{"/vendor/pdfjs/legacy/build/pdf.min.mjs", "text/javascript; charset=utf-8"},
+		{"/vendor/pdfjs/legacy/build/pdf.worker.min.mjs", "text/javascript; charset=utf-8"},
+		{"/style.css", "text/css; charset=utf-8"},
+		{"/vendor/pdfjs/wasm/openjpeg.wasm", "application/wasm"},
+	} {
+		for _, method := range []string{http.MethodGet, http.MethodHead} {
+			w := httptest.NewRecorder()
+			app.routes().ServeHTTP(w, httptest.NewRequest(method, tc.url, nil))
+			if w.Code != http.StatusOK || w.Header().Get("Content-Type") != tc.contentType {
+				t.Errorf("%s %s: status=%d Content-Type=%q, want %q", method, tc.url, w.Code, w.Header().Get("Content-Type"), tc.contentType)
+			}
 		}
 	}
 }
