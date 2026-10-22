@@ -8,3 +8,9 @@ release/
 tmp/
 .DS_Store
 .pi-lens/
+
+共享文件夹-lancopy/
+shared-folder-lancopy/
+
+# Local signing keys and configuration
+/.config/

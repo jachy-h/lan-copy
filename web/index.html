@@ -1,98 +1,68 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#111827" />
-    <title>Lan Copy · 局域网快传</title>
-    <link rel="icon" type="image/svg+xml" href="/logo/favicon-32x32.svg" />
-    <link rel="stylesheet" href="/style.css" />
-  </head>
-  <body>
-    <main class="shell">
-      <header class="hero">
-        <div class="brand">
-          <div class="logo" aria-hidden="true">
-            <svg viewBox="0 0 120 120">
-              <defs>
-                <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#3977f6;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#2362df;stop-opacity:1" />
-                </linearGradient>
-                <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" style="stop-color:#14213d;stop-opacity:1" />
-                  <stop offset="100%" style="stop-color:#1a2b4a;stop-opacity:1" />
-                </linearGradient>
-                <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="2" dy="2" stdDeviation="3" flood-color="#14213d" flood-opacity="0.3"/>
-                </filter>
-              </defs>
-              
-              <!-- 背景圆角矩形 -->
-              <rect x="10" y="10" width="100" height="100" rx="20" ry="20" fill="url(#grad2)" filter="url(#shadow)"/>
-              
-              <!-- 左侧设备图标 -->
-              <g transform="translate(25, 35)">
-                <!-- 设备主体 -->
-                <rect x="0" y="0" width="25" height="35" rx="3" ry="3" fill="#ffffff" opacity="0.9"/>
-                <!-- 屏幕 -->
-                <rect x="2" y="2" width="21" height="20" rx="1" ry="1" fill="#3977f6"/>
-                <!-- 摄像头 -->
-                <circle cx="12.5" cy="25" r="1.5" fill="#3977f6" opacity="0.7"/>
-                <!-- 底座 -->
-                <path d="M5 35 L20 35 L22 38 L3 38 Z" fill="#ffffff" opacity="0.8"/>
-              </g>
-              
-              <!-- 右侧设备图标 -->
-              <g transform="translate(70, 40)">
-                <!-- 手机主体 -->
-                <rect x="0" y="0" width="20" height="35" rx="3" ry="3" fill="#ffffff" opacity="0.9"/>
-                <!-- 屏幕 -->
-                <rect x="2" y="2" width="16" height="28" rx="1" ry="1" fill="#3977f6"/>
-                <!-- 听筒 -->
-                <rect x="6" y="3" width="8" height="1" rx="0.5" ry="0.5" fill="#ffffff" opacity="0.7"/>
-                <!-- 摄像头 -->
-                <circle cx="10" cy="6" r="1" fill="#ffffff" opacity="0.7"/>
-                <!-- 主页按钮 -->
-                <circle cx="10" cy="33" r="1.5" fill="#3977f6" opacity="0.7"/>
-              </g>
-              
-              <!-- 连接线 -->
-              <path d="M50 52 L70 52" stroke="#ffffff" stroke-width="3" stroke-linecap="round" opacity="0.8"/>
-              
-              <!-- 传输箭头 -->
-              <g transform="translate(55, 48)">
-                <!-- 向右箭头 -->
-                <path d="M0 4 L8 4 L8 0 L14 6 L8 12 L8 8 L0 8 Z" fill="#ffffff" opacity="0.9"/>
-              </g>
-              
-              <!-- 文件图标 -->
-              <g transform="translate(48, 65)">
-                <path d="M0 0 L12 0 L16 4 L16 16 L0 16 Z" fill="#ffffff" opacity="0.9"/>
-                <path d="M12 0 L12 4 L16 4" fill="none" stroke="#2362df" stroke-width="1"/>
-                <line x1="3" y1="6" x2="13" y2="6" stroke="#2362df" stroke-width="1" opacity="0.7"/>
-                <line x1="3" y1="9" x2="13" y2="9" stroke="#2362df" stroke-width="1" opacity="0.7"/>
-                <line x1="3" y1="12" x2="10" y2="12" stroke="#2362df" stroke-width="1" opacity="0.7"/>
-              </g>
-              
-              <!-- 网络节点装饰 -->
-              <circle cx="30" cy="25" r="2" fill="#ffffff" opacity="0.4"/>
-              <circle cx="90" cy="30" r="2" fill="#ffffff" opacity="0.4"/>
-              <circle cx="60" cy="90" r="2" fill="#ffffff" opacity="0.4"/>
-            </svg>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <title>共享空间 · Lan Copy</title>
+  <link rel="icon" type="image/svg+xml" href="/logo/favicon-32x32.svg" />
+  <link rel="stylesheet" href="/style.css" />
+  <script src="/qrcode.js" defer></script>
+  <script src="/file-ui.js" defer></script>
+  <script src="/access.js" defer></script>
+  <script src="/shell.js" defer></script>
+  <script src="/settings.js" defer></script>
+  <script src="/upload-tree.js" defer></script>
+  <script src="/filesystem.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+<div class="brand">
+      <img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt="" />
+      <div><h1>Lan Copy</h1></div>
+    </div>
+<nav class="page-nav" aria-label="页面导航">
+    <a href="/" aria-current="page">共享空间</a><a href="/transfer.html">文本快传</a>
+  </nav>
+<div class="hero-actions">
+          <div class="share-access" id="shareAccess">
+            <button class="share-access-button" id="accessButton" type="button" aria-label="分享" title="分享" aria-haspopup="dialog" aria-expanded="false" aria-controls="accessPanel">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/></svg>
+            </button>
+            <section class="access-card access-popover" id="accessPanel" role="dialog" aria-labelledby="shareAccessTitle" hidden>
+              <span class="access-eyebrow" id="shareAccessTitle">分享</span>
+              <div class="share-phone">
+                <div class="access-copy">
+                  <h2 id="accessTitle">手机扫码，立即打开</h2>
+                  <p id="accessHint">手机与电脑连接同一局域网后，扫描二维码即可访问</p>
+                </div>
+                <div class="qr-code loading" id="qrCode" role="img" aria-label="局域网访问二维码"></div>
+              </div>
+              <div class="access-copy share-computer">
+                <h2>分享地址，电脑打开</h2>
+                <p>复制下方地址，分享给同一局域网内的电脑，在浏览器中打开。</p>
+                <div class="access-address">
+                  <span>局域网访问地址</span>
+                  <a id="accessAddress" href="#">正在获取局域网地址…</a>
+                </div>
+                <div class="access-url-row">
+                  <select id="accessUrl" aria-label="分享访问地址"><option>正在获取局域网地址…</option></select>
+                  <button id="copyAccessUrl" type="button">复制地址</button>
+                </div>
+              </div>
+            </section>
           </div>
-          <div>
-            <h1>Lan Copy</h1>
-            <p>同一网络，文件与文字即刻抵达</p>
-          </div>
-        </div>
-        <div class="hero-actions">
-          <div class="status" id="serviceStatus">
-            <span class="status-dot"></span>
-            <span class="status-label">局域网在线</span>
+
+          <div class="status-access" id="statusAccess">
+            <button class="status" id="serviceStatus" type="button" aria-label="局域网在线" aria-expanded="false" aria-describedby="serviceStatusPopover">
+              <span class="status-dot"></span>
+              <span class="status-label">局域网在线</span>
+            </button>
+            <div class="status-popover" id="serviceStatusPopover" role="tooltip" hidden>
+              <span class="status-popover-label">数据更新时间</span>
+              <time id="dataUpdatedAt">尚未成功更新</time>
+              <span class="status-refresh-hint" id="dataRefreshHint">每分钟自动更新</span>
+            </div>
           </div>
           <button
             class="shutdown-btn"
@@ -107,141 +77,38 @@
             <span>关闭软件</span>
           </button>
         </div>
-      </header>
 
-      <section class="access-card" aria-labelledby="accessTitle">
-        <div class="access-copy">
-          <span class="access-eyebrow">移动设备快捷访问</span>
-          <h2 id="accessTitle">手机扫码，立即打开</h2>
-          <p>手机与电脑连接同一局域网后，扫描二维码即可访问</p>
-          <div class="access-address">
-            <span>局域网访问地址</span>
-            <a id="accessAddress" href="#">正在获取局域网地址…</a>
-          </div>
-          <div class="access-url-row">
-            <select id="accessUrl" aria-label="二维码访问地址">
-              <option>正在获取局域网地址…</option>
-            </select>
-            <button id="copyAccessUrl" type="button">复制地址</button>
-          </div>
-        </div>
-        <div
-          class="qr-code loading"
-          id="qrCode"
-          role="img"
-          aria-label="局域网访问二维码"
-        ></div>
-      </section>
-
-      <nav class="share-tabs" aria-label="选择共享类型">
-        <button
-          class="active"
-          type="button"
-          data-mode="file"
-          aria-pressed="true"
-        >
-          发送文件
-        </button>
-        <button type="button" data-mode="text" aria-pressed="false">
-          共享文本
-        </button>
-      </nav>
-
-      <section class="upload-card" id="dropZone">
-        <input id="fileInput" type="file" multiple hidden />
-        <div class="upload-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path
-              d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"
-            />
-          </svg>
-        </div>
-        <h2>把文件拖到这里</h2>
-        <p>或点击选择文件，可一次传送多个</p>
-        <button class="primary" id="chooseBtn" type="button">选择文件</button>
-      </section>
-
-      <section class="text-card hidden" id="textPanel">
-        <div class="text-compose-head">
-          <div class="text-icon" aria-hidden="true">Aa</div>
-          <div>
-            <h2>共享一段文本</h2>
-            <p>链接、验证码、命令或临时笔记</p>
-          </div>
-        </div>
-        <textarea
-          id="textInput"
-          rows="7"
-          placeholder="在这里粘贴或输入文字…"
-          aria-label="要共享的文本"
-        ></textarea>
-        <div class="text-compose-foot">
-          <span id="textCount">0 B / 64 KiB</span>
-          <button class="primary" id="shareTextBtn" type="button">
-            发布文本
-          </button>
-        </div>
-      </section>
-
-      <section class="queue hidden" id="queue" aria-live="polite">
-        <div class="queue-head">
-          <strong id="queueTitle">正在传送</strong
-          ><span id="queuePercent">0%</span>
-        </div>
-        <div class="progress"><span id="progressBar"></span></div>
-        <p id="queueDetail"></p>
-      </section>
-
-      <section class="files-section text-section">
-        <div class="section-head">
-          <div>
-            <h2>共享文本</h2>
-            <p id="textSummary">正在读取…</p>
-          </div>
-        </div>
-        <div class="text-list" id="textList"></div>
-        <div class="empty hidden" id="textEmptyState">
-          <div>“ ”</div>
-          <strong>还没有共享文本</strong>
-          <p>发布后，局域网内的设备可以一键复制</p>
-        </div>
-      </section>
-
-      <section class="files-section">
-        <div class="section-head">
-          <div>
-            <h2>共享文件</h2>
-            <p id="summary">正在读取…</p>
-          </div>
-          <button
-            class="icon-btn"
-            id="refreshBtn"
-            type="button"
-            title="刷新"
-            aria-label="刷新共享内容"
-          >
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"
-              />
-            </svg>
-          </button>
-        </div>
-        <div class="file-list" id="fileList"></div>
-        <div class="empty hidden" id="emptyState">
-          <div>◎</div>
-          <strong>还没有文件</strong>
-          <p>从任意一台设备上传后，就会出现在这里</p>
-        </div>
-      </section>
-
-      <footer>
-        文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问
-      </footer>
-    </main>
-
-    <div class="toast" id="toast" role="status"></div>
-    <script src="/qrcode.js" defer></script>
-    <script src="/app.js" defer></script>
-  </body>
+</header>
+<main class="shell">
+  <section class="files-section explorer" aria-labelledby="explorerTitle">
+    <div class="section-head">
+      <h2 id="explorerTitle">共享空间</h2>
+      <div class="explorer-tools"><input id="search" type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹" /><input id="folderUploadInput" type="file" webkitdirectory multiple hidden /><button class="secondary" id="uploadFolder" type="button">上传文件夹</button><button class="primary" id="mkdir" type="button">＋ 新建文件夹</button></div>
+    </div>
+    <div class="explorer-location"><nav id="breadcrumbs" class="breadcrumbs" aria-label="文件夹路径"></nav><span id="entrySummary" aria-live="polite">正在读取…</span></div>
+    <div id="entries" class="file-list" aria-live="polite"></div>
+    <div class="empty hidden" id="directoryEmpty"><div>▱</div><strong id="emptyTitle">这个文件夹还是空的</strong><p>新建文件夹，或将其他位置的文件移动到这里</p></div>
+    <div class="space-upload hidden" id="spaceUpload" aria-live="polite"><span id="spaceUploadLabel"></span><progress id="spaceUploadProgress" max="100" value="0" aria-label="上传进度"></progress></div>
+    <div class="upload-drop-message" aria-hidden="true">松开文件或文件夹，上传到当前文件夹</div>
+    <p class="explorer-hint">拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</p>
+  </section>
+  <footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer>
+</main>
+<dialog id="editDialog" class="fs-dialog">
+  <form id="editForm">
+    <h2 id="editTitle">新建文件夹</h2>
+    <label for="entryName">名称</label><input id="entryName" required maxlength="200" autocomplete="off" />
+    <p id="editError" class="dialog-error" role="alert"></p>
+    <div class="dialog-actions"><button class="secondary" type="button" data-close="editDialog">取消</button><button class="primary" type="submit">保存</button></div>
+  </form>
+</dialog>
+<dialog id="moveDialog" class="fs-dialog">
+  <h2>移动到文件夹</h2><p id="moveSource" class="file-meta"></p>
+  <nav id="moveBreadcrumbs" class="breadcrumbs" aria-label="目标文件夹路径"></nav>
+  <div id="moveFolders" class="move-folders"></div>
+  <p id="moveError" class="dialog-error" role="alert"></p>
+  <div class="dialog-actions"><button class="secondary" type="button" data-close="moveDialog">取消</button><button class="primary" id="confirmMove" type="button">移动到这里</button></div>
+</dialog>
+<div class="toast" id="toast" role="status"></div>
+</body>
 </html>

@@ -1,21 +1,34 @@
 SHELL := /bin/sh
+.DEFAULT_GOAL := all
 
 GO ?= go
 DIST_DIR ?= release
 STAGE_DIR := $(DIST_DIR)/.stage
-LDFLAGS := -s -w
+VERSION_FILE ?= VERSION
+VERSION ?=
+# Packaging subtargets use the saved version; make build chooses the next patch.
+BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
+UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
+UPDATE_SIGNING_KEY_FILE ?= .config/update.key
+# Only the public key enters Make variables; private keys are read by the signer.
+UPDATE_PUBLIC_KEY ?= $(shell cat "$(UPDATE_PUBLIC_KEY_FILE)" 2>/dev/null)
+LDFLAGS := -s -w -X main.version=$(BUILD_VERSION) -X main.updatePublicKey=$(UPDATE_PUBLIC_KEY)
 
-WINDOWS_ARCHES := amd64 arm64
-MACOS_ARCHES := amd64 arm64
-WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/lan-copy-windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
-MACOS_ARTIFACTS := $(addprefix $(DIST_DIR)/lan-copy-macos-,$(addsuffix .tar.gz,$(MACOS_ARCHES)))
-SOURCES := Makefile go.mod $(wildcard *.go) $(wildcard web/*) README.md
+WINDOWS_ARCHES ?= amd64
+WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/局域网快传-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
+MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
+SOURCES := Makefile go.mod $(wildcard *.go) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build artifacts windows macos checksums test clean dist-clean
+.PHONY: all build artifacts windows macos checksums test clean dist-clean FORCE
+
+FORCE:
 
 all: build
 
-build: artifacts
+build:
+	+@python3 scripts/build_release.py --version-file "$(VERSION_FILE)" --version "$(VERSION)" \
+		$(foreach artifact,$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS),--artifact "$(artifact)") \
+		--artifact "$(DIST_DIR)/SHA256SUMS" -- $(MAKE) --no-print-directory artifacts
 
 artifacts: checksums
 
@@ -23,27 +36,31 @@ windows: $(WINDOWS_ARTIFACTS)
 
 macos: $(MACOS_ARTIFACTS)
 
-$(DIST_DIR)/lan-copy-windows-%.zip: $(SOURCES)
+$(DIST_DIR)/局域网快传-Windows-%.zip: $(SOURCES) FORCE
 	@set -eu; \
-	name="lan-copy-windows-$*"; \
+	name="局域网快传-Windows-$*"; \
 	stage="$(STAGE_DIR)/$$name"; \
 	rm -rf "$$stage" "$@"; \
 	mkdir -p "$$stage"; \
 	echo "Building Windows/$*..."; \
 	CGO_ENABLED=0 GOOS=windows GOARCH=$* $(GO) build -trimpath -ldflags='$(LDFLAGS)' -o "$$stage/lan-copy.exe" .; \
+	$(GO) run ./scripts/update-manifest -dir "$$stage" -version "$(BUILD_VERSION)" -os windows -arch "$*" -public-key "$(UPDATE_PUBLIC_KEY)" -key-file "$(UPDATE_SIGNING_KEY_FILE)"; \
 	cp README.md "$$stage/README.md"; \
-	(cd "$(STAGE_DIR)" && zip -qr "../$(@F)" "$$name"); \
+	cp docs/WINDOWS-SECURITY.md "$$stage/WINDOWS-SECURITY.md"; \
+	cp release-assets/offline-start.html "$$stage/使用说明.html"; \
+	python3 scripts/package_zip.py "$$stage" "$(DIST_DIR)/$(@F)" "$$name"; \
 	rm -rf "$$stage"
 
-$(DIST_DIR)/lan-copy-macos-%.tar.gz: $(SOURCES)
+$(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz: $(SOURCES) FORCE
 	@set -eu; \
-	name="lan-copy-macos-$*"; \
+	name="Lan-Copy-macOS-arm64"; \
 	stage="$(STAGE_DIR)/$$name"; \
 	rm -rf "$$stage" "$@"; \
 	mkdir -p "$$stage"; \
-	echo "Building macOS/$*..."; \
-	CGO_ENABLED=0 GOOS=darwin GOARCH=$* $(GO) build -trimpath -ldflags='$(LDFLAGS)' -o "$$stage/lan-copy" .; \
+	echo "Building macOS/Apple Silicon..."; \
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GO) build -trimpath -ldflags='$(LDFLAGS)' -o "$$stage/lan-copy" .; \
 	chmod +x "$$stage/lan-copy"; \
+	$(GO) run ./scripts/update-manifest -dir "$$stage" -version "$(BUILD_VERSION)" -os darwin -arch arm64 -public-key "$(UPDATE_PUBLIC_KEY)" -key-file "$(UPDATE_SIGNING_KEY_FILE)"; \
 	cp README.md "$$stage/README.md"; \
 	tar -czf "$@" -C "$(STAGE_DIR)" "$$name"; \
 	rm -rf "$$stage"
@@ -51,7 +68,7 @@ $(DIST_DIR)/lan-copy-macos-%.tar.gz: $(SOURCES)
 checksums: windows macos
 	@set -eu; \
 	cd "$(DIST_DIR)"; \
-	set -- *.tar.gz *.zip; \
+	set -- $(notdir $(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS)); \
 	if command -v sha256sum >/dev/null 2>&1; then \
 		sha256sum "$${@}" > SHA256SUMS; \
 	else \
@@ -60,6 +77,7 @@ checksums: windows macos
 	echo "Checksums written to $(DIST_DIR)/SHA256SUMS"
 
 test:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_build_release.py'
 	$(GO) test ./...
 
 clean:

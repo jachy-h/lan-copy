@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>局域网快传使用说明</title>
+  <style>
+    :root { font: 16px/1.6 system-ui, sans-serif; color: #14213d; background: #f4f7fc; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+    main { box-sizing: border-box; width: min(92vw, 34rem); padding: 2rem; border-radius: 1.25rem; background: white; box-shadow: 0 1rem 3rem #14213d18; }
+    h1 { margin-top: 0; } p { color: #536078; }
+    .status { padding: .75rem 1rem; border-radius: .75rem; background: #eef2f8; }
+    .ready { color: #116b42; background: #e9f7ef; }
+    .waiting { color: #87580a; background: #fff5dc; }
+    a, button { display: inline-block; margin: .35rem .35rem .35rem 0; padding: .7rem 1rem; border: 0; border-radius: .65rem; background: #3977f6; color: white; font: inherit; text-decoration: none; cursor: pointer; }
+    a.secondary, button.secondary { color: #2362df; background: #eaf0ff; }
+    small { color: #667085; }
+    @media (prefers-color-scheme: dark) { :root { color: #edf2ff; background: #111827; } main { background: #1d2939; } p, small { color: #bdc8da; } .status { background: #344054; } .ready { color: #9ee3b8; background: #123b2b; } .waiting { color: #ffe0a1; background: #493510; } a.secondary, button.secondary { color: #c4d5ff; background: #293c65; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>局域网快传</h1>
+  <p class="status waiting" id="status" role="status">正在检查本机服务…</p>
+  <p>服务运行后，可以从此页进入文件共享。</p>
+  <a id="open" href="http://localhost:8080" target="_blank" rel="noopener">打开 Lan Copy</a>
+  <button class="secondary" id="refresh" type="button">重新检查</button>
+  <section id="help" hidden>
+    <p><strong>尚未检测到服务。</strong></p>
+    <p>请回到本目录，双击 <code>lan-copy.exe</code>。程序启动后会自动打开浏览器，然后可以回来点击“重新检查”。</p>
+  </section>
+</main>
+<script>
+  const status = document.getElementById('status');
+  const help = document.getElementById('help');
+  let checkInProgress = false;
+  async function check() {
+    if (checkInProgress) return;
+    checkInProgress = true;
+    try {
+      const response = await fetch('http://localhost:8080/healthz', { cache: 'no-store' });
+      const body = (await response.text()).trim();
+      if (response.ok && body === 'ok') {
+        status.textContent = 'Lan Copy 已运行，可以打开。';
+        status.className = 'status ready';
+        help.hidden = true;
+      } else {
+        throw new Error('service not ready');
+      }
+    } catch (_) {
+      status.textContent = '尚未连接到 localhost:8080。';
+      status.className = 'status waiting';
+      help.hidden = false;
+    } finally {
+      checkInProgress = false;
+    }
+  }
+  document.getElementById('refresh').addEventListener('click', check);
+  check();
+  window.setInterval(check, 3000);
+</script>
+</body>
+</html>

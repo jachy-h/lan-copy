@@ -17,10 +17,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,13 +32,15 @@ const defaultMaxUpload = int64(10 << 30) // 10 GiB
 var webFiles embed.FS
 
 type fileInfo struct {
-	Name    string    `json:"name"`
-	Size    int64     `json:"size"`
-	ModTime time.Time `json:"modified"`
-	Type    string    `json:"type"`
+	Name        string    `json:"name"`
+	Size        int64     `json:"size"`
+	ModTime     time.Time `json:"modified"`
+	Type        string    `json:"type"`
+	PreviewType string    `json:"previewType"`
 }
 
 type server struct {
+	updater           *updateService
 	dir               string
 	maxUpload         int64
 	mu                sync.Mutex
@@ -74,21 +74,43 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 
 func (s *server) routes() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/app", s.appInfo)
+	mux.HandleFunc("POST /api/update", s.installUpdate)
 	mux.HandleFunc("GET /api/access", s.accessInfo)
 	mux.HandleFunc("GET /api/events", s.fileEvents)
 	mux.HandleFunc("GET /api/files", s.listFiles)
+	mux.HandleFunc("GET /api/filesystem", s.listDirectory)
+	mux.HandleFunc("POST /api/filesystem/{action}", s.mutateDirectory)
 	mux.HandleFunc("POST /api/upload", s.uploadFiles)
+	mux.HandleFunc("POST /api/upload-tree", s.uploadTree)
 	mux.HandleFunc("POST /api/files/{name}/{action}", s.handleLocalFileAction)
 	mux.HandleFunc("DELETE /api/files/{name}", s.deleteFile)
 	mux.HandleFunc("GET /files/{name}", s.downloadFile)
+	mux.HandleFunc("GET /preview-files/{name}", s.previewFile)
+	mux.HandleFunc("GET /thumbnails/{name}", s.thumbnailFile)
 	mux.HandleFunc("GET /api/texts", s.listTexts)
 	mux.HandleFunc("POST /api/texts", s.createText)
 	mux.HandleFunc("DELETE /api/texts/{id}", s.deleteText)
 	mux.HandleFunc("GET /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("POST /api/shutdown", s.handleShutdown)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		// The offline start page is opened from file:// and needs to check readiness.
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("X-Lan-Copy-Service", "lan-copy")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "ok\n")
+	})
+	mux.HandleFunc("GET /filesystem.html", func(w http.ResponseWriter, r *http.Request) {
+		target := "/"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
+		// PDF.js uses a same-origin worker, embedded font blobs and WASM decoders.
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'")
+		s.web.ServeHTTP(w, r)
 	})
 	mux.Handle("GET /", s.web)
 	return securityHeaders(mux)
@@ -192,33 +214,60 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (s *server) listFiles(w http.ResponseWriter, _ *http.Request) {
-	entries, err := os.ReadDir(s.dir)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	files := make([]fileInfo, 0)
+	err := filepath.WalkDir(s.dir, func(filePath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if filePath == s.dir {
+			return nil
+		}
+		relative, err := filepath.Rel(s.dir, filePath)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(relative)
+		if _, err := s.sharedPath(name); err != nil {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		info, err := entry.Info()
+		if err == nil && info.Mode().IsRegular() {
+			files = append(files, fileInfo{Name: name, Size: info.Size(), ModTime: info.ModTime(), Type: contentType(name), PreviewType: previewContentType(name)})
+		}
+		return nil
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "无法读取文件列表")
+		writeError(w, 500, "无法读取文件列表")
 		return
 	}
 
-	files := make([]fileInfo, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".upload-") || strings.HasPrefix(entry.Name(), ".lan-copy-") {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		files = append(files, fileInfo{
-			Name:    entry.Name(),
-			Size:    info.Size(),
-			ModTime: info.ModTime(),
-			Type:    contentType(entry.Name()),
-		})
-	}
 	sort.Slice(files, func(i, j int) bool { return files[i].ModTime.After(files[j].ModTime) })
 	writeJSON(w, http.StatusOK, map[string]any{"files": files})
 }
 
 func (s *server) uploadFiles(w http.ResponseWriter, r *http.Request) {
+	destination := r.URL.Query().Get("path")
+	s.mu.Lock()
+	target, pathErr := s.sharedPath(destination)
+	if pathErr == nil {
+		info, err := os.Stat(target)
+		if err != nil {
+			pathErr = err
+		} else if !info.IsDir() {
+			pathErr = fs.ErrInvalid
+		}
+	}
+	s.mu.Unlock()
+	if pathErr != nil {
+		filesystemError(w, pathErr)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxUpload)
 	reader, err := r.MultipartReader()
 	if err != nil {
@@ -254,7 +303,7 @@ func (s *server) uploadFiles(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "文件名无效")
 			return
 		}
-		stored, err := s.savePart(part, name)
+		stored, err := s.savePartTo(part, name, destination)
 		_ = part.Close()
 		if err != nil {
 			cleanupFiles(s.dir, saved)
@@ -278,6 +327,10 @@ func (s *server) uploadFiles(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) savePart(src io.Reader, originalName string) (fileInfo, error) {
+	return s.savePartTo(src, originalName, "")
+}
+
+func (s *server) savePartTo(src io.Reader, originalName, destination string) (fileInfo, error) {
 	token := make([]byte, 8)
 	if _, err := rand.Read(token); err != nil {
 		return fileInfo{}, err
@@ -297,24 +350,48 @@ func (s *server) savePart(src io.Reader, originalName string) (fileInfo, error) 
 	}
 
 	s.mu.Lock()
-	finalName := availableName(s.dir, originalName)
-	finalPath := filepath.Join(s.dir, finalName)
+	target, err := s.sharedPath(destination)
+	if err != nil {
+		s.mu.Unlock()
+		_ = os.Remove(tmpPath)
+		return fileInfo{}, err
+	}
+	info, statErr := os.Stat(target)
+	if statErr != nil || !info.IsDir() {
+		s.mu.Unlock()
+		_ = os.Remove(tmpPath)
+		if statErr != nil {
+			return fileInfo{}, statErr
+		}
+		return fileInfo{}, fs.ErrInvalid
+	}
+	finalName := availableName(target, originalName)
+	finalPath := filepath.Join(target, finalName)
 	err = os.Rename(tmpPath, finalPath)
 	s.mu.Unlock()
 	if err != nil {
 		_ = os.Remove(tmpPath)
 		return fileInfo{}, err
 	}
-	return fileInfo{Name: finalName, Size: size, ModTime: time.Now(), Type: contentType(finalName)}, nil
+	return fileInfo{Name: path.Join(destination, finalName), Size: size, ModTime: time.Now(), Type: contentType(finalName), PreviewType: previewContentType(finalName)}, nil
 }
 
 func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
-	name, err := safeName(r.PathValue("name"))
-	if err != nil || name != r.PathValue("name") {
-		writeError(w, http.StatusBadRequest, "文件名无效")
+	s.serveSharedFile(w, r, false)
+}
+
+func (s *server) previewFile(w http.ResponseWriter, r *http.Request) {
+	s.serveSharedFile(w, r, true)
+}
+
+func (s *server) serveSharedFile(w http.ResponseWriter, r *http.Request, preview bool) {
+	name := r.PathValue("name")
+	resolved, err := s.sharedPath(name)
+	if err != nil || name == "" {
+		filesystemError(w, errOrInvalid(err))
 		return
 	}
-	filePath := filepath.Join(s.dir, name)
+	filePath := resolved
 	info, err := os.Lstat(filePath)
 	if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
 		writeError(w, http.StatusNotFound, "文件不存在")
@@ -330,8 +407,19 @@ func (s *server) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	w.Header().Set("Content-Type", contentType(name))
-	w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(name))
+	disposition, mediaType := "attachment", contentType(name)
+	if preview {
+		mediaType = previewContentType(name)
+		if mediaType == "" {
+			writeError(w, http.StatusUnsupportedMediaType, "此文件暂不支持预览，请下载后打开")
+			return
+		}
+		disposition = "inline"
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox; frame-ancestors 'none'")
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	w.Header().Set("Content-Type", mediaType)
+	w.Header().Set("Content-Disposition", disposition+"; filename*=UTF-8''"+url.PathEscape(path.Base(name)))
 	http.ServeContent(w, r, name, info.ModTime(), file)
 }
 
@@ -349,12 +437,13 @@ func (s *server) handleLocalFileAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "无效的文件操作")
 		return
 	}
-	name, err := safeName(r.PathValue("name"))
-	if err != nil || name != r.PathValue("name") {
-		writeError(w, http.StatusBadRequest, "文件名无效")
+	name := r.PathValue("name")
+	resolved, err := s.sharedPath(name)
+	if err != nil || name == "" {
+		filesystemError(w, errOrInvalid(err))
 		return
 	}
-	filePath, err := filepath.Abs(filepath.Join(s.dir, name))
+	filePath, err := filepath.Abs(resolved)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "无法定位文件")
 		return
@@ -407,37 +496,19 @@ func openLocalPath(filePath, action string) error {
 	if action == "folder" {
 		target = filepath.Dir(filePath)
 	}
-	var command *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		command = exec.Command("open", target)
-	case "windows":
-		if action == "folder" {
-			command = exec.Command("explorer.exe", target)
-		} else {
-			command = exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", target)
-		}
-	case "linux":
-		command = exec.Command("xdg-open", target)
-	default:
-		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
-	}
-	if err := command.Start(); err != nil {
-		return err
-	}
-	go func() {
-		_ = command.Wait()
-	}()
-	return nil
+	return openDesktopPath(target)
 }
 
 func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
-	name, err := safeName(r.PathValue("name"))
-	if err != nil || name != r.PathValue("name") {
-		writeError(w, http.StatusBadRequest, "文件名无效")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	name := r.PathValue("name")
+	resolved, err := s.sharedPath(name)
+	if err != nil || name == "" {
+		filesystemError(w, errOrInvalid(err))
 		return
 	}
-	info, err := os.Stat(filepath.Join(s.dir, name))
+	info, err := os.Stat(resolved)
 	if errors.Is(err, os.ErrNotExist) || (err == nil && !info.Mode().IsRegular()) {
 		writeError(w, http.StatusNotFound, "文件不存在")
 		return
@@ -446,7 +517,7 @@ func (s *server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "无法删除文件")
 		return
 	}
-	if err := os.Remove(filepath.Join(s.dir, name)); err != nil {
+	if err := os.Remove(resolved); err != nil {
 		writeError(w, http.StatusInternalServerError, "无法删除文件")
 		return
 	}
@@ -470,14 +541,14 @@ func safeName(name string) (string, error) {
 }
 
 func availableName(dir, name string) string {
-	if _, err := os.Stat(filepath.Join(dir, name)); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(dir, name)); errors.Is(err, os.ErrNotExist) {
 		return name
 	}
 	ext := filepath.Ext(name)
 	base := strings.TrimSuffix(name, ext)
 	for i := 2; ; i++ {
 		candidate := base + " (" + strconv.Itoa(i) + ")" + ext
-		if _, err := os.Stat(filepath.Join(dir, candidate)); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(filepath.Join(dir, candidate)); errors.Is(err, os.ErrNotExist) {
 			return candidate
 		}
 	}
@@ -570,17 +641,27 @@ func reachableLocalURLs(ctx context.Context, urls []string) []string {
 }
 
 func main() {
+	if len(os.Args) == 3 && os.Args[1] == "--internal-updater" {
+		if err := runUpdateHelper(os.Args[2]); err != nil {
+			log.Print(err)
+			os.Exit(1)
+		}
+		return
+	}
 	listen := flag.String("listen", ":8080", "监听地址")
-	dir := flag.String("dir", "./lan-copy-data", "文件存储目录")
+	dir := flag.String("dir", defaultStorageName(systemLanguage()), "文件存储目录")
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
 	flag.Parse()
 
+	customDir := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "dir" {
+			customDir = true
+		}
+	})
 	setupConsole()
-
-	app, err := newServer(*dir, *maxGB<<30)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Acquire the listener before moving any legacy storage. A second launch must
+	// never rename a directory that an already-running instance is using.
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
 		if notifyAlreadyRunning(*listen, *dir) {
@@ -588,6 +669,16 @@ func main() {
 		}
 		log.Fatal(err)
 	}
+	if !customDir {
+		if err := migrateDefaultStorage(*dir); err != nil {
+			log.Fatal(err)
+		}
+	}
+	app, err := newServer(*dir, *maxGB<<30)
+	if err != nil {
+		log.Fatal(err)
+	}
+	app.updater = configureUpdater(listener.Addr().String(), *dir)
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)
 	log.Printf("本机访问: http://localhost:%s", port)
@@ -604,7 +695,14 @@ func main() {
 	go func() {
 		serveErrors <- httpServer.Serve(listener)
 	}()
-	waitForAnyKeyToCloseConsole()
+	if os.Getenv("LAN_COPY_UPDATE_ID") == "" && openBrowserOnLaunch() {
+		if err := openBrowser(fmt.Sprintf("http://localhost:%s", port)); err != nil {
+			log.Printf("无法自动打开浏览器，请手动访问 http://localhost:%s（%v）", port, err)
+		}
+	}
+	if os.Getenv("LAN_COPY_UPDATE_ID") == "" {
+		go waitForAnyKeyToCloseConsole()
+	}
 
 	select {
 	case err := <-serveErrors:

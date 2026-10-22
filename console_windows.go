@@ -6,11 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
-	"net/http"
-	"strings"
 	"syscall"
-	"time"
 	"unsafe"
 )
 
@@ -29,6 +25,8 @@ var (
 	procFreeConsole        = kernel32.NewProc("FreeConsole")
 	procGetProcList        = kernel32.NewProc("GetConsoleProcessList")
 	procSetConsoleOutputCP = kernel32.NewProc("SetConsoleOutputCP")
+	shell32                = syscall.NewLazyDLL("shell32.dll")
+	procShellExecute       = shell32.NewProc("ShellExecuteW")
 )
 
 const consoleCodePageUTF8 = 65001
@@ -37,6 +35,25 @@ func setupConsole() {
 	if hwnd, _, _ := procGetConsoleWindow.Call(); hwnd != 0 {
 		procSetConsoleOutputCP.Call(consoleCodePageUTF8)
 	}
+}
+
+func openBrowser(target string) error { return openDesktopPath(target) }
+
+func openDesktopPath(target string) error {
+	verb, err := syscall.UTF16PtrFromString("open")
+	if err != nil {
+		return err
+	}
+	url, err := syscall.UTF16PtrFromString(target)
+	if err != nil {
+		return err
+	}
+	result, _, callErr := procShellExecute.Call(0,
+		uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(url)), 0, 0, 1)
+	if result <= 32 {
+		return fmt.Errorf("ShellExecuteW failed (code %d): %v", result, callErr)
+	}
+	return nil
 }
 
 func ownsExclusiveConsole() bool {
@@ -56,6 +73,10 @@ func consoleInteractive() bool {
 	var mode uint32
 	ret, _, _ := procGetConsoleMode.Call(hIn, uintptr(unsafe.Pointer(&mode)))
 	return ret != 0
+}
+
+func openBrowserOnLaunch() bool {
+	return ownsExclusiveConsole() && consoleInteractive()
 }
 
 func waitForAnyKey() {
@@ -90,37 +111,21 @@ func waitForAnyKeyToCloseConsole() {
 	log.SetOutput(io.Discard)
 }
 
-// notifyAlreadyRunning 在端口被占用时探测是否已有 Lan Copy 实例在后台运行；
-// 如果是，则显示与首次启动相同的提示界面，按任意键后直接退出。
-func notifyAlreadyRunning(listen, dir string) bool {
-	if !ownsExclusiveConsole() {
+// A repeated launch opens the existing service regardless of console ownership.
+// Only a console created for this invocation may be detached.
+func notifyAlreadyRunning(listen, _ string) bool {
+	found, err := openRunningInstance(listen, openBrowser)
+	if !found {
 		return false
 	}
-	_, port, err := net.SplitHostPort(listen)
-	if err != nil || port == "" {
-		port = "8080"
-	}
-	client := &http.Client{Timeout: 800 * time.Millisecond}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%s/healthz", port))
 	if err != nil {
-		return false
+		log.Printf("Lan Copy 已在运行，但无法自动打开浏览器：%v", err)
+	} else {
+		fmt.Println("Lan Copy 已在运行，已在浏览器打开已有页面。")
 	}
-	body, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "ok" {
-		return false
+	if err == nil && ownsExclusiveConsole() {
+		procFreeConsole.Call()
+		log.SetOutput(io.Discard)
 	}
-
-	fmt.Printf("Lan Copy 已在后台运行，文件保存在 %s\n", dir)
-	fmt.Printf("本机访问: http://localhost:%s\n", port)
-	for _, address := range localURLs(fmt.Sprintf(":%s", port)) {
-		fmt.Printf("局域网访问: %s\n", address)
-	}
-	fmt.Printf("\n请在浏览器打开 http://localhost:%s 查看功能。\n", port)
-	fmt.Println()
-	fmt.Println("本控制台窗口已无其他用途，可随时关闭。如需停止服务，请在网页右上角点击“关闭软件”。")
-	fmt.Println("按任意键关闭本窗口……")
-
-	waitForAnyKey()
 	return true
 }
