@@ -96,7 +96,7 @@ async function testTextRefreshCancellationAndEvents() {
 async function testDirectoryRequestAbortsPrevious() {
  const source=fs.readFileSync(path.join(__dirname,'../web/filesystem.js'),'utf8');
  const start=source.indexOf('async function loadDirectory()'),end=source.indexOf('\nfunction renderEntries()',start);
- let calls=0,signals=[];const fixture={requestVersion:0,currentPath:'',lastListing:'',entries:[],stopped:false,directoryController:null,events:null,searchTimer:null,document:{hidden:false},AbortController,URLSearchParams,Event,
+ let calls=0,signals=[];const fixture={requestVersion:0,currentPath:'',lastListing:'',entries:[],selectedPaths:new Set(),stopped:false,directoryController:null,events:null,searchTimer:null,document:{hidden:false},AbortController,URLSearchParams,Event,
   $:s=>s==='#search'?{value:''}:{textContent:'',replaceChildren(){},classList:{add(){}}},window:{dispatchEvent:e=>signals.push(e.type)},crumbs(){},renderEntries(){},notify(){},navigate(){},startFallbackRefresh(){},stopFallbackRefresh(){},setTimeout,clearTimeout,api(_url,_data,signal){calls++;if(calls===1)return new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(Object.assign(new Error('aborted'),{name:'AbortError'}))));return Promise.resolve({entries:[]});}};
  vm.createContext(fixture);vm.runInContext(source.slice(start,end),fixture);
  const old=fixture.loadDirectory();const latest=fixture.loadDirectory();await Promise.all([old,latest]);assert.equal(calls,2);assert.deepEqual(signals,['lan-copy:data-updated']);

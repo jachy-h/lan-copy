@@ -1,6 +1,18 @@
 const $ = (selector) => document.querySelector(selector);
 let currentPath = new URLSearchParams(location.hash.slice(1)).get("path") || "";
 let entries = [];
+let selectedPaths = new Set();
+let selectionAnchor = null;
+let focusedPath = null;
+let sortKey = "name";
+let sortDirection = "ascending";
+try {
+  const savedSort = localStorage.getItem("lan-copy.files.sort");
+  const savedDirection = localStorage.getItem("lan-copy.files.direction");
+  if (["name", "modified", "type", "size"].includes(savedSort)) sortKey = savedSort;
+  if (["ascending", "descending"].includes(savedDirection)) sortDirection = savedDirection;
+} catch {}
+let menuReturnFocus = null;
 let editing = null;
 let editingExtension = "";
 let moving = null;
@@ -58,7 +70,7 @@ function crumbs(container, value, navigate, droppable = false) {
   container.replaceChildren();
   const segments = value ? value.split("/") : [];
   ["全部文件", ...segments].forEach((name, index) => {
-    const target = segments.slice(0, index).join("/");
+    const target = segments.slice(0, Math.max(0, index - 1)).join("/");
     if (index) container.append(element("span", "", "/"));
     const item = button(name, () => navigate(target), "crumb");
     if (index === segments.length) item.setAttribute("aria-current", "location");
@@ -67,15 +79,16 @@ function crumbs(container, value, navigate, droppable = false) {
   });
 }
 function navigate(value) {
+  if (value === currentPath) return;
   directoryController?.abort();
   currentPath = value;
   lastListing = "";
   entries = [];
+  selectedPaths.clear(); selectionAnchor = null; focusedPath = null;
   $("#entries").replaceChildren();
   $("#directoryEmpty").classList.add("hidden");
   $("#entrySummary").textContent = "正在读取…";
-  $("#search").value = "";
-  history.replaceState(null, "", `#${new URLSearchParams({path: value})}`);
+  history.pushState(null, "", `#${new URLSearchParams({path: value})}`);
   loadDirectory();
 }
 async function loadDirectory() {
@@ -95,6 +108,8 @@ async function loadDirectory() {
     if (signature === lastListing) { window.dispatchEvent(new Event("lan-copy:data-updated")); return; }
     lastListing = signature;
     entries = result.entries;
+    const valid = new Set(entries.map(item => item.path));
+    selectedPaths = new Set([...selectedPaths].filter(path => valid.has(path)));
     crumbs($("#breadcrumbs"), currentPath, navigate, true);
     renderEntries();
     window.dispatchEvent(new Event("lan-copy:data-updated"));
@@ -115,39 +130,143 @@ async function loadDirectory() {
 }
 function renderEntries() {
   const query = $("#search").value.trim();
-  const visible = entries;
+  const collator = new Intl.Collator(undefined, {numeric: true, sensitivity: "base"});
+  const visible = [...entries].sort((a, b) => {
+    if (a.directory !== b.directory) return a.directory ? -1 : 1;
+    let result;
+    if (sortKey === "modified") result = new Date(a.modified) - new Date(b.modified);
+    else if (sortKey === "size") result = (a.size || 0) - (b.size || 0);
+    else if (sortKey === "type") result = collator.compare(a.directory ? "文件夹" : (a.name.split(".").pop() || ""), b.directory ? "文件夹" : (b.name.split(".").pop() || ""));
+    else result = collator.compare(a.name, b.name);
+    return (sortDirection === "ascending" ? 1 : -1) * (result || collator.compare(a.name, b.name));
+  });
   const folders = entries.filter(item => item.directory).length;
   $("#entrySummary").textContent = query ? `${visible.length} 个匹配项（含子文件夹）` : `${folders} 个文件夹 · ${entries.length - folders} 个文件`;
+  $("#currentFolderName").textContent = currentPath.split("/").pop() || "全部文件";
+  $("#goParent").disabled = !currentPath;
+  $("#clearSearch").hidden = !query;
+  document.querySelectorAll("#listHeader [data-sort]").forEach(header => {
+    const active = header.dataset.sort === sortKey;
+    header.parentElement.setAttribute("aria-sort", active ? sortDirection : "none");
+    header.querySelector("span").textContent = active ? (sortDirection === "ascending" ? "↑" : "↓") : "";
+  });
   $("#directoryEmpty").classList.toggle("hidden", visible.length > 0);
   $("#emptyTitle").textContent = query ? "没有匹配的文件或文件夹" : "这个文件夹还是空的";
   $("#entries").replaceChildren(...visible.map(item => {
-    const row = element("article", `file-row explorer-row${query ? " search-result" : ""}`);
+    const row = element("article", `file-row explorer-row${query ? " search-result" : ""}${selectedPaths.has(item.path) ? " selected" : ""}`);
+    row.dataset.path = item.path; row.setAttribute("role", "row"); row.setAttribute("aria-selected", selectedPaths.has(item.path)); row.tabIndex = item.path === focusedPath || (!focusedPath && visible[0] === item) ? 0 : -1;
     row.draggable = true;
     row.addEventListener("dragstart", event => { event.dataTransfer.setData("application/x-lan-copy-path", item.path); event.dataTransfer.effectAllowed = "move"; });
+    row.addEventListener("click", event => selectRow(item, event, visible));
+    row.addEventListener("dblclick", event => { if (event.target.closest("button,a")) return; openEntry(item); });
+    row.addEventListener("contextmenu", event => { event.preventDefault(); selectContextItem(item, event); showFileMenu(event.clientX, event.clientY, row); });
     const icon = element("div", `file-icon${item.directory ? " folder-icon" : ""}`, item.directory ? "▱" : item.name.split(".").pop().slice(0, 4));
     icon.setAttribute("aria-hidden", "true");
-    const main = element("div", "file-main");
-    const name = item.directory ? button(item.name, () => navigate(item.path), "file-name folder-name") : LanCopyFileUI.previewName(item);
-    if (item.directory) name.title = item.name;
+    const main = element("div", "file-main name-cell");
+    const name = item.directory ? button(item.name, event => { event.stopPropagation(); navigate(item.path); }, "file-name folder-name") : element("span", "file-name", item.name);
+    name.title = item.name;
     LanCopyFileUI.highlight(name, item.name, query);
     LanCopyFileUI.thumbnail(icon, item);
-    main.append(name, element("div", "file-meta", `${query ? `位于 ${item.path.includes("/") ? item.path.slice(0, item.path.lastIndexOf("/")) : "全部文件"} · ` : ""}${item.directory ? "文件夹" : formatBytes(item.size)} · ${new Date(item.modified).toLocaleString("zh-CN", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"})}`));
+    main.prepend(icon); main.append(name);
+    const date = element("div", "file-cell modified-cell", new Date(item.modified).toLocaleString("zh-CN", {year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}));
+    const type = element("div", "file-cell type-cell", item.directory ? "文件夹" : (item.name.includes(".") ? `${item.name.split(".").pop().toUpperCase()} 文件` : "文件"));
+    const size = element("div", "file-cell size-cell", item.directory ? "—" : formatBytes(item.size));
+    [main,date,type,size].forEach(cell => cell.setAttribute("role", "gridcell"));
     const actions = element("div", "explorer-actions");
-    if (!item.directory) {
-      if (localhostAccess) {
-        actions.append(button("打开文件夹", event => openContainingFolder(item, event.currentTarget)));
-      } else {
-        const download = element("a", "secondary", "下载");
-        download.href = `/files/${encodeURIComponent(item.path)}`;
-        download.download = item.name;
-        actions.append(download);
-      }
-    }
-    actions.append(button("移动", () => openMove(item)), button("重命名", () => openEdit(item)), button("删除", () => deleteEntry(item), "secondary danger"));
+    const more = button("⋯", event => { event.stopPropagation(); selectContextItem(item, event); showFileMenuAtButton(event.currentTarget, row); }, "secondary row-menu-button");
+    more.setAttribute("aria-label", `更多操作：${item.name}`); more.setAttribute("aria-haspopup", "menu"); actions.append(more);
     if (item.directory) dropTarget(row, item.path);
-    row.append(icon, main, actions);
+    row.append(main, date, type, size, actions);
     return row;
   }));
+  updateSelectionBar();
+}
+function itemByPath(path) { return entries.find(item => item.path === path); }
+function selectedItems() { return [...selectedPaths].map(itemByPath).filter(Boolean); }
+function updateSelectionBar() {
+  const items = selectedItems();
+  $("#selectionBar").hidden = !items.length;
+  $("#selectionSummary").textContent = `${items.length} 项已选择`;
+}
+function selectRow(item, event, visible) {
+  focusedPath = item.path;
+  const row = event.currentTarget;
+  if (event.shiftKey && selectionAnchor) {
+    const start = visible.findIndex(entry => entry.path === selectionAnchor);
+    const end = visible.findIndex(entry => entry.path === item.path);
+    if (start >= 0 && end >= 0) {
+      if (!event.ctrlKey && !event.metaKey) selectedPaths.clear();
+      visible.slice(Math.min(start, end), Math.max(start, end) + 1).forEach(entry => selectedPaths.add(entry.path));
+    }
+  } else if (event.ctrlKey || event.metaKey) {
+    selectedPaths.has(item.path) ? selectedPaths.delete(item.path) : selectedPaths.add(item.path);
+    selectionAnchor = item.path;
+  } else {
+    selectedPaths = new Set([item.path]); selectionAnchor = item.path;
+  }
+  document.querySelectorAll(".explorer-row").forEach(node => {
+    const selected = selectedPaths.has(node.dataset.path);
+    node.classList.toggle("selected", selected); node.setAttribute("aria-selected", String(selected));
+  });
+  document.querySelectorAll(".explorer-row").forEach(node => node.tabIndex = node.dataset.path === item.path ? 0 : -1);
+  updateSelectionBar();
+}
+function selectContextItem(item, event) {
+  focusedPath = item.path;
+  if (!selectedPaths.has(item.path)) {
+    selectedPaths = new Set([item.path]); selectionAnchor = item.path;
+    document.querySelectorAll(".explorer-row").forEach(node => {
+      const selected = selectedPaths.has(node.dataset.path);
+      node.classList.toggle("selected", selected); node.setAttribute("aria-selected", String(selected));
+    });
+    updateSelectionBar();
+  }
+}
+function openEntry(item) {
+  if (item.directory) navigate(item.path);
+  else if (item.previewType) location.href = `/preview.html?${new URLSearchParams({path: item.path, from: currentPath})}`;
+  else location.href = `/files/${encodeURIComponent(item.path)}`;
+}
+function closeFileMenu(restore = true) {
+  const menu = $("#fileMenu");
+  if (menu.hidden) return;
+  menu.hidden = true;
+  $("#selectionMenuButton").setAttribute("aria-expanded", "false");
+  if (restore && menuReturnFocus?.isConnected) menuReturnFocus.focus();
+}
+function addMenuAction(label, action, disabled = false) {
+  const node = element("button", "file-menu-item", label); node.type = "button"; node.setAttribute("role", "menuitem"); node.disabled = disabled;
+  node.addEventListener("click", () => { closeFileMenu(true); action(); }); $("#fileMenu").append(node);
+}
+function populateFileMenu() {
+  const menu = $("#fileMenu"), items = selectedItems(); menu.replaceChildren();
+  if (items.length === 1) {
+    const item = items[0];
+    addMenuAction(item.directory ? "打开" : (item.previewType ? "预览" : "下载"), () => openEntry(item));
+    if (!item.directory) {
+      if (localhostAccess) addMenuAction("打开所在文件夹", () => openContainingFolder(item, $("#selectionMenuButton")));
+      else addMenuAction("下载", () => { const a = document.createElement("a"); a.href = `/files/${encodeURIComponent(item.path)}`; a.download = item.name; a.click(); });
+    }
+    addMenuAction("移动…", () => openMove(item));
+    addMenuAction("重命名", () => openEdit(item));
+    addMenuAction("删除", () => deleteEntry(item));
+  }
+  addMenuAction(items.length > 1 ? "复制所选路径" : "复制路径", async () => {
+    const ok = await LanCopyFileUI.copyText(items.map(item => item.path).join("\n"));
+    notify(ok ? `已复制${items.length > 1 ? `${items.length} 个` : ""}路径` : "无法访问剪贴板，请检查浏览器权限", !ok);
+  });
+}
+function showFileMenu(x, y, trigger) {
+  populateFileMenu(); menuReturnFocus = trigger;
+  const menu = $("#fileMenu"); menu.hidden = false;
+  const rect = menu.getBoundingClientRect(); menu.style.left = `${Math.max(8, Math.min(x, innerWidth - rect.width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(y, innerHeight - rect.height - 8))}px`;
+  menu.querySelector("button:not(:disabled)")?.focus();
+  $("#selectionMenuButton").setAttribute("aria-expanded", "true");
+}
+function showFileMenuAtButton(buttonNode, row) { const rect = buttonNode.getBoundingClientRect(); showFileMenu(rect.right, rect.bottom, buttonNode); }
+function showSelectionMenu() {
+  if (!selectedPaths.size) return;
+  const rect = $("#selectionMenuButton").getBoundingClientRect(); showFileMenu(rect.left, rect.bottom, $("#selectionMenuButton"));
 }
 async function openContainingFolder(item, trigger) {
   trigger.disabled = true;
@@ -272,6 +391,50 @@ $("#search").addEventListener("input", () => {
  $("#entrySummary").textContent = "正在搜索…";
  searchTimer = setTimeout(loadDirectory, 200);
 });
+$("#clearSearch").addEventListener("click", () => { $("#search").value = ""; loadDirectory(); $("#search").focus(); });
+$("#goParent").addEventListener("click", () => navigate(currentPath.includes("/") ? currentPath.slice(0, currentPath.lastIndexOf("/")) : ""));
+$("#goRoot").addEventListener("click", () => navigate(""));
+$("#refreshFiles").addEventListener("click", loadDirectory);
+$("#selectionMenuButton").addEventListener("click", showSelectionMenu);
+document.querySelectorAll("#listHeader [data-sort]").forEach(header => header.addEventListener("click", () => {
+  if (sortKey === header.dataset.sort) sortDirection = sortDirection === "ascending" ? "descending" : "ascending";
+  else { sortKey = header.dataset.sort; sortDirection = "ascending"; }
+  try { localStorage.setItem("lan-copy.files.sort", sortKey); localStorage.setItem("lan-copy.files.direction", sortDirection); } catch {}
+  renderEntries();
+}));
+$("#entries").addEventListener("keydown", event => {
+  const rows = [...$("#entries").querySelectorAll(".explorer-row")];
+  if (!rows.length) return;
+  const current = event.target.closest(".explorer-row");
+  let index = rows.indexOf(current);
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault(); index = Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
+    focusedPath = rows[index].dataset.path; rows.forEach(row => row.tabIndex = row === rows[index] ? 0 : -1); rows[index].focus();
+  } else if (event.key === "Enter" && current && !event.target.closest("button,a")) { event.preventDefault(); openEntry(itemByPath(current.dataset.path)); }
+  else if (event.key === " " && !event.target.closest("button,a")) { event.preventDefault(); if (current) selectRow(itemByPath(current.dataset.path), {currentTarget: current, ctrlKey: true, metaKey: false, shiftKey: false}, rows.map(row => itemByPath(row.dataset.path))); }
+});
+document.addEventListener("keydown", async event => {
+  if ($("#fileMenu").hidden) return;
+  const menu = $("#fileMenu"), items = [...menu.querySelectorAll("button:not(:disabled)")], active = items.indexOf(document.activeElement);
+  if (event.key === "Escape") { event.preventDefault(); closeFileMenu(); }
+  else if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); items[(active + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus(); }
+  else if (event.key === "Home") { event.preventDefault(); items[0]?.focus(); }
+  else if (event.key === "End") { event.preventDefault(); items.at(-1)?.focus(); }
+});
+document.addEventListener("click", event => { if (!event.target.closest("#fileMenu") && !event.target.closest("#selectionMenuButton") && !event.target.closest(".row-menu-button")) closeFileMenu(false); });
+document.addEventListener("keydown", async event => {
+  if (event.defaultPrevented || event.target.closest("input,textarea,select,[contenteditable=true],dialog") || !$("#fileMenu").hidden) return;
+  const command = event.ctrlKey || event.metaKey;
+  if (event.key === "Escape") { if (selectedPaths.size) { selectedPaths.clear(); document.querySelectorAll(".explorer-row").forEach(row => { row.classList.remove("selected"); row.setAttribute("aria-selected", "false"); }); updateSelectionBar(); } return; }
+  if (!$("#entries").contains(event.target) && !event.target.closest(".explorer-row")) return;
+  if (command && event.key.toLowerCase() === "a") { event.preventDefault(); selectedPaths = new Set(entries.map(item => item.path)); renderEntries(); return; }
+  if (event.key === "F2" && selectedPaths.size === 1) { event.preventDefault(); openEdit(selectedItems()[0]); }
+  else if (event.key === "Delete" && selectedPaths.size === 1) { event.preventDefault(); deleteEntry(selectedItems()[0]); }
+  else if (command && event.key.toLowerCase() === "c" && selectedPaths.size) {
+    event.preventDefault(); const ok = await LanCopyFileUI.copyText(selectedItems().map(item => item.path).join("\n"));
+    notify(ok ? "已复制路径" : "无法访问剪贴板，请检查浏览器权限", !ok);
+  }
+});
 function scheduleDirectoryRefresh() {
  if (stopped || document.hidden) return;
  clearTimeout(searchTimer);
@@ -294,7 +457,10 @@ if (window.EventSource) {
  events.onopen = () => { stopFallbackRefresh(); scheduleDirectoryRefresh(); };
  events.onerror = startFallbackRefresh;
 } else startFallbackRefresh();
-window.addEventListener("hashchange", () => { currentPath = new URLSearchParams(location.hash.slice(1)).get("path") || ""; loadDirectory(); });
+window.addEventListener("popstate", () => {
+  currentPath = new URLSearchParams(location.hash.slice(1)).get("path") || "";
+  selectedPaths.clear(); selectionAnchor = null; focusedPath = null; lastListing = ""; loadDirectory();
+});
 document.addEventListener("visibilitychange", () => {
  if (document.hidden) {
   directoryController?.abort(); clearTimeout(searchTimer); clearTimeout(eventRefreshTimer); eventRefreshTimer = null; stopFallbackRefresh();
