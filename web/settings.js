@@ -45,6 +45,7 @@
     </section>
     <section id="updateSettings" role="tabpanel" aria-labelledby="updateTab" hidden>
      <h3>自动更新</h3><p class="settings-version">正在读取版本…</p>
+     <p>局域网内的访客也可以发起更新；更新的是运行 Lan Copy 的电脑。</p>
      <p class="release-status" role="status" aria-live="polite">进入此菜单后自动检查新版本。</p>
      <div class="release-actions"><button class="primary release-install" type="button" hidden disabled>下载并更新</button><a class="release-page" target="_blank" rel="noopener noreferrer" hidden>前往查看 ↗</a><button class="secondary release-check" type="button">重新检查</button></div>
      <h3 class="manual-update-title">手动更新</h3>

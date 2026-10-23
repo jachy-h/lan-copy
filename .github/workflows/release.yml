@@ -90,7 +90,7 @@ jobs:
             exit 1
           fi
           make build VERSION="$RELEASE_VERSION"
-          LAN_COPY_RELEASE_DIR=release LAN_COPY_RELEASE_VERSION="$RELEASE_VERSION" go test -run '^TestPublishedReleasePackages$' .
+          LAN_COPY_RELEASE_DIR=release LAN_COPY_RELEASE_VERSION="$RELEASE_VERSION" go test -run '^TestPublishedReleasePackages$' ./internal/httpserver
           git diff --exit-code -- VERSION
           printf '\nSigned Windows amd64 and macOS Apple Silicon packages built for **%s**.\n' "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
           printf '\n```text\n' >> "$GITHUB_STEP_SUMMARY"

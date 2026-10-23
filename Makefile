@@ -18,7 +18,7 @@ LDFLAGS := -s -w -X main.version=$(BUILD_VERSION) -X main.updatePublicKey=$(UPDA
 WINDOWS_ARCHES ?= amd64
 WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/局域网快传-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
-SOURCES := Makefile go.mod $(wildcard *.go) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
+SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
 .PHONY: all build publish artifacts windows macos checksums test clean dist-clean FORCE
 

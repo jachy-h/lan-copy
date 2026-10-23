@@ -54,10 +54,15 @@ async function main() {
  assert.equal(get('.release-status').classes.has('success'),true);
  assert.equal(get('.release-install').hidden,true);assert.equal(get('.release-page').hidden,true);
  info.local=false;
+ available=true;
  startupEnabled=true;
  gear.handlers.get('click')();await settle();
  assert.equal(get('.autostart-toggle').checked,true);
  assert.equal(get('.autostart-toggle').disabled,true);
+ assert.equal(get('.release-install').hidden,false);
+ assert.equal(get('.release-install').disabled,false);
+ get('.release-install').handlers.get('click')();await settle();
+ assert.equal(posts,2);assert.equal(reloads,2);
  startupEnabled=false;
  gear.handlers.get('click')();await settle();
  assert.equal(get('.autostart-toggle').checked,false);

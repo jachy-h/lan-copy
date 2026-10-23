@@ -20,10 +20,15 @@
 
 ```text
 lan-copy/
-├── main.go               # HTTP 服务、文件上传/下载 API / HTTP server, upload & download APIs
-├── text.go               # 文本共享存储 / Shared-text storage
-├── console_windows.go    # Windows 控制台交互（按任意键关闭）/ Windows console interaction
-├── console_other.go      # 非 Windows 平台的空实现 / No-op for non-Windows
+├── main.go, startup.go    # 薄入口与构建变量 / thin entry point and build variables
+├── assets.go             # go:embed 前端资源 / embedded frontend assets
+├── internal/
+│   ├── app/              # 组件组装、启动恢复与关停 / assembly, startup recovery, shutdown
+│   ├── httpserver/       # 路由、HTTP 处理、SSE / routes, handlers, SSE
+│   ├── filestore/        # 文件操作与上传事务 / files and upload transactions
+│   ├── textstore/        # 文本持久化 / shared-text persistence
+│   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
+│   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
 ├── lan-copy.syso         # 编译时自动链接的图标资源 / Icon resource linked by go build
 ├── build.bat             # Windows 快捷构建脚本 / Quick build script (Windows)
@@ -121,13 +126,13 @@ docker run --rm -p 8080:8080 -v "$PWD/lan-copy-data:/data" lan-copy
 
 English: when launched by double-clicking in Explorer, the console prints startup info, opens the default browser, and waits for any key; the key press calls `FreeConsole()` so the console closes while the service keeps running. Shut it down from the local `localhost` page (`/api/shutdown`); if uploads or downloads are active, review the warning and type “强制关闭” to confirm. Repeated launches from Explorer or a terminal probe the occupied address, verify the Lan Copy health marker, open the existing page, and exit without starting another server. Probes briefly retry during concurrent startup. Stop older versions once when upgrading: they lack the service identity header.
 
-实现位于 `console_windows.go`（`console_other.go` 为空实现）。仅当进程独占控制台（`GetConsoleProcessList` 只有一个进程，即双击场景）时启用控制台关闭交互；重复启动识别不受此限制。浏览器、文件和目录均通过 Windows 原生 `ShellExecuteW` 打开。
+实现位于 `internal/desktop/console_windows.go`（`console_other.go` 为空实现）。仅当进程独占控制台（`GetConsoleProcessList` 只有一个进程，即双击场景）时启用控制台关闭交互；重复启动识别不受此限制。浏览器、文件和目录均通过 Windows 原生 `ShellExecuteW` 打开。
 
-The logic lives in `console_windows.go` (`console_other.go` is a stub). Console detachment only activates when the process exclusively owns its console. Repeat-launch detection is independent of console ownership. Windows opens browsers, files and folders through ShellExecuteW.
+The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is a stub). Console detachment only activates when the process exclusively owns its console. Repeat-launch detection is independent of console ownership. Windows opens browsers, files and folders through ShellExecuteW.
 
 ## 架构说明 / Architecture
 
-- 单二进制：`web/` 通过 `go:embed` 内嵌；所有路由挂在 `net/http.ServeMux`。
+- 单二进制：根目录将 `web/` 通过 `go:embed` 内嵌并传给 `internal/app`；`app` 组装组件和 `internal/httpserver`，后者在 `net/http.ServeMux` 注册路由。`filestore`、`textstore`、`updater` 和 `desktop` 不依赖 HTTP 层。
 - API 一览：
   - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。目录上传先用 `POST /api/upload-tree/preflight?path=...` 提交 JSON 清单（`entries: [{path, directory}]`），响应包含一次性会话和冲突列表；确认后使用 `POST /api/upload-tree?path=...&session=...` 以 multipart 提交，首项为 `manifest` JSON（`entries`、`replace`），文件体字段为对应下标的 `file-N`。会话 15 分钟过期，取消时可调用 `DELETE /api/upload-tree/session/{id}`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；并发上传、全部暂存文件字节和请求体空闲时间分别受设置页配置约束。完成后在锁内以同文件系统改名提交，并重新校验目标。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
   - `GET/PUT /api/settings/upload-resources` 读取或修改上传全局资源限制；访客只读，PUT 仅接受本机同源请求并要求 `X-Lan-Copy-Action: upload-resources`。配置含 `concurrentUploads`、`stagingGiB`、`idleTimeoutSeconds`。
