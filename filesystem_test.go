@@ -174,7 +174,11 @@ func TestSharedPathUsesPortableComponentRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{".UPLOAD-private/file.txt", ".LaN-CoPy-private/file.txt", "folder/CON.txt", "folder/Lpt9.log", "folder/trailing.", "folder/name:stream"} {
+	for _, name := range []string{
+		".UPLOAD-private/file.txt", ".LaN-CoPy-private/file.txt",
+		"folder/CON.txt", "folder/CON.txt.log", "folder/CONIN$", "folder/conout$.txt",
+		"folder/Lpt9.log", "folder/COM¹.txt", "folder/LPT².log", "folder/trailing.", "folder/name:stream",
+	} {
 		if _, err := app.sharedPath(name); err == nil {
 			t.Errorf("sharedPath(%q) unexpectedly accepted", name)
 		}

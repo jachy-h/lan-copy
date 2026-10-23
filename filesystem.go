@@ -69,9 +69,16 @@ func validateSharedComponent(component string) error {
 			return fs.ErrInvalid
 		}
 	}
-	// Windows reserves these device names even when an extension is present.
-	stem := strings.ToUpper(strings.TrimSuffix(component, path.Ext(component)))
-	if stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || (len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9') {
+	// Windows reserves these device names even when one or more extensions
+	// follow them. COM/LPT also accept the superscript digits documented by
+	// Windows, and CONIN$/CONOUT$ are reserved console device names.
+	stem := component
+	if dot := strings.IndexByte(stem, '.'); dot >= 0 {
+		stem = stem[:dot]
+	}
+	stem = strings.ToUpper(stem)
+	runes := []rune(stem)
+	if stem == "CON" || stem == "PRN" || stem == "AUX" || stem == "NUL" || stem == "CONIN$" || stem == "CONOUT$" || (len(runes) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && (runes[3] >= '1' && runes[3] <= '9' || runes[3] == '¹' || runes[3] == '²' || runes[3] == '³')) {
 		return fs.ErrInvalid
 	}
 	return nil
