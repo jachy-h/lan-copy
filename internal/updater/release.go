@@ -111,15 +111,26 @@ func (s *ReleaseService) Latest(ctx context.Context) (Release, error) {
 	return release, nil
 }
 func (r Release) Asset(goos, arch string) (string, error) {
-	name := ""
+	names := []string{}
 	if goos == "windows" {
-		name = "局域网快传-Windows-" + arch + ".zip"
+		names = []string{
+			"Lan-Copy-Windows-" + arch + ".zip",
+			"局域网快传-Windows-" + arch + ".zip",
+			"-Windows-" + arch + ".zip", // GitHub removes non-ASCII characters from older asset names.
+		}
 	}
 	if goos == "darwin" && arch == "arm64" {
-		name = "Lan-Copy-macOS-Apple-Silicon.tar.gz"
+		names = []string{"Lan-Copy-macOS-Apple-Silicon.tar.gz"}
 	}
 	for _, a := range r.Assets {
-		if name == "" || a.Name != name {
+		matched := false
+		for _, name := range names {
+			if a.Name == name {
+				matched = true
+				break
+			}
+		}
+		if !matched {
 			continue
 		}
 		u, err := url.Parse(a.URL)

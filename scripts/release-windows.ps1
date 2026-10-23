@@ -81,7 +81,7 @@ try {
         Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $package
         Copy-Item -LiteralPath (Join-Path $repository 'docs/WINDOWS-SECURITY.md') -Destination $package
         Copy-Item -LiteralPath (Join-Path $repository 'release-assets/offline-start.html') -Destination (Join-Path $package '使用说明.html')
-        $archiveName = "局域网快传-Windows-$architecture.zip"
+        $archiveName = "Lan-Copy-Windows-$architecture.zip"
         Compress-Archive -Path $package -DestinationPath (Join-Path $stage $archiveName)
         $archiveNames += $archiveName
     }

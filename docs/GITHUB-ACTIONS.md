@@ -10,7 +10,7 @@
 
 普通分支推送不会发布正式 Release。`main` 的构建产物可在对应 Actions 运行的 **Artifacts** 中下载，保留 14 天；包含两个压缩包和 `SHA256SUMS`。正式标签会将相同的三个文件上传为 Release 附件。
 
-构建后会重新读取两个真实发布包，验证 Ed25519 签名、程序哈希、平台、包内版本与 `VERSION` 一致，并验证附件名称能被在线更新器识别；检查通过才上传产物。发布时保留固定附件名 `局域网快传-Windows-amd64.zip` 和 `Lan-Copy-macOS-Apple-Silicon.tar.gz`，标签使用 `v` + `VERSION`。全部附件上传完成后才公开并标记为 Latest，供客户端“更新”菜单检查和下载。
+构建后会重新读取两个真实发布包，验证 Ed25519 签名、程序哈希、平台、包内版本与 `VERSION` 一致，并验证附件名称能被在线更新器识别；检查通过才上传产物。发布时保留固定附件名 `Lan-Copy-Windows-amd64.zip` 和 `Lan-Copy-macOS-Apple-Silicon.tar.gz`，标签使用 `v` + `VERSION`。全部附件上传完成后才公开并标记为 Latest，供客户端“更新”菜单检查和下载。
 
 ## 一次性配置签名
 

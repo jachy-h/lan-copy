@@ -23,7 +23,7 @@ type releaseTransport func(*http.Request) (*http.Response, error)
 func (f releaseTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 func fakeReleaseService(t *testing.T, tag string, archive []byte) (*updater.ReleaseService, *int) {
 	t.Helper()
-	name := "局域网快传-Windows-" + runtime.GOARCH + ".zip"
+	name := "Lan-Copy-Windows-" + runtime.GOARCH + ".zip"
 	if runtime.GOOS == "darwin" {
 		name = "Lan-Copy-macOS-Apple-Silicon.tar.gz"
 	}
@@ -172,7 +172,7 @@ func TestPublishedReleasePackages(t *testing.T) {
 		t.Fatal("missing or invalid LAN_COPY_RELEASE_VERSION")
 	}
 	for _, tc := range []struct{ name, goos, arch string }{
-		{"局域网快传-Windows-amd64.zip", "windows", "amd64"},
+		{"Lan-Copy-Windows-amd64.zip", "windows", "amd64"},
 		{"Lan-Copy-macOS-Apple-Silicon.tar.gz", "darwin", "arm64"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

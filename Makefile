@@ -16,7 +16,7 @@ UPDATE_PUBLIC_KEY ?= $(shell cat "$(UPDATE_PUBLIC_KEY_FILE)" 2>/dev/null)
 LDFLAGS := -s -w -X main.version=$(BUILD_VERSION) -X main.updatePublicKey=$(UPDATE_PUBLIC_KEY)
 
 WINDOWS_ARCHES ?= amd64
-WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/局域网快传-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
+WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
 SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
@@ -41,7 +41,7 @@ windows: $(WINDOWS_ARTIFACTS)
 
 macos: $(MACOS_ARTIFACTS)
 
-$(DIST_DIR)/局域网快传-Windows-%.zip: $(SOURCES) FORCE
+$(DIST_DIR)/Lan-Copy-Windows-%.zip: $(SOURCES) FORCE
 	@set -eu; \
 	name="局域网快传-Windows-$*"; \
 	stage="$(STAGE_DIR)/$$name"; \

@@ -75,7 +75,7 @@ make dist-clean     # 删除 release 目录 / remove release dir
 输出保存在 `release/` / Output lands in `release/`：
 
 ```text
-局域网快传-Windows-amd64.zip
+Lan-Copy-Windows-amd64.zip
 Lan-Copy-macOS-Apple-Silicon.tar.gz
 SHA256SUMS
 ```

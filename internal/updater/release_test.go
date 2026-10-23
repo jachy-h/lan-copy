@@ -48,6 +48,23 @@ func TestReleaseAssetValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWindowsAssetNames(t *testing.T) {
+	for _, name := range []string{
+		"Lan-Copy-Windows-amd64.zip",
+		"局域网快传-Windows-amd64.zip",
+		"-Windows-amd64.zip",
+	} {
+		t.Run(name, func(t *testing.T) {
+			address := "https://github.com/jachy-h/lan-copy/releases/download/v1.0.0/" + name
+			r := Release{Tag: "v1.0.0", Assets: []ReleaseAsset{{Name: name, URL: address, Size: 10}}}
+			got, err := r.Asset("windows", "amd64")
+			if err != nil || got != address {
+				t.Fatalf("asset %q: %q, %v", name, got, err)
+			}
+		})
+	}
+}
 func TestReleaseFailures(t *testing.T) {
 	for _, tc := range []struct {
 		code int
