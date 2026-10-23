@@ -43,6 +43,7 @@ type server struct {
 	releases          *releaseService
 	autostart         *autostartService
 	dir               string
+	dataDir           string
 	maxUpload         int64
 	fileMu            sync.Mutex
 	textMu            sync.Mutex
@@ -60,13 +61,24 @@ type server struct {
 }
 
 func newServer(dir string, maxUpload int64) (*server, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve storage directory: %w", err)
+	}
+	dataDir := appDataDirectory(absDir)
+	if err := os.MkdirAll(absDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create storage directory: %w", err)
 	}
-	if err := recoverTextStore(dir); err != nil {
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return nil, fmt.Errorf("create application data directory: %w", err)
+	}
+	if err := migrateInternalData(absDir, dataDir); err != nil {
+		return nil, fmt.Errorf("migrate application data: %w", err)
+	}
+	if err := recoverTextStore(dataDir); err != nil {
 		return nil, fmt.Errorf("recover shared text store: %w", err)
 	}
-	if err := recoverUploadTransactions(dir); err != nil {
+	if err := recoverUploadTransactionsAt(absDir, dataDir); err != nil {
 		return nil, fmt.Errorf("recover upload transactions: %w", err)
 	}
 	webRoot, err := fs.Sub(webFiles, "web")
@@ -90,7 +102,8 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 	appContext, cancelApp := context.WithCancel(context.Background())
 	return &server{
 		releases:          newReleaseService(),
-		dir:               dir,
+		dir:               absDir,
+		dataDir:           dataDir,
 		maxUpload:         maxUpload,
 		web:               web,
 		probeURLs:         reachableLocalURLs,

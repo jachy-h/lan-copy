@@ -141,7 +141,7 @@ func (s *server) deleteText(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) readTextsLocked() ([]textSnippet, error) {
-	data, err := os.ReadFile(filepath.Join(s.dir, textStore))
+	data, err := os.ReadFile(filepath.Join(s.dataDir, textStore))
 	if errors.Is(err, os.ErrNotExist) {
 		return []textSnippet{}, nil
 	}
@@ -156,7 +156,7 @@ func (s *server) readTextsLocked() ([]textSnippet, error) {
 }
 
 func (s *server) writeTextsLocked(texts []textSnippet) error {
-	return writeTextsWithOps(s.dir, texts, defaultTextStoreOps())
+	return writeTextsWithOps(s.dataDir, texts, defaultTextStoreOps())
 }
 
 type textStoreOps struct {

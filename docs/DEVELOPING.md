@@ -136,14 +136,14 @@ The logic lives in `console_windows.go` (`console_other.go` is a stub). Console 
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
   - `/` 共享空间首页，`/transfer.html` 文本共享页面（文本发布、复制和删除；文件上传与浏览统一在共享空间），旧地址 `/filesystem.html` 重定向到首页；文件夹对应存储目录中的真实目录，无额外索引数据库
-  - `GET/POST /api/texts`、`DELETE /api/texts/{id}` 共享文本
+  - `GET/POST /api/texts`、`DELETE /api/texts/{id}` 共享文本保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` SSE 实时刷新（25s 心跳）、`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查
 
 共享目录内的应用路径检查适用于应用自身的请求与事务；本机其他进程直接并发修改共享目录不属于受支持的安全边界。应用当前仍使用路径级文件操作，不能防止外部进程在校验后替换目录项或符号链接。
 - 并发模型：文件操作与共享文本分别使用互斥锁；文件/目录列表在文件锁内收集元数据，锁外排序并写响应。文件事件通过订阅 channel 广播；上传先流式写入事务暂存目录，再在文件锁下通过同文件系统改名提交；启动时回滚进程中断的事务。
 
-Single binary: `web/` is embedded via `go:embed`; routes are registered on `net/http.ServeMux`. File events fan out through subscriber channels; uploads stream into a transaction staging directory, then commit roots with same-filesystem renames under a mutex. Startup rolls back transactions left by process interruption.
+Single binary: `web/` is embedded via `go:embed`; routes are registered on `net/http.ServeMux`. File events fan out through subscriber channels; uploads and their recovery records live in `.lan-copy-app-data-<shared-directory-name>/`, beside the shared directory. Transaction commit uses same-filesystem renames under a mutex, so the shared directory must not be a separate mounted filesystem from its parent. Startup moves legacy transaction directories out of the shared folder and rolls back transactions left by process interruption.
 
 ## 品牌标识 / Brand Assets
 
@@ -176,6 +176,8 @@ GitHub Actions builds on pushes to `main` and publishes releases on matching ver
 5. 在 GitHub Releases 上传全部制品并发布 / upload all artifacts to GitHub Releases and publish
 
 默认存储目录按服务端系统语言命名；未指定 `-dir` 且新目录不存在时，将原 `lan-copy-data` 目录整体改名并保留其中内容。若新旧目录同时存在，使用新目录并保留旧目录，不自动合并。
+
+应用内部数据目录位于共享目录同级，名称为 `.lan-copy-app-data-<共享目录名>`，保存共享文本库、上传暂存、事务记录和替换备份。首次启动会将旧版留在共享目录中的这些内部文件迁入应用数据目录；若同名旧数据和新数据同时存在，启动会报错并保留两边内容，避免自动覆盖。共享目录需与其父目录处于同一文件系统，以支持事务提交所需的原子改名。
 
 ## 应用更新 / Application updates
 

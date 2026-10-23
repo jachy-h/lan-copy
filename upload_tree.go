@@ -65,16 +65,20 @@ func writeDurableFile(name string, data []byte, mode os.FileMode) error {
 // The transaction directory shares the storage filesystem, so each individual
 // rename is atomic and its state can be inferred from stage/backup/target.
 func recoverUploadTransactions(dir string) error {
-	entries, err := os.ReadDir(dir)
+	return recoverUploadTransactionsAt(dir, dir)
+}
+
+func recoverUploadTransactionsAt(sharedDir, dataDir string) error {
+	entries, err := os.ReadDir(dataDir)
 	if err != nil {
 		return err
 	}
-	resolver := &server{dir: dir}
+	resolver := &server{dir: sharedDir}
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), uploadTransactionPrefix) {
 			continue
 		}
-		transaction := filepath.Join(dir, entry.Name())
+		transaction := filepath.Join(dataDir, entry.Name())
 		var receive uploadReceiveRecord
 		if data, readErr := os.ReadFile(filepath.Join(transaction, "receive.json")); readErr == nil {
 			if err := json.Unmarshal(data, &receive); err != nil || receive.ID == "" || receive.State != "receiving" {
@@ -313,7 +317,7 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 		allowed[root] = true
 	}
 	_ = part.Close()
-	transaction, err := os.MkdirTemp(s.dir, uploadTransactionPrefix)
+	transaction, err := os.MkdirTemp(s.dataDir, uploadTransactionPrefix)
 	if err != nil {
 		writeError(w, 500, "无法创建上传临时目录")
 		return
