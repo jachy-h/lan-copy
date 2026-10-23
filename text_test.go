@@ -68,6 +68,37 @@ func TestTextLifecycleAndPersistence(t *testing.T) {
 	}
 }
 
+func TestTextChangesPublishUnifiedEvents(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates, unsubscribe := app.subscribeChanges()
+	defer unsubscribe()
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, textRequest(http.MethodPost, "/api/texts", "event"))
+	if result.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", result.Code, result.Body.String())
+	}
+	created := <-updates
+	if created.Files || !created.Texts {
+		t.Fatalf("create event=%+v", created)
+	}
+	var item textSnippet
+	if err := json.Unmarshal(result.Body.Bytes(), &item); err != nil {
+		t.Fatal(err)
+	}
+	result = httptest.NewRecorder()
+	app.routes().ServeHTTP(result, httptest.NewRequest(http.MethodDelete, "/api/texts/"+item.ID, nil))
+	if result.Code != http.StatusNoContent {
+		t.Fatalf("delete status=%d", result.Code)
+	}
+	deleted := <-updates
+	if deleted.Files || !deleted.Texts || deleted.Version <= created.Version {
+		t.Fatalf("delete event=%+v after %+v", deleted, created)
+	}
+}
+
 func TestTextStorageDoesNotWaitForFileOperationLock(t *testing.T) {
 	app, err := newServer(t.TempDir(), 1<<20)
 	if err != nil {

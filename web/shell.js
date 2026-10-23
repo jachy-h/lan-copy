@@ -31,14 +31,14 @@
   status.classList.remove("offline");
   status.setAttribute("aria-label", "局域网在线");
   status.querySelector(".status-label").textContent = "局域网在线";
-  hint.textContent = "每分钟自动更新";
+  hint.textContent = "文件和文本变化时实时更新";
  });
  window.addEventListener("lan-copy:data-failed", () => {
   if (stopped) return;
   status.classList.add("offline");
   status.setAttribute("aria-label", "连接异常");
   status.querySelector(".status-label").textContent = "连接异常";
-  hint.textContent = "最近刷新失败，每分钟自动重试";
+  hint.textContent = "实时连接异常，页面显示时每分钟重试";
  });
  window.addEventListener("lan-copy:shutdown", () => {
   stopped = true;

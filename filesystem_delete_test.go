@@ -24,7 +24,7 @@ func TestNonEmptyFolderDeletionRequiresConfirmation(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(app.dir, "sibling.txt"), []byte("keep"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	events, cancel := app.subscribeFileEvents()
+	events, cancel := app.subscribeChanges()
 	defer cancel()
 	request := func(body string) *httptest.ResponseRecorder {
 		result := httptest.NewRecorder()

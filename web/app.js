@@ -4,6 +4,11 @@ const copyText = LanCopyFileUI.copyText;
 let toastTimer;
 let refreshTimer;
 let textsByID = new Map();
+let textController = null;
+let textEventSource = null;
+let textRefreshTimer = null;
+let textRefreshDebounce = null;
+let stopped = false;
 
 function makeIcon(pathData) {
 	const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -53,16 +58,26 @@ function notify(message, error = false) {
 }
 
 async function loadTexts() {
+	if (stopped || document.hidden) return;
+	textController?.abort();
+	const controller = new AbortController();
+	textController = controller;
 	try {
-		const response = await fetch("/api/texts", { cache: "no-store" });
+		const response = await fetch("/api/texts", { cache: "no-store", signal: controller.signal });
 		if (!response.ok) throw new Error("读取失败");
 		const { texts } = await response.json();
+		if (controller.signal.aborted) return;
+		if (textEventSource && textEventSource.readyState === window.EventSource.OPEN) stopTextFallback();
 		renderTexts(texts);
 		window.dispatchEvent(new Event("lan-copy:data-updated"));
-	} catch {
+	} catch (error) {
+		if (controller.signal.aborted || error.name === "AbortError") return;
+		startTextFallback();
 		window.dispatchEvent(new Event("lan-copy:data-failed"));
 		$("#textSummary").textContent = "无法连接到服务";
 		notify("无法读取共享文本", true);
+	} finally {
+		if (textController === controller) textController = null;
 	}
 }
 
@@ -151,7 +166,7 @@ async function shareText() {
 		textInput.value = "";
 		updateTextCount();
 		notify("文本已共享");
-		await loadTexts();
+		scheduleTextRefresh();
 	} catch (error) {
 		notify(error.message || "发布失败", true);
 	} finally {
@@ -169,9 +184,6 @@ textInput.addEventListener("keydown", (event) => {
 });
 $("#shareTextBtn").addEventListener("click", shareText);
 $("#refreshBtn").addEventListener("click", loadTexts);
-let stopped = false;
-window.addEventListener("lan-copy:shutdown", () => { stopped = true; clearInterval(refreshTimer); });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !stopped) loadTexts(); });
 $("#textList").addEventListener("click", async (event) => {
 	const button = event.target.closest("[data-text-action]");
 	if (!button) return;
@@ -186,7 +198,7 @@ $("#textList").addEventListener("click", async (event) => {
 	});
 	if (response.ok) {
 		notify("共享文本已删除");
-		loadTexts();
+		scheduleTextRefresh();
 	} else {
 		notify("删除失败", true);
 	}
@@ -194,4 +206,34 @@ $("#textList").addEventListener("click", async (event) => {
 
 updateTextCount();
 loadTexts();
-refreshTimer = setInterval(loadTexts, 60000);
+function scheduleTextRefresh() {
+	if (stopped || document.hidden) return;
+	clearTimeout(textRefreshDebounce);
+	textRefreshDebounce = setTimeout(() => { textRefreshDebounce = null; loadTexts(); }, 100);
+}
+function startTextFallback() {
+	if (stopped || document.hidden || refreshTimer) return;
+	refreshTimer = setInterval(scheduleTextRefresh, 60000);
+}
+function stopTextFallback() { clearInterval(refreshTimer); refreshTimer = null; }
+if (window.EventSource) {
+	textEventSource = new EventSource("/api/events");
+	textEventSource.addEventListener("change", (event) => {
+		let change;
+		try { change = JSON.parse(event.data); } catch { change = { texts: true }; }
+		if (change.texts) scheduleTextRefresh();
+	});
+	textEventSource.onopen = () => { stopTextFallback(); scheduleTextRefresh(); };
+	textEventSource.onerror = startTextFallback;
+} else startTextFallback();
+document.addEventListener("visibilitychange", () => {
+	if (document.hidden) {
+		textController?.abort(); clearTimeout(textRefreshDebounce); textRefreshDebounce = null; stopTextFallback();
+	} else if (!stopped) {
+		if (!textEventSource || textEventSource.readyState !== EventSource.OPEN) startTextFallback();
+		scheduleTextRefresh();
+	}
+});
+window.addEventListener("lan-copy:shutdown", () => {
+	stopped = true; stopTextFallback(); clearTimeout(textRefreshDebounce); textController?.abort(); textEventSource?.close();
+});

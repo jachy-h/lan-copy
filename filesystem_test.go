@@ -77,7 +77,7 @@ func TestFilesystemLifecycle(t *testing.T) {
 		}
 		return result
 	}
-	changes, unsubscribe := app.subscribeFileEvents()
+	changes, unsubscribe := app.subscribeChanges()
 	defer unsubscribe()
 	request("POST", "/api/filesystem/mkdir", `{"path":"","name":"资料"}`, 204)
 	select {

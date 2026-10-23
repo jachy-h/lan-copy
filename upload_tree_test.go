@@ -65,7 +65,7 @@ func TestFolderUploadReplacesOnlyConfirmedRoots(t *testing.T) {
 	entries := []uploadTreeEntry{{Path: "相册", Directory: true}, {Path: "相册/空目录", Directory: true}, {Path: "相册/子目录/a.txt"}, {Path: "readme.txt"}}
 	request := treeReplaceRequest(t, entries, []treeTestPart{{"file-2", "nested"}, {"file-3", "loose"}}, []string{"相册"})
 	request.URL.RawQuery = url.Values{"path": {"目标"}}.Encode()
-	updates, unsubscribe := app.subscribeFileEvents()
+	updates, unsubscribe := app.subscribeChanges()
 	defer unsubscribe()
 	result := httptest.NewRecorder()
 	app.routes().ServeHTTP(result, request)
@@ -271,7 +271,7 @@ func TestFolderUploadRollsBackIncompleteAndOversizeRequests(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			app, _ := newServer(t.TempDir(), tc.limit)
-			updates, cancel := app.subscribeFileEvents()
+			updates, cancel := app.subscribeChanges()
 			defer cancel()
 			result := httptest.NewRecorder()
 			app.routes().ServeHTTP(result, treeRequest(t, entries, tc.parts))

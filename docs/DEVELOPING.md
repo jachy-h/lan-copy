@@ -40,9 +40,8 @@ Go 1.22+. The app uses only the Go standard library; Make packaging also require
 
 ```bash
 go run .            # 运行 / run
-go test ./...       # 全部测试 / all tests
+make test           # Python、Node.js 与 Go 全部测试 / all Python, Node.js and Go tests
 go vet ./...        # 静态检查 / static check
-node scripts/test-upload-tree.cjs  # 目录遍历测试（Node.js）/ folder traversal tests
 ```
 
 Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
@@ -114,6 +113,8 @@ docker run --rm -p 8080:8080 -v "$PWD/lan-copy-data:/data" lan-copy
 ./lan-copy -listen :9000 -dir "$HOME/Downloads/LanCopy" -max-gb 20
 ```
 
+上传资源限制可在设置 → 上传中由运行 Lan Copy 的本机修改，也可编辑共享目录同级应用数据目录中的 `upload-resources.json` 并重启服务。默认配置为 3 个并发上传、20 GiB 全局暂存空间和 60 秒读取空闲超时；范围分别为 1–32、1–1024 GiB、5–600 秒。配置文件只在网页保存后创建。单次上传总大小仍由 `-max-gb` 控制。目录上传先通过清单预检返回冲突，再传输文件；预检会话 15 分钟过期，最终提交仍会检查冲突。
+
 ## Windows 控制台行为 / Windows Console Behavior
 
 中文：从资源管理器双击启动时显示启动信息与访问地址，自动打开默认浏览器，并提示“按任意键关闭本窗口”；按键后调用 `FreeConsole()` 关闭控制台，服务继续在后台运行。停止服务请从本机 `localhost` 页面操作（`/api/shutdown`）；若有上传或下载在途，需查看风险提示并输入“强制关闭”确认。重复启动时，无论双击还是从终端启动，都会探测已有实例并打开其浏览器页面，随后退出第二个进程，不启动第二份服务。`/healthz` 必须返回 `X-Lan-Copy-Service: lan-copy` 和 `ok`；并发首次启动时会短暂重试，端口被其他程序占用则报告错误。旧版本没有身份响应头，升级时需先关闭旧服务。
@@ -128,7 +129,8 @@ The logic lives in `console_windows.go` (`console_other.go` is a stub). Console 
 
 - 单二进制：`web/` 通过 `go:embed` 内嵌；所有路由挂在 `net/http.ServeMux`。
 - API 一览：
-  - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。上传统一使用 `POST /api/upload-tree?path=...`，普通文件与目录均通过 multipart 清单提交：首项为 `manifest` JSON（`entries: [{path, directory}]`），文件体字段为对应下标的 `file-N`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；完成后在锁内以同文件系统改名提交。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
+  - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。目录上传先用 `POST /api/upload-tree/preflight?path=...` 提交 JSON 清单（`entries: [{path, directory}]`），响应包含一次性会话和冲突列表；确认后使用 `POST /api/upload-tree?path=...&session=...` 以 multipart 提交，首项为 `manifest` JSON（`entries`、`replace`），文件体字段为对应下标的 `file-N`。会话 15 分钟过期，取消时可调用 `DELETE /api/upload-tree/session/{id}`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；并发上传、全部暂存文件字节和请求体空闲时间分别受设置页配置约束。完成后在锁内以同文件系统改名提交，并重新校验目标。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
+  - `GET/PUT /api/settings/upload-resources` 读取或修改上传全局资源限制；访客只读，PUT 仅接受本机同源请求并要求 `X-Lan-Copy-Action: upload-resources`。配置含 `concurrentUploads`、`stagingGiB`、`idleTimeoutSeconds`。
   - `GET /thumbnails/{name}` 图片缩略图：JPEG/PNG/GIF 按比例缩至最长边 128px，限制源文件大小、像素数和并发解码；其他图片格式使用浏览器图片展示。缩略图 URL 携带修改时间和大小以更新浏览器缓存
   - `GET /preview-files/{name}` 预览资源（类型白名单、固定 MIME、inline、Range/HEAD；SVG 以 image/svg+xml 提供，CSP sandbox 禁用脚本和外部资源）；`/preview.html?path=...` 为预览页，文本最多读取前 256 KiB。PDF 使用内嵌 PDF.js 单页渲染、按需读取，支持翻页和缩放；第三方资源版本、来源、校验值和许可证见 `web/vendor/pdfjs/README.md`，更新时须一并更新库、worker、CMaps、字体和 WASM 资源
   - `GET /files/{name}` 下载、`DELETE /api/files/{name}` 删除（嵌套路径作为整体 URL 编码；列表递归包含子文件夹中的文件）
@@ -137,13 +139,13 @@ The logic lives in `console_windows.go` (`console_other.go` is a stub). Console 
 
   - `/` 共享空间首页，`/transfer.html` 文本共享页面（文本发布、复制和删除；文件上传与浏览统一在共享空间），旧地址 `/filesystem.html` 重定向到首页；文件夹对应存储目录中的真实目录，无额外索引数据库
   - `GET/POST /api/texts`、`DELETE /api/texts/{id}` 共享文本保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
-  - `GET /api/events` SSE 实时刷新（25s 心跳）、`GET /api/access` 局域网地址探测
+  - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查
 
 共享目录内的应用路径检查适用于应用自身的请求与事务；本机其他进程直接并发修改共享目录不属于受支持的安全边界。应用当前仍使用路径级文件操作，不能防止外部进程在校验后替换目录项或符号链接。
-- 并发模型：文件操作与共享文本分别使用互斥锁；文件/目录列表在文件锁内收集元数据，锁外排序并写响应。文件事件通过订阅 channel 广播；上传先流式写入事务暂存目录，再在文件锁下通过同文件系统改名提交；启动时回滚进程中断的事务。
+- 并发模型：文件操作与共享文本分别使用互斥锁；文件/目录列表在文件锁内收集元数据，锁外排序并写响应。文件与文本变更通过同一 SSE 订阅流广播并合并待处理标记；目录切换、搜索和文本刷新会取消已过期的 GET，页面隐藏或关停时取消在途读取。上传先流式写入事务暂存目录，再在文件锁下通过同文件系统改名提交；启动时回滚进程中断的事务。
 
-Single binary: `web/` is embedded via `go:embed`; routes are registered on `net/http.ServeMux`. File events fan out through subscriber channels; uploads and their recovery records live in `.lan-copy-app-data-<shared-directory-name>/`, beside the shared directory. Transaction commit uses same-filesystem renames under a mutex, so the shared directory must not be a separate mounted filesystem from its parent. Startup moves legacy transaction directories out of the shared folder and rolls back transactions left by process interruption.
+Single binary: `web/` is embedded via `go:embed`; routes are registered on `net/http.ServeMux`. File and text changes share a versioned SSE stream; the browser cancels stale list reads and falls back to visible-page polling when SSE disconnects. Uploads and their recovery records live in `.lan-copy-app-data-<shared-directory-name>/`, beside the shared directory. Transaction commit uses same-filesystem renames under a mutex, so the shared directory must not be a separate mounted filesystem from its parent. Startup moves legacy transaction directories out of the shared folder and rolls back transactions left by process interruption.
 
 ## 品牌标识 / Brand Assets
 

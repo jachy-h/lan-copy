@@ -11,6 +11,7 @@
    <nav class="settings-menu" aria-label="设置菜单" role="tablist" aria-orientation="vertical">
     <button type="button" role="tab" id="aboutTab" aria-selected="true" aria-controls="aboutSettings">关于</button>
     <button type="button" role="tab" id="generalTab" aria-selected="false" aria-controls="generalSettings" tabindex="-1">通用</button>
+    <button type="button" role="tab" id="uploadTab" aria-selected="false" aria-controls="uploadSettings" tabindex="-1">上传</button>
     <button type="button" role="tab" id="updateTab" aria-selected="false" aria-controls="updateSettings" tabindex="-1">更新<span class="update-tab-dot" aria-label="有新版本" hidden></span></button>
    </nav>
    <div class="settings-content">
@@ -32,6 +33,15 @@
       <button class="secondary danger" id="shutdownBtn" type="button" disabled aria-describedby="shutdownHint">关闭 Lan Copy</button>
       <p id="shutdownHint" role="status" aria-live="polite">正在检查关闭权限…</p>
      </div>
+    </section>
+    <section id="uploadSettings" role="tabpanel" aria-labelledby="uploadTab" hidden>
+     <h3>上传资源限制</h3>
+     <p>限制同时接收的上传数、所有上传共用的暂存空间，以及上传连接的空闲时间。设置保存到本机应用数据目录的 upload-resources.json。</p>
+     <label class="upload-resource-field">并发上传数<input class="upload-concurrent" type="number" min="1" max="32" step="1" disabled /></label>
+     <label class="upload-resource-field">暂存空间（GiB）<input class="upload-staging" type="number" min="1" max="1024" step="1" disabled /></label>
+     <label class="upload-resource-field">读取空闲超时（秒）<input class="upload-idle" type="number" min="5" max="600" step="1" disabled /></label>
+     <button class="primary upload-resource-save" type="button" disabled>保存设置</button>
+     <p class="upload-resource-status" role="status" aria-live="polite">正在读取上传限制…</p>
     </section>
     <section id="updateSettings" role="tabpanel" aria-labelledby="updateTab" hidden>
      <h3>自动更新</h3><p class="settings-version">正在读取版本…</p>
@@ -214,7 +224,39 @@
    startupStatus.textContent = error.message; startupStatus.classList.add('error');
   }
  });
- gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { checkRelease(); loadStartup(); } });
+ const uploadConcurrent = $('.upload-concurrent'), uploadStaging = $('.upload-staging'), uploadIdle = $('.upload-idle'), uploadSave = $('.upload-resource-save'), uploadStatus = $('.upload-resource-status');
+ let uploadSettingsBusy = false, uploadSettingsEditable = false;
+ function setUploadSettings(config, editable) {
+  uploadSettingsEditable = editable;
+  uploadConcurrent.value = config.concurrentUploads; uploadStaging.value = config.stagingGiB; uploadIdle.value = config.idleTimeoutSeconds;
+  for (const input of [uploadConcurrent, uploadStaging, uploadIdle]) input.disabled = !editable || uploadSettingsBusy;
+  uploadSave.disabled = !editable || uploadSettingsBusy;
+ }
+ async function loadUploadSettings() {
+  try {
+   const response = await fetch('/api/settings/upload-resources', {cache:'no-store'});
+   const result = await response.json();
+   if (!response.ok) throw new Error(result.error || '无法读取上传限制');
+   setUploadSettings(result.config, result.editable);
+   uploadStatus.textContent = result.editable ? '仅影响后续新上传。' : result.reason;
+   uploadStatus.classList.remove('error');
+  } catch (error) { uploadSettingsEditable = false; setUploadSettings({concurrentUploads:'',stagingGiB:'',idleTimeoutSeconds:''}, false); uploadStatus.textContent = error.message; uploadStatus.classList.add('error'); }
+ }
+ uploadSave.addEventListener('click', async () => {
+  const config = {concurrentUploads:Number(uploadConcurrent.value), stagingGiB:Number(uploadStaging.value), idleTimeoutSeconds:Number(uploadIdle.value)};
+  if (!Number.isInteger(config.concurrentUploads) || config.concurrentUploads < 1 || config.concurrentUploads > 32 || !Number.isInteger(config.stagingGiB) || config.stagingGiB < 1 || config.stagingGiB > 1024 || !Number.isInteger(config.idleTimeoutSeconds) || config.idleTimeoutSeconds < 5 || config.idleTimeoutSeconds > 600) {
+   uploadStatus.textContent = '请输入有效范围：并发 1–32、暂存 1–1024 GiB、空闲超时 5–600 秒。'; uploadStatus.classList.add('error'); return;
+  }
+  uploadSettingsBusy = true; setUploadSettings(config, true); uploadStatus.textContent = '正在保存…';
+  try {
+   const response = await fetch('/api/settings/upload-resources', {method:'PUT', headers:{'Content-Type':'application/json','X-Lan-Copy-Action':'upload-resources'}, body:JSON.stringify(config)});
+   const result = await response.json();
+   if (!response.ok) throw new Error(result.error || '无法保存上传限制');
+   setUploadSettings(result.config, result.editable); uploadStatus.textContent = '已保存。'; uploadStatus.classList.remove('error');
+  } catch (error) { uploadStatus.textContent = error.message; uploadStatus.classList.add('error'); }
+  finally { uploadSettingsBusy = false; setUploadSettings(config, uploadSettingsEditable); }
+ });
+ gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { checkRelease(); loadStartup(); loadUploadSettings(); } });
  $('.settings-close').addEventListener('click', () => modal.close());
  modal.addEventListener('click', event => { if (event.target === modal) { const r=modal.getBoundingClientRect(); if (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) modal.close(); } });
  // Consume all modal drops so the shared-space uploader never receives a package.

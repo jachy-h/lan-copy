@@ -102,6 +102,7 @@ func (s *server) createText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "保存共享文本失败")
 		return
 	}
+	s.notifyTextsChanged()
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -137,6 +138,7 @@ func (s *server) deleteText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "删除共享文本失败")
 		return
 	}
+	s.notifyTextsChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 

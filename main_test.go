@@ -150,8 +150,11 @@ func TestFileEventsEndpoint(t *testing.T) {
 	for scanner.Scan() && scanner.Text() != "" {
 	}
 	app.notifyFilesChanged()
-	if !scanner.Scan() || scanner.Text() != "event: files" {
+	if !scanner.Scan() || scanner.Text() != "event: change" {
 		t.Fatalf("event line = %q, error = %v", scanner.Text(), scanner.Err())
+	}
+	if !scanner.Scan() || !strings.Contains(scanner.Text(), `"files":true`) {
+		t.Fatalf("event payload = %q", scanner.Text())
 	}
 }
 
@@ -160,7 +163,7 @@ func TestFileChangesNotifySubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updates, unsubscribe := app.subscribeFileEvents()
+	updates, unsubscribe := app.subscribeChanges()
 	defer unsubscribe()
 	handler := app.routes()
 
@@ -170,7 +173,10 @@ func TestFileChangesNotifySubscribers(t *testing.T) {
 		t.Fatalf("upload status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	select {
-	case <-updates:
+	case update := <-updates:
+		if !update.Files || update.Texts {
+			t.Fatalf("unexpected upload event: %+v", update)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("upload did not publish a file update")
 	}
@@ -181,9 +187,27 @@ func TestFileChangesNotifySubscribers(t *testing.T) {
 		t.Fatalf("delete status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	select {
-	case <-updates:
+	case update := <-updates:
+		if !update.Files || update.Texts {
+			t.Fatalf("unexpected delete event: %+v", update)
+		}
 	case <-time.After(time.Second):
 		t.Fatal("delete did not publish a file update")
+	}
+}
+
+func TestChangeEventsCoalesceResourceKinds(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates, unsubscribe := app.subscribeChanges()
+	defer unsubscribe()
+	app.notifyFilesChanged()
+	app.notifyTextsChanged()
+	update := <-updates
+	if !update.Files || !update.Texts || update.Version != 2 {
+		t.Fatalf("coalesced change = %+v", update)
 	}
 }
 

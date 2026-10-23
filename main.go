@@ -45,13 +45,16 @@ type server struct {
 	dir               string
 	dataDir           string
 	maxUpload         int64
+	uploadResources   *uploadResourceManager
+	uploadPreflight   *uploadPreflightManager
 	fileMu            sync.Mutex
 	textMu            sync.Mutex
 	web               http.Handler
 	probeURLs         func(context.Context, []string) []string
 	openPath          func(string, string) error
 	eventsMu          sync.Mutex
-	fileSubscribers   map[chan struct{}]struct{}
+	changeSubscribers map[chan changeEvent]struct{}
+	changeVersion     uint64
 	shutdownRequested chan struct{}
 	shutdownOnce      sync.Once
 	shutdownReason    string
@@ -81,6 +84,10 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 	if err := recoverUploadTransactionsAt(absDir, dataDir); err != nil {
 		return nil, fmt.Errorf("recover upload transactions: %w", err)
 	}
+	uploadConfig, err := loadUploadResourceConfig(dataDir)
+	if err != nil {
+		return nil, fmt.Errorf("load upload resource configuration: %w", err)
+	}
 	webRoot, err := fs.Sub(webFiles, "web")
 	if err != nil {
 		return nil, err
@@ -105,10 +112,12 @@ func newServer(dir string, maxUpload int64) (*server, error) {
 		dir:               absDir,
 		dataDir:           dataDir,
 		maxUpload:         maxUpload,
+		uploadResources:   newUploadResourceManager(uploadConfig),
+		uploadPreflight:   newUploadPreflightManager(),
 		web:               web,
 		probeURLs:         reachableLocalURLs,
 		openPath:          openLocalPath,
-		fileSubscribers:   make(map[chan struct{}]struct{}),
+		changeSubscribers: make(map[chan changeEvent]struct{}),
 		shutdownRequested: make(chan struct{}),
 		appContext:        appContext,
 		cancelApp:         cancelApp,
@@ -120,15 +129,19 @@ func (s *server) routes() http.Handler {
 	mux.HandleFunc("GET /api/app", s.appInfo)
 	mux.HandleFunc("GET /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
+	mux.HandleFunc("GET /api/settings/upload-resources", s.uploadResourceSettings)
+	mux.HandleFunc("PUT /api/settings/upload-resources", s.uploadResourceSettings)
 	mux.HandleFunc("POST /api/update", s.installUpdate)
 	mux.HandleFunc("GET /api/update/check", s.checkRelease)
 	mux.HandleFunc("POST /api/update/download", s.downloadUpdate)
 	mux.HandleFunc("GET /api/access", s.accessInfo)
-	mux.HandleFunc("GET /api/events", s.fileEvents)
+	mux.HandleFunc("GET /api/events", s.changeEvents)
 	mux.HandleFunc("GET /api/files", s.listFiles)
 	mux.HandleFunc("GET /api/filesystem", s.listDirectory)
 	mux.HandleFunc("POST /api/filesystem/{action}", s.mutateDirectory)
 	mux.Handle("POST /api/upload-tree", s.trackTransfer(transferUpload, http.HandlerFunc(s.uploadTree)))
+	mux.HandleFunc("POST /api/upload-tree/preflight", s.preflightUploadTree)
+	mux.HandleFunc("DELETE /api/upload-tree/session/{id}", s.releaseUploadPreflight)
 	mux.HandleFunc("POST /api/files/{name}/{action}", s.handleLocalFileAction)
 	mux.HandleFunc("DELETE /api/files/{name}", s.deleteFile)
 	mux.Handle("GET /files/{name}", s.trackTransfer(transferDownload, http.HandlerFunc(s.downloadFile)))
@@ -175,13 +188,13 @@ func (s *server) accessInfo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *server) fileEvents(w http.ResponseWriter, r *http.Request) {
+func (s *server) changeEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "当前连接不支持实时更新")
 		return
 	}
-	updates, unsubscribe := s.subscribeFileEvents()
+	updates, unsubscribe := s.subscribeChanges()
 	defer unsubscribe()
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -199,8 +212,12 @@ func (s *server) fileEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-s.appContext.Done():
 			return
-		case <-updates:
-			if _, err := io.WriteString(w, "event: files\ndata: refresh\n\n"); err != nil {
+		case update := <-updates:
+			data, err := json.Marshal(update)
+			if err != nil {
+				return
+			}
+			if _, err := fmt.Fprintf(w, "event: change\ndata: %s\n\n", data); err != nil {
 				return
 			}
 			flusher.Flush()
@@ -213,25 +230,56 @@ func (s *server) fileEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *server) subscribeFileEvents() (<-chan struct{}, func()) {
-	updates := make(chan struct{}, 1)
+type changeEvent struct {
+	Version uint64 `json:"version"`
+	Files   bool   `json:"files"`
+	Texts   bool   `json:"texts"`
+}
+
+func (s *server) subscribeChanges() (<-chan changeEvent, func()) {
+	updates := make(chan changeEvent, 1)
 	s.eventsMu.Lock()
-	s.fileSubscribers[updates] = struct{}{}
+	s.changeSubscribers[updates] = struct{}{}
 	s.eventsMu.Unlock()
 	return updates, func() {
 		s.eventsMu.Lock()
-		delete(s.fileSubscribers, updates)
+		delete(s.changeSubscribers, updates)
 		s.eventsMu.Unlock()
 	}
 }
 
 func (s *server) notifyFilesChanged() {
+	s.notifyChange(true, false)
+}
+
+func (s *server) notifyTextsChanged() {
+	s.notifyChange(false, true)
+}
+
+func (s *server) notifyChange(files, texts bool) {
 	s.eventsMu.Lock()
 	defer s.eventsMu.Unlock()
-	for subscriber := range s.fileSubscribers {
+	s.changeVersion++
+	update := changeEvent{Version: s.changeVersion, Files: files, Texts: texts}
+	for subscriber := range s.changeSubscribers {
 		select {
-		case subscriber <- struct{}{}:
+		case subscriber <- update:
 		default:
+			merged := update
+			var pending changeEvent
+			select {
+			case pending = <-subscriber:
+			default:
+			}
+			merged.Files = merged.Files || pending.Files
+			merged.Texts = merged.Texts || pending.Texts
+			if pending.Version > merged.Version {
+				merged.Version = pending.Version
+			}
+			select {
+			case subscriber <- merged:
+			default:
+			}
 		}
 	}
 }

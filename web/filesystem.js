@@ -7,10 +7,15 @@ let moving = null;
 let destination = "";
 let toastTimer;
 let requestVersion = 0;
+let directoryController = null;
 let moveVersion = 0;
 let mutationPending = false;
 let lastListing = "";
 let searchTimer;
+let eventRefreshTimer;
+let stopped = false;
+let events;
+let fallbackRefreshTimer;
 const localhostAccess = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
 
 function element(tag, className, content) {
@@ -31,8 +36,10 @@ function notify(message, error = false) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => $("#toast").className = "toast", 3000);
 }
-async function api(url, data) {
-  const response = await fetch(url, data ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)} : {cache: "no-store"});
+async function api(url, data, signal) {
+  const options = data ? {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(data)} : {cache: "no-store"};
+  if (signal) options.signal = signal;
+  const response = await fetch(url, options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     const error = new Error(body.error || "无法连接到服务，请重试");
@@ -60,6 +67,7 @@ function crumbs(container, value, navigate, droppable = false) {
   });
 }
 function navigate(value) {
+  directoryController?.abort();
   currentPath = value;
   lastListing = "";
   entries = [];
@@ -71,11 +79,18 @@ function navigate(value) {
   loadDirectory();
 }
 async function loadDirectory() {
+  if (stopped || document.hidden) return;
+  clearTimeout(searchTimer);
+  searchTimer = null;
+  directoryController?.abort();
+  const controller = new AbortController();
+  directoryController = controller;
   const version = ++requestVersion;
   try {
     const query = $("#search").value.trim();
-    const result = await api(`/api/filesystem?${new URLSearchParams({path: currentPath, q: query})}`);
-    if (version !== requestVersion) return;
+    const result = await api(`/api/filesystem?${new URLSearchParams({path: currentPath, q: query})}`, null, controller.signal);
+    if (version !== requestVersion || controller.signal.aborted) return;
+    if (events && events.readyState === window.EventSource.OPEN) stopFallbackRefresh();
     const signature = JSON.stringify({query, result});
     if (signature === lastListing) { window.dispatchEvent(new Event("lan-copy:data-updated")); return; }
     lastListing = signature;
@@ -84,7 +99,8 @@ async function loadDirectory() {
     renderEntries();
     window.dispatchEvent(new Event("lan-copy:data-updated"));
   } catch (error) {
-    if (version !== requestVersion) return;
+    if (version !== requestVersion || controller.signal.aborted || error.name === "AbortError") return;
+    startFallbackRefresh();
     if (currentPath && error.status === 404) { notify("原文件夹已被移动，已返回全部文件"); navigate(""); return; }
     window.dispatchEvent(new Event("lan-copy:data-failed"));
     lastListing = "";
@@ -93,6 +109,8 @@ async function loadDirectory() {
     $("#entries").replaceChildren();
     $("#directoryEmpty").classList.add("hidden");
     notify(error.message, true);
+  } finally {
+    if (directoryController === controller) directoryController = null;
   }
 }
 function renderEntries() {
@@ -249,17 +267,42 @@ document.querySelectorAll("[data-close]").forEach(node => node.addEventListener(
 $("#mkdir").addEventListener("click", () => openEdit());
 $("#search").addEventListener("input", () => {
  clearTimeout(searchTimer);
+ directoryController?.abort();
  ++requestVersion;
  $("#entrySummary").textContent = "正在搜索…";
  searchTimer = setTimeout(loadDirectory, 200);
 });
-let events;
-if (window.EventSource) { events = new EventSource("/api/events"); events.addEventListener("files", loadDirectory); }
+function scheduleDirectoryRefresh() {
+ if (stopped || document.hidden) return;
+ clearTimeout(searchTimer);
+ searchTimer = null;
+ clearTimeout(eventRefreshTimer);
+ eventRefreshTimer = setTimeout(() => { eventRefreshTimer = null; loadDirectory(); }, 100);
+}
+function startFallbackRefresh() {
+ if (stopped || document.hidden || fallbackRefreshTimer) return;
+ fallbackRefreshTimer = setInterval(scheduleDirectoryRefresh, 60000);
+}
+function stopFallbackRefresh() { clearInterval(fallbackRefreshTimer); fallbackRefreshTimer = null; }
+if (window.EventSource) {
+ events = new EventSource("/api/events");
+ events.addEventListener("change", event => {
+  let change;
+  try { change = JSON.parse(event.data); } catch { change = {files: true}; }
+  if (change.files) scheduleDirectoryRefresh();
+ });
+ events.onopen = () => { stopFallbackRefresh(); scheduleDirectoryRefresh(); };
+ events.onerror = startFallbackRefresh;
+} else startFallbackRefresh();
 window.addEventListener("hashchange", () => { currentPath = new URLSearchParams(location.hash.slice(1)).get("path") || ""; loadDirectory(); });
-const refreshTimer = setInterval(loadDirectory, 60000);
-let stopped = false;
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !stopped) loadDirectory(); });
-window.addEventListener("lan-copy:shutdown", () => { stopped = true; clearInterval(refreshTimer); clearTimeout(searchTimer); events?.close(); });
+document.addEventListener("visibilitychange", () => {
+ if (document.hidden) {
+  directoryController?.abort(); clearTimeout(searchTimer); clearTimeout(eventRefreshTimer); eventRefreshTimer = null; stopFallbackRefresh();
+ } else if (!stopped) { if (!events || events.readyState !== EventSource.OPEN) startFallbackRefresh(); scheduleDirectoryRefresh(); }
+});
+window.addEventListener("lan-copy:shutdown", () => {
+ stopped = true; clearTimeout(searchTimer); clearTimeout(eventRefreshTimer); stopFallbackRefresh(); directoryController?.abort(); events?.close();
+});
 loadDirectory();
 
 let uploading = false;
@@ -317,6 +360,16 @@ async function uploadToFolder(collect) {
   const summary = `${fileCount} 个文件${folderCount ? `、${folderCount} 个文件夹` : ""}`;
   const replace = new Set();
   const send = async () => {
+   const preflight = await fetch(`/api/upload-tree/preflight?${new URLSearchParams({path: uploadPath})}`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({entries:entries.map(({path, directory}) => ({path, directory}))})});
+   const checked = await preflight.json();
+   if (!preflight.ok) throw new Error(checked.error || "无法检查上传目标");
+   const unresolved = (checked.conflicts || []).filter(name => !replace.has(name));
+   if (unresolved.length) {
+    await fetch(`/api/upload-tree/session/${encodeURIComponent(checked.session)}`, {method:"DELETE"});
+    const error = new Error(checked.error || "目标位置已存在同名文件或文件夹");
+    error.conflicts = unresolved;
+    throw error;
+   }
    const form = new FormData();
    form.append("manifest", JSON.stringify({entries: entries.map(({path, directory}) => ({path, directory})), replace: [...replace]}));
    entries.forEach((entry, index) => { if (!entry.directory) form.append(`file-${index}`, entry.file, entry.file.name); });
@@ -336,9 +389,9 @@ async function uploadToFolder(collect) {
     });
     xhr.addEventListener("error", () => reject(new Error("网络中断，请重新拖入文件或文件夹重试")));
     xhr.addEventListener("abort", () => reject(new Error("上传已中止，请重新上传")));
-    xhr.open("POST", `/api/upload-tree?${new URLSearchParams({path: uploadPath})}`);
+    xhr.open("POST", `/api/upload-tree?${new URLSearchParams({path: uploadPath, session: checked.session})}`);
     xhr.send(form);
-   });
+   }).finally(() => fetch(`/api/upload-tree/session/${encodeURIComponent(checked.session)}`, {method:"DELETE"}).catch(() => {}));
   };
   for (;;) {
    try { await send(); break; }

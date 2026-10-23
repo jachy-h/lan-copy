@@ -1108,6 +1108,10 @@ button:disabled { opacity: .5; cursor: default; }
 .autostart-toggle { width: 20px; height: 20px; accent-color: var(--blue-dark); cursor: pointer; }
 .autostart-toggle:disabled { cursor: not-allowed; }
 .settings-content .autostart-status.error { color: #b42318; }
+.upload-resource-field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, 180px); align-items: center; gap: 16px; margin: 14px 0; font-weight: 600; }
+.upload-resource-field input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
+.upload-resource-field input:disabled { background: #f8fafc; color: #64748b; }
+.settings-content .upload-resource-status.error { color: #b42318; }
 
 /* Confirmation, file actions and settings share the same modal surface. */
 .app-dialog { background: white; }

@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -176,6 +180,121 @@ type uploadTreeManifest struct {
 	Replace []string          `json:"replace,omitempty"`
 }
 
+type uploadPreflightRecord struct {
+	Destination string
+	Fingerprint string
+	Expires     time.Time
+}
+
+type uploadPreflightManager struct {
+	mu       sync.Mutex
+	sessions map[string]uploadPreflightRecord
+}
+
+func newUploadPreflightManager() *uploadPreflightManager {
+	return &uploadPreflightManager{sessions: make(map[string]uploadPreflightRecord)}
+}
+
+func uploadEntriesFingerprint(entries []uploadTreeEntry) string {
+	data, _ := json.Marshal(entries)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func (m *uploadPreflightManager) create(destination string, entries []uploadTreeEntry) (string, error) {
+	var raw [24]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	id := hex.EncodeToString(raw[:])
+	now := time.Now()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, value := range m.sessions {
+		if now.After(value.Expires) {
+			delete(m.sessions, key)
+		}
+	}
+	if len(m.sessions) >= 256 {
+		return "", errors.New("too many pending upload preflights")
+	}
+	m.sessions[id] = uploadPreflightRecord{Destination: destination, Fingerprint: uploadEntriesFingerprint(entries), Expires: now.Add(15 * time.Minute)}
+	return id, nil
+}
+
+func (m *uploadPreflightManager) consume(id, destination string, entries []uploadTreeEntry) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	record, ok := m.sessions[id]
+	delete(m.sessions, id)
+	return ok && time.Now().Before(record.Expires) && record.Destination == destination && record.Fingerprint == uploadEntriesFingerprint(entries)
+}
+
+func (m *uploadPreflightManager) release(id string) {
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+}
+
+func (s *server) preflightUploadTree(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	r.Body = http.MaxBytesReader(w, r.Body, maxTreeManifest+1024)
+	var input struct {
+		Entries []uploadTreeEntry `json:"entries"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&input) != nil || ensureJSONEnd(decoder) != nil {
+		writeError(w, http.StatusBadRequest, "上传目录清单无效")
+		return
+	}
+	_, roots, err := validateUploadTree(input.Entries)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "上传目录路径无效或数量超限")
+		return
+	}
+	destination := r.URL.Query().Get("path")
+	s.fileMu.Lock()
+	target, err := s.sharedPath(destination)
+	if err == nil {
+		var info fs.FileInfo
+		info, err = os.Stat(target)
+		if err == nil && !info.IsDir() {
+			err = fs.ErrInvalid
+		}
+	}
+	conflicts := make([]string, 0)
+	if err == nil {
+		for _, root := range roots {
+			_, statErr := os.Lstat(filepath.Join(target, filepath.FromSlash(root)))
+			if statErr == nil {
+				conflicts = append(conflicts, root)
+			} else if !errors.Is(statErr, os.ErrNotExist) {
+				err = statErr
+				break
+			}
+		}
+	}
+	s.fileMu.Unlock()
+	if err != nil {
+		filesystemError(w, err)
+		return
+	}
+	id, err := s.uploadPreflight.create(destination, input.Entries)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "无法创建上传会话")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": id, "conflicts": conflicts, "expiresInSeconds": 900})
+}
+
+func (s *server) releaseUploadPreflight(w http.ResponseWriter, r *http.Request) {
+	if s.uploadPreflight != nil {
+		s.uploadPreflight.release(r.PathValue("id"))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // All paths are relative to a private staging directory, never to the host.
 // Reject case aliases too, so the same manifest works on Windows and macOS.
 func validateUploadTree(entries []uploadTreeEntry) ([]string, []string, error) {
@@ -240,6 +359,10 @@ func validateUploadTree(entries []uploadTreeEntry) ([]string, []string, error) {
 }
 
 func treeUploadError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errUploadIdleTimeout) {
+		writeError(w, http.StatusRequestTimeout, "上传连接空闲超时，请重新上传")
+		return
+	}
 	var maxErr *http.MaxBytesError
 	if errors.As(err, &maxErr) {
 		writeError(w, http.StatusRequestEntityTooLarge, "文件总大小超过上传限制")
@@ -249,6 +372,13 @@ func treeUploadError(w http.ResponseWriter, err error) {
 }
 
 func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
+	if s.uploadResources != nil {
+		if !s.uploadResources.begin() {
+			writeError(w, http.StatusServiceUnavailable, "当前上传数量已达上限，请稍后重试")
+			return
+		}
+		defer s.uploadResources.end()
+	}
 	destination := r.URL.Query().Get("path")
 	// Check the destination before receiving data, then revalidate at commit time.
 	s.fileMu.Lock()
@@ -264,6 +394,11 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		filesystemError(w, err)
 		return
+	}
+	if s.uploadResources != nil {
+		config := s.uploadResources.snapshot()
+		r.Body = newIdleTimeoutBody(r.Body, time.Duration(config.IdleSeconds)*time.Second)
+		defer r.Body.Close()
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.maxUpload)
 	reader, err := r.MultipartReader()
@@ -301,6 +436,12 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "文件夹路径无效或数量超限（最多 10000 项、64 层目录）")
 		return
 	}
+	if session := r.URL.Query().Get("session"); session != "" {
+		if s.uploadPreflight == nil || !s.uploadPreflight.consume(session, destination, manifest.Entries) {
+			writeError(w, http.StatusConflict, "上传预检会话已失效，请重新检查目标")
+			return
+		}
+	}
 	allowed := make(map[string]bool)
 	for _, root := range manifest.Replace {
 		found := false
@@ -331,7 +472,11 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	keepTransaction := false
+	var stagedBytes int64
 	defer func() {
+		if !keepTransaction && s.uploadResources != nil && stagedBytes > 0 {
+			s.uploadResources.release(stagedBytes)
+		}
 		if !keepTransaction {
 			if err := os.RemoveAll(transaction); err != nil {
 				log.Printf("异常: 清理上传临时目录失败，事务=%s 错误=%v", transactionID, err)
@@ -372,10 +517,15 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "无法保存上传文件")
 			return
 		}
-		size, copyErr := io.Copy(file, part)
+		budgetWriter := &uploadBudgetWriter{writer: file, manager: s.uploadResources, staged: &stagedBytes}
+		size, copyErr := io.Copy(budgetWriter, part)
 		fileSyncErr := file.Sync()
 		closeErr := file.Close()
 		if copyErr != nil {
+			if errors.Is(copyErr, errUploadStagingBudget) {
+				writeError(w, http.StatusInsufficientStorage, "所有并发上传的暂存空间已达上限")
+				return
+			}
 			log.Printf("异常: 写入上传临时文件失败，事务=%s 文件=%q 错误=%v", transactionID, entry.Path, copyErr)
 			treeUploadError(w, copyErr)
 			return
@@ -437,6 +587,36 @@ func (s *server) uploadTree(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notifyFilesChanged()
 	writeJSON(w, http.StatusCreated, map[string]any{"files": saved, "directories": directories})
+}
+
+var errUploadStagingBudget = errors.New("upload staging budget exceeded")
+
+type uploadBudgetWriter struct {
+	writer  io.Writer
+	manager *uploadResourceManager
+	staged  *int64
+}
+
+func (w *uploadBudgetWriter) Write(p []byte) (int, error) {
+	limit := len(p)
+	if w.manager != nil {
+		reserved := w.manager.reserveUpTo(int64(limit))
+		if reserved == 0 {
+			return 0, errUploadStagingBudget
+		}
+		limit = int(reserved)
+	}
+	n, err := w.writer.Write(p[:limit])
+	if w.manager != nil {
+		if n < limit {
+			w.manager.release(int64(limit - n))
+		}
+		*w.staged += int64(n)
+	}
+	if err == nil && limit < len(p) {
+		err = errUploadStagingBudget
+	}
+	return n, err
 }
 
 type uploadConflict struct{ Names []string }
