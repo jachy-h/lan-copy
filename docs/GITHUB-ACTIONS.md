@@ -59,9 +59,9 @@ make publish
 
 ## 手动构建与发布
 
-本地 `make build` 仍会递增 patch。CI 使用已提交的 `VERSION`，不递增、不自动提交，也不推送版本改动。这样分支构建、标签构建及失败重跑都使用同一个版本。
+本地 `make build` 直接使用 `VERSION`，不自动递增。`make publish` 默认递增 patch 并自动提交版本。CI 使用已提交的 `VERSION`，不递增、不自动提交，也不推送版本改动。这样分支构建、标签构建及失败重跑都使用同一个版本。
 
-1. 本地确认 `VERSION` 是要发布的版本；如需递增，可执行 `make build`。
+1. 本地确认 `VERSION` 是要发布的版本；如需修改版本，先更新 `VERSION`，或用 `make build VERSION=1.2.3` 显式选择构建版本。`make build` 本身不会递增版本。
 2. 提交代码和 `VERSION`，推送 `main`。等待 Actions 构建成功，可先下载 Artifacts 验证。
 3. 给对应提交添加同名版本标签并推送：
 

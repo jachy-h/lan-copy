@@ -1,7 +1,6 @@
 (() => {
-  const $ = selector => document.querySelector(selector);
-  const params = new URLSearchParams(location.search);
-  const path = params.get("path") || "";
+  function mount(root, path) {
+  const $ = selector => root.querySelector(selector);
   const content = $("#previewContent");
   const status = $("#previewStatus");
   const resource = `/preview-files/${encodeURIComponent(path)}`;
@@ -12,16 +11,17 @@
   let textTruncated = false;
 
   // Return only to known local pages; preserve the folder without trusting a URL.
-  $("#previewBack").href = params.get("from") === "transfer" ? "/transfer.html" : `/#${new URLSearchParams({path: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""})}`;
+  const back = $("#previewBack");
+  if (back) back.href = new URLSearchParams(location.search).get("from") === "transfer" ? "/transfer.html" : `/#${new URLSearchParams({path: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : ""})}`;
   if (path) {
     $("#previewTitle").textContent = path.split("/").pop();
-    document.title = `${path.split("/").pop()} · Lan Copy`;
+    if (root === document) document.title = `${path.split("/").pop()} · Lan Copy`;
     const download = $("#previewDownload");
     download.href = `/files/${encodeURIComponent(path)}`;
     download.download = path.split("/").pop();
     download.classList.remove("hidden");
   }
-  function message(text) { status.textContent = text; }
+  function message(text) { if (!controller.signal.aborted) status.textContent = text; }
   function decodeText() {
     const text = new TextDecoder($("#textEncoding").value).decode(textBytes, {stream: textTruncated});
     const pre = document.createElement("pre");
@@ -30,7 +30,7 @@
     content.replaceChildren(pre);
     message(textTruncated ? "文件较大，仅显示前 256 KiB；下载可查看完整内容。" : "文本预览 · 乱码时可切换编码");
   }
-  $("#textEncoding").addEventListener("change", decodeText);
+  $("#textEncoding").addEventListener("change", decodeText, {signal: controller.signal});
 
   async function showPDF() {
     message("正在载入 PDF…");
@@ -118,6 +118,7 @@
     if (!path) { message("未指定文件，请返回文件列表选择文件。"); return; }
     try {
       const response = await fetch(resource, {method: "HEAD", cache: "no-store", signal: controller.signal});
+      if (controller.signal.aborted) return;
       if (!response.ok) {
         message(response.status === 415 ? "此文件暂不支持浏览器预览，请下载后打开。" : response.status === 404 ? "文件已被移动或删除，请返回文件列表刷新。" : "无法读取文件，请返回文件列表重试。");
         return;
@@ -127,15 +128,15 @@
         const image = document.createElement("img");
         image.className = "preview-image";
         image.alt = path.split("/").pop();
-        image.addEventListener("load", () => message("点击图片切换原始尺寸，可滚动查看细节。"));
-        image.addEventListener("error", () => message("图片无法显示，可能格式不受浏览器支持或文件已损坏，请下载后打开。"));
+        image.addEventListener("load", () => message("点击图片切换原始尺寸，可滚动查看细节。"), {signal: controller.signal});
+        image.addEventListener("error", () => message("图片无法显示，可能格式不受浏览器支持或文件已损坏，请下载后打开。"), {signal: controller.signal});
         image.tabIndex = 0;
         image.setAttribute("role", "button");
         image.setAttribute("aria-label", `${path.split("/").pop()}，切换原始尺寸`);
         image.setAttribute("aria-pressed", "false");
         function toggleSize() { image.setAttribute("aria-pressed", String(image.classList.toggle("original-size"))); }
-        image.addEventListener("click", toggleSize);
-        image.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleSize(); } });
+        image.addEventListener("click", toggleSize, {signal: controller.signal});
+        image.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleSize(); } }, {signal: controller.signal});
         image.src = resource;
         content.append(image);
       } else if (type.startsWith("video/") || type.startsWith("audio/")) {
@@ -144,8 +145,8 @@
         media.preload = "metadata";
         media.setAttribute("playsinline", "");
         media.className = "preview-media";
-        media.addEventListener("loadedmetadata", () => message("使用播放器播放、调节音量或拖动进度。"));
-        media.addEventListener("error", () => message("浏览器无法播放此文件的编码或文件已损坏，请下载后打开。"));
+        media.addEventListener("loadedmetadata", () => message("使用播放器播放、调节音量或拖动进度。"), {signal: controller.signal});
+        media.addEventListener("error", () => message("浏览器无法播放此文件的编码或文件已损坏，请下载后打开。"), {signal: controller.signal});
         media.src = resource;
         content.append(media);
       } else if (type.startsWith("application/pdf")) {
@@ -167,12 +168,21 @@
       if (error.name !== "AbortError") message("读取失败，请刷新重试，或下载原文件。");
     }
   }
-  window.addEventListener("pagehide", () => {
+  function destroy() {
     controller.abort();
     pdfTask?.destroy().catch(() => {});
     content.querySelectorAll("video, audio").forEach(media => { media.pause(); media.removeAttribute("src"); media.load(); });
-  });
-  // Back/forward cache restores the page after its pending fetch was aborted.
-  window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
+    content.replaceChildren();
+    content.parentElement?.querySelector(".preview-pdf-tools")?.remove();
+  }
+  if (root === document) {
+    window.addEventListener("pagehide", destroy, {once: true});
+    // Back/forward cache restores the page after its pending fetch was aborted.
+    window.addEventListener("pageshow", event => { if (event.persisted) location.reload(); });
+  }
   load();
+  return {destroy};
+  }
+  window.LanCopyPreview = {mount};
+  if (document.body.classList.contains("preview-page")) mount(document, new URLSearchParams(location.search).get("path") || "");
 })();

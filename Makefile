@@ -7,7 +7,7 @@ STAGE_DIR := $(DIST_DIR)/.stage
 VERSION_FILE ?= VERSION
 VERSION ?=
 PUBLISH_REMOTE ?= origin
-# Packaging subtargets use the saved version; make build chooses the next patch.
+# Builds and packaging use VERSION_FILE unless VERSION is explicitly supplied.
 BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
 UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
 UPDATE_SIGNING_KEY_FILE ?= .config/update.key
@@ -88,6 +88,7 @@ test:
 	node scripts/test-dialog.cjs
 	node scripts/test-upload-tree.cjs
 	node scripts/test-settings-update.cjs
+	node scripts/test-filesystem-time.cjs
 	$(GO) test ./...
 
 clean:

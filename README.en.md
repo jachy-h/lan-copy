@@ -55,12 +55,12 @@ Requires Go, Make, and Python 3. Before the first build, follow the [update rele
 
 ```bash
 make test                    # Run build-script and Go tests
-make build                   # Sign packages, bump patch, and print build details
-make build VERSION=1.2.3     # Or choose an explicit version
+make build                   # Build with VERSION as-is; do not auto-increment
+make build VERSION=1.2.3     # Build with an explicit version
 make publish                 # Build, commit VERSION, tag, and push from clean main
 ```
 
-Builds read the baseline from `VERSION` and save the new version only after all packages succeed. Distribute the matching archives from `release/`. Commit `VERSION` with release changes; `.config/` and `release/` are ignored by Git.
+Builds use the exact version in `VERSION` (or `0.1.0` if the file is missing) and do not auto-increment it. An explicit `VERSION=x.y.z` overrides the file. After every package builds successfully, the selected version is saved to `VERSION`; a failed build leaves it unchanged. Distribute the matching archives from `release/`. Commit `VERSION` with release changes; `.config/` and `release/` are ignored by Git.
 
 `make publish` requires all code changes to be committed first and asks you to confirm the target version with `y` (`n` cancels). It increments the version, commits only `VERSION`, creates the release tag, and pushes to `origin` so Actions can publish the release.
 

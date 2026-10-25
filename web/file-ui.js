@@ -17,10 +17,23 @@
       const params = new URLSearchParams({path: file.path || file.name});
       if (from) params.set("from", from);
       node.href = `/preview.html?${params}`;
+      node.addEventListener("click", event => {
+        if (typeof window.LanCopyOpenPreview !== "function") return;
+        event.preventDefault();
+        window.LanCopyOpenPreview(file.path || file.name, node);
+      });
     } else {
       node.type = "button";
       node.addEventListener("click", () => notify("此文件格式暂不支持预览"));
     }
+    return node;
+  }
+  function tag(label, description = "") {
+    const node = document.createElement("span");
+    node.className = "file-tag";
+    node.textContent = label;
+    if (description) node.title = description;
+    if (description) node.setAttribute("aria-label", `${label}：${description}`);
     return node;
   }
   function thumbnail(icon, file) {
@@ -58,5 +71,5 @@
     document.body.append(helper); helper.focus(); helper.select();
     const copied = document.execCommand("copy"); helper.remove(); return copied;
   }
-  window.LanCopyFileUI = {previewName, thumbnail, highlight, copyText, notify};
+  window.LanCopyFileUI = {previewName, thumbnail, highlight, copyText, notify, tag};
 })();

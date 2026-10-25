@@ -55,12 +55,12 @@ go run .
 
 ```bash
 make test                    # 运行构建脚本与 Go 测试
-make build                   # 自动签名、递增 patch 版本并打印构建信息
-make build VERSION=1.2.3     # 也可指定版本
+make build                   # 使用 VERSION 中的版本构建，不自动递增
+make build VERSION=1.2.3     # 指定版本构建
 make publish                 # 干净的 main 分支：构建、提交版本、打标签并推送发布
 ```
 
-构建从 `VERSION` 读取基线，全部成功后才保存新版本；分发 `release/` 中对应系统的压缩包。`VERSION` 应随发布代码提交，`.config/` 和 `release/` 已被 Git 忽略。
+构建默认直接使用 `VERSION` 中的版本（文件不存在时使用 `0.1.0`），不自动递增；显式传入 `VERSION=x.y.z` 时使用该版本。构建成功后才保存所用版本到 `VERSION`，失败时不改版本。分发 `release/` 中对应系统的压缩包。`VERSION` 应随发布代码提交，`.config/` 和 `release/` 已被 Git 忽略。
 
 `make publish` 要求先提交所有代码，并输入 `y` 确认目标版本（`n` 取消），自动递增版本并仅提交 `VERSION`，创建版本标签后推送到 `origin`，由 Actions 完成正式发布。
 

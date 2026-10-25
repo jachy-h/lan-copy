@@ -18,7 +18,7 @@
 make build
 ```
 
-默认自动读取项目的 `.config/update.key` 私钥和 `.config/update.pub` 公钥，不需要手动 export。此目录已被 Git 忽略，不会包含在发布包中。CI 仍可通过 `LAN_COPY_SIGNING_KEY` 环境变量和 `UPDATE_PUBLIC_KEY` 参数覆盖本地密钥。自定义文件位置可设置 `UPDATE_SIGNING_KEY_FILE` 和 `UPDATE_PUBLIC_KEY_FILE`。Windows ZIP 和 macOS tar.gz 包中会包含程序、`update.json` 和 `update.sig`。`make build` 从项目根目录的 `VERSION` 读取上次成功版本，自动增加 patch（初始基线 `0.1.0`，首次自动构建为 `0.1.1`）。所有平台使用同一个新版本，全部打包成功后才写回 `VERSION`；构建失败不递增。构建结束打印版本、完成时间、耗时、签名方式及产物绝对路径和大小。可用 `make build VERSION=1.2.3` 指定版本，成功后也将其保存为下次自动递增的基线。请将 `VERSION` 随发布代码一起提交。直接执行 `make windows`、`make macos` 或 `make artifacts` 使用已保存版本，不自动递增。程序版本通过 `-X main.version=1.2.3` 写入；直接 `go build` 未指定时仍为 `dev`。Make 每次重新生成发布包，防止更换版本或公钥后复用旧包。Windows Authenticode 签名流程 `scripts/release-windows.ps1 -Version 1.2.3` 同样生成清单，清单校验的是最终签名后的程序。
+默认自动读取项目的 `.config/update.key` 私钥和 `.config/update.pub` 公钥，不需要手动 export。此目录已被 Git 忽略，不会包含在发布包中。CI 仍可通过 `LAN_COPY_SIGNING_KEY` 环境变量和 `UPDATE_PUBLIC_KEY` 参数覆盖本地密钥。自定义文件位置可设置 `UPDATE_SIGNING_KEY_FILE` 和 `UPDATE_PUBLIC_KEY_FILE`。Windows ZIP 和 macOS tar.gz 包中会包含程序、`update.json` 和 `update.sig`。`make build` 直接读取项目根目录 `VERSION` 并按该版本构建，不自动递增；若文件不存在则使用 `0.1.0`。所有平台使用同一版本，全部打包成功后才写回 `VERSION`；构建失败不改版本。构建结束打印版本、完成时间、耗时、签名方式及产物绝对路径和大小。可用 `make build VERSION=1.2.3` 显式指定版本，成功后保存该版本。请将 `VERSION` 随发布代码一起提交。直接执行 `make windows`、`make macos` 或 `make artifacts` 也使用已保存版本。程序版本通过 `-X main.version=1.2.3` 写入；直接 `go build` 未指定时仍为 `dev`。Make 每次重新生成发布包，防止更换版本或公钥后复用旧包。Windows Authenticode 签名流程 `scripts/release-windows.ps1 -Version 1.2.3` 同样生成清单，清单校验的是最终签名后的程序。
 
 清单格式：
 
@@ -67,7 +67,7 @@ Windows PowerShell 发布流程使用 `LAN_COPY_UPDATE_PUBLIC_KEY` 环境变量�
 
 ## GitHub 自动构建
 
-代码提交后，可在 `main` 上执行 `make publish`，自动完成签名构建、版本递增、版本提交、标签和推送；有未提交文件时会停止并提示先 commit。最终 Release 由 GitHub Actions 测试通过后发布。
+代码提交后，可在 `main` 上执行 `make publish`，自动完成签名构建、patch 版本递增、版本提交、标签和推送；有未提交文件时会停止并提示先 commit。`make publish` 的版本递增独立于 `make build`。最终 Release 由 GitHub Actions 测试通过后发布。
 
 推送 `main` 自动测试和构建，推送版本标签后发布 Release。CI 需要一次性配置与本地相同的签名密钥，使用已提交的 `VERSION` 且不递增。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。
 

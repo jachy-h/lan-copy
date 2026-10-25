@@ -26,17 +26,17 @@ class ReleaseBuildTests(unittest.TestCase):
                            [sys.executable, "-c", code, str(self.artifact)], [self.artifact])
         return status, output.getvalue()
 
-    def test_successive_builds_and_summary(self):
+    def test_successive_builds_keep_saved_version_and_summary(self):
         code = "from pathlib import Path; import sys; Path(sys.argv[1]).write_text(sys.argv[2])"
         status, output = self.run_build(code)
         self.assertEqual(status, 0)
-        self.assertEqual(self.version.read_text(), "0.1.1\n")
-        self.assertEqual(self.artifact.read_text(), "VERSION=0.1.1")
-        self.assertIn("Version:   0.1.1", output)
+        self.assertEqual(self.version.read_text(), "0.1.0\n")
+        self.assertEqual(self.artifact.read_text(), "VERSION=0.1.0")
+        self.assertIn("Version:   0.1.0", output)
         self.assertIn(str(self.artifact.resolve()), output)
         self.run_build(code)
-        self.assertEqual(self.version.read_text(), "0.1.2\n")
-        self.assertEqual(self.artifact.read_text(), "VERSION=0.1.2")
+        self.assertEqual(self.version.read_text(), "0.1.0\n")
+        self.assertEqual(self.artifact.read_text(), "VERSION=0.1.0")
 
     def test_failed_build_does_not_advance(self):
         self.version.write_text("1.2.9\n")

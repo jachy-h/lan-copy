@@ -28,6 +28,9 @@ let eventRefreshTimer;
 let stopped = false;
 let events;
 let fallbackRefreshTimer;
+let freshTagTimer;
+let previewInstance = null;
+let previewReturnFocus = null;
 const localhostAccess = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname);
 
 function element(tag, className, content) {
@@ -142,7 +145,6 @@ function renderEntries() {
   });
   const folders = entries.filter(item => item.directory).length;
   $("#entrySummary").textContent = query ? `${visible.length} 个匹配项（含子文件夹）` : `${folders} 个文件夹 · ${entries.length - folders} 个文件`;
-  $("#currentFolderName").textContent = currentPath.split("/").pop() || "全部文件";
   $("#goParent").disabled = !currentPath;
   $("#clearSearch").hidden = !query;
   document.querySelectorAll("#listHeader [data-sort]").forEach(header => {
@@ -158,7 +160,7 @@ function renderEntries() {
     row.draggable = true;
     row.addEventListener("dragstart", event => { event.dataTransfer.setData("application/x-lan-copy-path", item.path); event.dataTransfer.effectAllowed = "move"; });
     row.addEventListener("click", event => selectRow(item, event, visible));
-    row.addEventListener("dblclick", event => { if (event.target.closest("button,a")) return; openEntry(item); });
+    row.addEventListener("dblclick", event => { if (event.target.closest("button,a")) return; openEntry(item, row); });
     row.addEventListener("contextmenu", event => { event.preventDefault(); selectContextItem(item, event); showFileMenu(event.clientX, event.clientY, row); });
     const icon = element("div", `file-icon${item.directory ? " folder-icon" : ""}`, item.directory ? "▱" : item.name.split(".").pop().slice(0, 4));
     icon.setAttribute("aria-hidden", "true");
@@ -168,6 +170,13 @@ function renderEntries() {
     LanCopyFileUI.highlight(name, item.name, query);
     LanCopyFileUI.thumbnail(icon, item);
     main.prepend(icon); main.append(name);
+    if (!item.directory) {
+      const tag = LanCopyFileUI.tag("新", "最近 4 小时内修改");
+      tag.classList.add("recent-tag");
+      tag.hidden = !isRecent(item.modified);
+      main.append(tag);
+      row.dataset.modified = item.modified || "";
+    }
     const date = element("div", "file-cell modified-cell", new Date(item.modified).toLocaleString("zh-CN", {year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}));
     const type = element("div", "file-cell type-cell", item.directory ? "文件夹" : (item.name.includes(".") ? `${item.name.split(".").pop().toUpperCase()} 文件` : "文件"));
     const size = element("div", "file-cell size-cell", item.directory ? "—" : formatBytes(item.size));
@@ -179,15 +188,27 @@ function renderEntries() {
     row.append(main, date, type, size, actions);
     return row;
   }));
-  updateSelectionBar();
+  updateFreshTags();
+}
+const RECENT_WINDOW_MS = 4 * 60 * 60 * 1000;
+function isRecent(value, now = Date.now()) {
+  const modified = Date.parse(value);
+  const age = now - modified;
+  return Number.isFinite(modified) && age >= 0 && age < RECENT_WINDOW_MS;
+}
+function updateFreshTags() {
+  const now = Date.now();
+  document.querySelectorAll(".explorer-row[data-modified]").forEach(row => {
+    const tag = row.querySelector(".recent-tag");
+    if (tag) tag.hidden = !isRecent(row.dataset.modified, now);
+  });
+}
+function clearSelection() {
+  selectedPaths.clear(); selectionAnchor = null;
+  document.querySelectorAll(".explorer-row").forEach(row => { row.classList.remove("selected"); row.setAttribute("aria-selected", "false"); });
 }
 function itemByPath(path) { return entries.find(item => item.path === path); }
 function selectedItems() { return [...selectedPaths].map(itemByPath).filter(Boolean); }
-function updateSelectionBar() {
-  const items = selectedItems();
-  $("#selectionBar").hidden = !items.length;
-  $("#selectionSummary").textContent = `${items.length} 项已选择`;
-}
 function selectRow(item, event, visible) {
   focusedPath = item.path;
   const row = event.currentTarget;
@@ -209,7 +230,6 @@ function selectRow(item, event, visible) {
     node.classList.toggle("selected", selected); node.setAttribute("aria-selected", String(selected));
   });
   document.querySelectorAll(".explorer-row").forEach(node => node.tabIndex = node.dataset.path === item.path ? 0 : -1);
-  updateSelectionBar();
 }
 function selectContextItem(item, event) {
   focusedPath = item.path;
@@ -219,19 +239,41 @@ function selectContextItem(item, event) {
       const selected = selectedPaths.has(node.dataset.path);
       node.classList.toggle("selected", selected); node.setAttribute("aria-selected", String(selected));
     });
-    updateSelectionBar();
   }
 }
-function openEntry(item) {
+function openEntry(item, trigger = document.activeElement) {
   if (item.directory) navigate(item.path);
-  else if (item.previewType) location.href = `/preview.html?${new URLSearchParams({path: item.path, from: currentPath})}`;
+  else if (item.previewType) openPreview(item.path, trigger);
   else location.href = `/files/${encodeURIComponent(item.path)}`;
+}
+function openPreview(path, trigger = document.activeElement) {
+  const dialog = $("#previewDialog");
+  if (!dialog || !window.LanCopyPreview) return;
+  previewInstance?.destroy();
+  previewReturnFocus = trigger;
+  $("#previewTitle").textContent = path.split("/").pop();
+  const download = $("#previewDownload");
+  download.href = `/files/${encodeURIComponent(path)}`;
+  download.download = path.split("/").pop();
+  download.classList.remove("hidden");
+  $("#textTools").classList.add("hidden");
+  $("#previewStatus").textContent = "正在读取文件…";
+  if (!dialog.open) dialog.showModal();
+  previewInstance = window.LanCopyPreview.mount(dialog, path);
+  $("#previewClose").focus();
+}
+window.LanCopyOpenPreview = openPreview;
+function closePreview() {
+  previewInstance?.destroy(); previewInstance = null;
+  const dialog = $("#previewDialog");
+  if (dialog.open) dialog.close();
+  if (previewReturnFocus?.isConnected) previewReturnFocus.focus();
+  else $("#entries").focus();
 }
 function closeFileMenu(restore = true) {
   const menu = $("#fileMenu");
   if (menu.hidden) return;
   menu.hidden = true;
-  $("#selectionMenuButton").setAttribute("aria-expanded", "false");
   if (restore && menuReturnFocus?.isConnected) menuReturnFocus.focus();
 }
 function addMenuAction(label, action, disabled = false) {
@@ -244,7 +286,11 @@ function populateFileMenu() {
     const item = items[0];
     addMenuAction(item.directory ? "打开" : (item.previewType ? "预览" : "下载"), () => openEntry(item));
     if (!item.directory) {
-      if (localhostAccess) addMenuAction("打开所在文件夹", () => openContainingFolder(item, $("#selectionMenuButton")));
+      if (localhostAccess) {
+        const row = menuReturnFocus?.closest?.(".explorer-row");
+        const trigger = row?.querySelector(".row-menu-button") || menuReturnFocus;
+        addMenuAction("打开所在文件夹", () => openContainingFolder(item, trigger));
+      }
       else addMenuAction("下载", () => { const a = document.createElement("a"); a.href = `/files/${encodeURIComponent(item.path)}`; a.download = item.name; a.click(); });
     }
     addMenuAction("移动…", () => openMove(item));
@@ -257,17 +303,12 @@ function populateFileMenu() {
   });
 }
 function showFileMenu(x, y, trigger) {
-  populateFileMenu(); menuReturnFocus = trigger;
+  menuReturnFocus = trigger; populateFileMenu();
   const menu = $("#fileMenu"); menu.hidden = false;
   const rect = menu.getBoundingClientRect(); menu.style.left = `${Math.max(8, Math.min(x, innerWidth - rect.width - 8))}px`; menu.style.top = `${Math.max(8, Math.min(y, innerHeight - rect.height - 8))}px`;
   menu.querySelector("button:not(:disabled)")?.focus();
-  $("#selectionMenuButton").setAttribute("aria-expanded", "true");
 }
 function showFileMenuAtButton(buttonNode, row) { const rect = buttonNode.getBoundingClientRect(); showFileMenu(rect.right, rect.bottom, buttonNode); }
-function showSelectionMenu() {
-  if (!selectedPaths.size) return;
-  const rect = $("#selectionMenuButton").getBoundingClientRect(); showFileMenu(rect.left, rect.bottom, $("#selectionMenuButton"));
-}
 async function openContainingFolder(item, trigger) {
   trigger.disabled = true;
   try {
@@ -383,7 +424,6 @@ async function deleteEntry(item) {
   } finally { mutationPending = false; }
 }
 document.querySelectorAll("[data-close]").forEach(node => node.addEventListener("click", () => document.getElementById(node.dataset.close).close()));
-$("#mkdir").addEventListener("click", () => openEdit());
 $("#search").addEventListener("input", () => {
  clearTimeout(searchTimer);
  directoryController?.abort();
@@ -393,9 +433,10 @@ $("#search").addEventListener("input", () => {
 });
 $("#clearSearch").addEventListener("click", () => { $("#search").value = ""; loadDirectory(); $("#search").focus(); });
 $("#goParent").addEventListener("click", () => navigate(currentPath.includes("/") ? currentPath.slice(0, currentPath.lastIndexOf("/")) : ""));
-$("#goRoot").addEventListener("click", () => navigate(""));
-$("#refreshFiles").addEventListener("click", loadDirectory);
-$("#selectionMenuButton").addEventListener("click", showSelectionMenu);
+$("#previewClose").addEventListener("click", closePreview);
+$("#previewDialog").addEventListener("click", event => { if (event.target === event.currentTarget) closePreview(); });
+$("#previewDialog").addEventListener("cancel", event => { event.preventDefault(); closePreview(); });
+$("#previewDialog").addEventListener("close", () => { if (previewInstance) { previewInstance.destroy(); previewInstance = null; } });
 document.querySelectorAll("#listHeader [data-sort]").forEach(header => header.addEventListener("click", () => {
   if (sortKey === header.dataset.sort) sortDirection = sortDirection === "ascending" ? "descending" : "ascending";
   else { sortKey = header.dataset.sort; sortDirection = "ascending"; }
@@ -410,7 +451,7 @@ $("#entries").addEventListener("keydown", event => {
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
     event.preventDefault(); index = Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)));
     focusedPath = rows[index].dataset.path; rows.forEach(row => row.tabIndex = row === rows[index] ? 0 : -1); rows[index].focus();
-  } else if (event.key === "Enter" && current && !event.target.closest("button,a")) { event.preventDefault(); openEntry(itemByPath(current.dataset.path)); }
+  } else if (event.key === "Enter" && current && !event.target.closest("button,a")) { event.preventDefault(); openEntry(itemByPath(current.dataset.path), current); }
   else if (event.key === " " && !event.target.closest("button,a")) { event.preventDefault(); if (current) selectRow(itemByPath(current.dataset.path), {currentTarget: current, ctrlKey: true, metaKey: false, shiftKey: false}, rows.map(row => itemByPath(row.dataset.path))); }
 });
 document.addEventListener("keydown", async event => {
@@ -421,11 +462,11 @@ document.addEventListener("keydown", async event => {
   else if (event.key === "Home") { event.preventDefault(); items[0]?.focus(); }
   else if (event.key === "End") { event.preventDefault(); items.at(-1)?.focus(); }
 });
-document.addEventListener("click", event => { if (!event.target.closest("#fileMenu") && !event.target.closest("#selectionMenuButton") && !event.target.closest(".row-menu-button")) closeFileMenu(false); });
+document.addEventListener("click", event => { if (!event.target.closest("#fileMenu") && !event.target.closest(".row-menu-button")) closeFileMenu(false); });
 document.addEventListener("keydown", async event => {
   if (event.defaultPrevented || event.target.closest("input,textarea,select,[contenteditable=true],dialog") || !$("#fileMenu").hidden) return;
   const command = event.ctrlKey || event.metaKey;
-  if (event.key === "Escape") { if (selectedPaths.size) { selectedPaths.clear(); document.querySelectorAll(".explorer-row").forEach(row => { row.classList.remove("selected"); row.setAttribute("aria-selected", "false"); }); updateSelectionBar(); } return; }
+  if (event.key === "Escape") { if (selectedPaths.size) clearSelection(); return; }
   if (!$("#entries").contains(event.target) && !event.target.closest(".explorer-row")) return;
   if (command && event.key.toLowerCase() === "a") { event.preventDefault(); selectedPaths = new Set(entries.map(item => item.path)); renderEntries(); return; }
   if (event.key === "F2" && selectedPaths.size === 1) { event.preventDefault(); openEdit(selectedItems()[0]); }
@@ -464,12 +505,16 @@ window.addEventListener("popstate", () => {
 document.addEventListener("visibilitychange", () => {
  if (document.hidden) {
   directoryController?.abort(); clearTimeout(searchTimer); clearTimeout(eventRefreshTimer); eventRefreshTimer = null; stopFallbackRefresh();
- } else if (!stopped) { if (!events || events.readyState !== EventSource.OPEN) startFallbackRefresh(); scheduleDirectoryRefresh(); }
+ } else if (!stopped) { if (typeof updateFreshTags === "function") updateFreshTags(); if (!events || events.readyState !== EventSource.OPEN) startFallbackRefresh(); scheduleDirectoryRefresh(); }
 });
 window.addEventListener("lan-copy:shutdown", () => {
  stopped = true; clearTimeout(searchTimer); clearTimeout(eventRefreshTimer); stopFallbackRefresh(); directoryController?.abort(); events?.close();
+  if (typeof freshTagTimer !== "undefined") clearInterval(freshTagTimer);
+  if (typeof previewInstance !== "undefined") previewInstance?.destroy();
 });
+window.addEventListener("pagehide", () => { clearInterval(freshTagTimer); previewInstance?.destroy(); }, {once: true});
 loadDirectory();
+freshTagTimer = setInterval(() => { if (!document.hidden) updateFreshTags(); }, 60000);
 
 let uploading = false;
 let dragDepth = 0;
@@ -499,17 +544,6 @@ document.addEventListener("drop", event => {
  uploadToFolder(progress => roots.length && roots.every(Boolean)
   ? LanCopyUploadTree.fromEntries(roots, progress)
   : LanCopyUploadTree.fromFiles(files, false, progress));
-});
-const folderInput = $("#folderUploadInput");
-$("#uploadFolder").addEventListener("click", () => {
- if (uploading) { notify("正在上传，请等待本次完成", true); return; }
- if (!("webkitdirectory" in folderInput)) { notify("此浏览器不支持选择文件夹，请使用电脑浏览器拖拽上传", true); return; }
- folderInput.click();
-});
-folderInput.addEventListener("change", () => {
- const files = [...folderInput.files];
- folderInput.value = "";
- if (files.length) uploadToFolder(progress => LanCopyUploadTree.fromFiles(files, true, progress));
 });
 async function uploadToFolder(collect) {
  if (uploading) { notify("正在上传，请等待本次完成后再拖入", true); return; }

@@ -7,7 +7,7 @@ function element() {
   addEventListener(name,fn) {handlers.set(name,fn);},
   setAttribute(k,v) {attrs[k]=v;},getAttribute(k) {return attrs[k];},
   classList:{add:c=>classes.add(c),remove:c=>classes.delete(c),toggle:(c,on)=>on?classes.add(c):classes.delete(c)},
-  focus(){},prepend(){},showModal(){this.open=true;},close(){this.open=false;}
+  focus(){},prepend(){},showModal(){this.open=true;},close(){this.open=false;this.handlers.get('close')?.();}
  };
 }
 async function main() {
@@ -43,8 +43,12 @@ async function main() {
  get('.release-install').handlers.get('click')();
  assert.equal(get('.update-dropzone').disabled,true);
  assert.equal(get('.release-install').disabled,true);
+ assert.equal(get('.release-install-status').hidden,false);
+ assert.equal(get('.release-install-status').textContent,'正在下载更新包并校验，请稍候…');
  await settle();assert.equal(posts,1);assert.equal(reloads,1);
+ assert.match(get('.release-install-status').textContent,/已更新至 1\.1\.0/);
  get('.settings-close').handlers.get('click')();gear.handlers.get('click')();await settle();assert.equal(checks,3);
+ assert.equal(get('.release-install-status').hidden,true);
  failed=true;get('.release-check').handlers.get('click')();await settle();
  assert.match(get('.release-status').textContent,/GitHub unavailable/);
  assert.equal(get('.release-status').classes.has('success'),false);

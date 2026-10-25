@@ -14,6 +14,7 @@
   <script src="/shell.js" defer></script>
   <script src="/settings.js" defer></script>
   <script src="/upload-tree.js" defer></script>
+  <script src="/preview.js" defer></script>
   <script src="/filesystem.js" defer></script>
 </head>
 <body>
@@ -70,24 +71,25 @@
 
 </header>
 <main class="shell">
-  <section class="files-section explorer" aria-labelledby="explorerTitle">
-    <div class="section-head">
-      <h2 id="explorerTitle">共享空间</h2>
-      <div class="explorer-tools"><input id="search" type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹" /><button class="secondary" id="clearSearch" type="button" aria-label="清除搜索" hidden>清除</button><input id="folderUploadInput" type="file" webkitdirectory multiple hidden /><button class="secondary" id="uploadFolder" type="button">上传文件夹</button><button class="primary" id="mkdir" type="button">＋ 新建文件夹</button></div>
-    </div>
-    <div class="explorer-navigation"><button id="goParent" class="secondary" type="button" aria-label="返回上一级">↑ 上一级</button><button id="goRoot" class="secondary" type="button">全部文件</button><nav id="breadcrumbs" class="breadcrumbs" aria-label="文件夹路径"></nav><button id="refreshFiles" class="secondary" type="button">刷新</button></div>
-    <div class="explorer-location"><strong id="currentFolderName">全部文件</strong><span id="entrySummary" aria-live="polite">正在读取…</span></div>
-    <div id="selectionBar" class="selection-bar" hidden><span id="selectionSummary" aria-live="polite"></span><button id="selectionMenuButton" class="secondary" type="button" aria-haspopup="menu" aria-expanded="false">操作 ▾</button></div>
+  <section class="files-section explorer" aria-label="共享空间文件列表">
+    <div class="explorer-navigation"><button id="goParent" class="secondary" type="button" aria-label="返回上一级">↑ 上一级</button><nav id="breadcrumbs" class="breadcrumbs" aria-label="文件夹路径"></nav><div class="search-box"><input id="search" type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹" /><button class="search-clear" id="clearSearch" type="button" aria-label="清除搜索" hidden>×</button></div></div>
     <div id="listHeader" class="file-list-header" role="row"><div role="columnheader" aria-sort="ascending"><button type="button" data-sort="name">名称 <span></span></button></div><div role="columnheader" aria-sort="none"><button type="button" data-sort="modified">修改日期 <span></span></button></div><div role="columnheader" aria-sort="none"><button type="button" data-sort="type">类型 <span></span></button></div><div role="columnheader" aria-sort="none"><button type="button" data-sort="size">大小 <span></span></button></div><span aria-hidden="true"></span></div>
     <div id="entries" class="file-list" role="grid" aria-label="共享文件列表" aria-describedby="entrySummary" tabindex="0"></div>
-    <div id="fileMenu" class="file-menu" role="menu" hidden></div>
-    <div class="empty hidden" id="directoryEmpty"><div>▱</div><strong id="emptyTitle">这个文件夹还是空的</strong><p>新建文件夹，或将其他位置的文件移动到这里</p></div>
+    <div class="empty hidden" id="directoryEmpty"><div>▱</div><strong id="emptyTitle">这个文件夹还是空的</strong><p>将其他位置的文件移动到这里，或拖入文件上传</p></div>
     <div class="space-upload hidden" id="spaceUpload" aria-live="polite"><span id="spaceUploadLabel"></span><progress id="spaceUploadProgress" max="100" value="0" aria-label="上传进度"></progress></div>
     <div class="upload-drop-message" aria-hidden="true">松开文件或文件夹，上传到当前文件夹</div>
-    <p class="explorer-hint">拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</p>
+    <p class="explorer-hint"><span>拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</span><span id="entrySummary" aria-live="polite">正在读取…</span></p>
   </section>
   <footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer>
 </main>
+<div id="fileMenu" class="file-menu" role="menu" hidden></div>
+<dialog id="previewDialog" class="preview-dialog" aria-labelledby="previewTitle">
+  <div class="preview-dialog-toolbar"><h2 id="previewTitle">文件预览</h2><div><a id="previewDownload" class="secondary hidden">下载文件</a><button id="previewClose" class="secondary" type="button">关闭</button></div></div>
+  <p id="previewStatus" class="preview-status" role="status">正在读取文件…</p>
+  <div id="textTools" class="preview-text-tools hidden"><label for="textEncoding">文本编码</label><select id="textEncoding"><option value="utf-8">UTF-8</option><option value="gb18030">GB18030 / GBK</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option></select></div>
+  <section id="previewContent" class="preview-content" aria-label="文件内容"></section>
+  <p class="preview-footnote">文件通过局域网直接读取 · 预览失败时可下载原文件</p>
+</dialog>
 <dialog id="editDialog" class="app-dialog fs-dialog">
   <form id="editForm">
     <h2 id="editTitle">新建文件夹</h2>

@@ -9,10 +9,10 @@
   <header class="settings-header"><h2 id="settingsTitle">设置</h2><button type="button" class="settings-close" aria-label="关闭设置">×</button></header>
   <div class="settings-layout">
    <nav class="settings-menu" aria-label="设置菜单" role="tablist" aria-orientation="vertical">
-    <button type="button" role="tab" id="aboutTab" aria-selected="true" aria-controls="aboutSettings">关于</button>
-    <button type="button" role="tab" id="generalTab" aria-selected="false" aria-controls="generalSettings" tabindex="-1">通用</button>
-    <button type="button" role="tab" id="uploadTab" aria-selected="false" aria-controls="uploadSettings" tabindex="-1">上传</button>
-    <button type="button" role="tab" id="updateTab" aria-selected="false" aria-controls="updateSettings" tabindex="-1">更新<span class="update-tab-dot" aria-label="有新版本" hidden></span></button>
+    <button type="button" role="tab" id="aboutTab" aria-selected="true" aria-controls="aboutSettings"><span>关于</span><small>版本与项目</small></button>
+    <button type="button" role="tab" id="generalTab" aria-selected="false" aria-controls="generalSettings" tabindex="-1"><span>通用</span><small>启动与关闭</small></button>
+    <button type="button" role="tab" id="uploadTab" aria-selected="false" aria-controls="uploadSettings" tabindex="-1"><span>资源</span><small>存储与上传限制</small></button>
+    <button type="button" role="tab" id="updateTab" aria-selected="false" aria-controls="updateSettings" tabindex="-1"><span>更新<span class="update-tab-dot" aria-label="有新版本" hidden></span></span><small>检查并安装版本</small></button>
    </nav>
    <div class="settings-content">
     <section id="aboutSettings" role="tabpanel" aria-labelledby="aboutTab">
@@ -35,11 +35,12 @@
      </div>
     </section>
     <section id="uploadSettings" role="tabpanel" aria-labelledby="uploadTab" hidden>
-     <h3>上传资源限制</h3>
-     <p>限制同时接收的上传数、所有上传共用的暂存空间，以及上传连接的空闲时间。设置保存到本机应用数据目录的 upload-resources.json。</p>
-     <label class="upload-resource-field">并发上传数<input class="upload-concurrent" type="number" min="1" max="32" step="1" disabled /></label>
-     <label class="upload-resource-field">暂存空间（GiB）<input class="upload-staging" type="number" min="1" max="1024" step="1" disabled /></label>
-     <label class="upload-resource-field">读取空闲超时（秒）<input class="upload-idle" type="number" min="5" max="600" step="1" disabled /></label>
+     <h3>资源</h3>
+     <p>查看共享文件当前占用的空间，并设置上传并发数、临时接收空间和连接空闲时间。限制仅影响之后开始的上传。</p>
+     <p class="resource-usage" role="status" aria-live="polite">正在统计共享文件…</p>
+     <label class="upload-resource-field"><span>并发上传数<small>同时接收文件的任务数量上限</small></span><input class="upload-concurrent" type="number" min="1" max="32" step="1" disabled /></label>
+     <label class="upload-resource-field"><span>暂存空间（GiB）<small>所有进行中上传共用的临时空间上限</small></span><input class="upload-staging" type="number" min="1" max="1024" step="1" disabled /></label>
+     <label class="upload-resource-field"><span>读取空闲超时（秒）<small>上传连接持续无数据时自动中止的等待时间</small></span><input class="upload-idle" type="number" min="5" max="600" step="1" disabled /></label>
      <button class="primary upload-resource-save" type="button" disabled>保存设置</button>
      <p class="upload-resource-status" role="status" aria-live="polite">正在读取上传限制…</p>
     </section>
@@ -47,7 +48,7 @@
      <h3>自动更新</h3><p class="settings-version">正在读取版本…</p>
      <p>局域网内的访客也可以发起更新；更新的是运行 Lan Copy 的电脑。</p>
      <p class="release-status" role="status" aria-live="polite">进入此菜单后自动检查新版本。</p>
-     <div class="release-actions"><button class="primary release-install" type="button" hidden disabled>下载并更新</button><a class="release-page" target="_blank" rel="noopener noreferrer" hidden>前往查看 ↗</a><button class="secondary release-check" type="button">重新检查</button></div>
+     <div class="release-actions"><div class="release-install-group"><button class="primary release-install" type="button" hidden disabled>下载并更新</button><p class="release-install-status" role="status" aria-live="polite" hidden></p></div><a class="release-page" target="_blank" rel="noopener noreferrer" hidden>前往查看 ↗</a><button class="secondary release-check" type="button">重新检查</button></div>
      <h3 class="manual-update-title">手动更新</h3>
      <p class="update-explanation">拖入本机系统对应的新版发布包，校验通过后自动安装并重启。共享文件和文字会保留，请先等待其他文件传输完成。</p>
      <button class="update-dropzone" type="button" disabled><strong>拖入更新包，或点击选择</strong><span>支持 .zip / .tar.gz · 最大 128 MiB</span></button>
@@ -124,7 +125,9 @@
   showShutdownAvailability();
  });
  const zone = $('.update-dropzone'), picker = $('.update-picker'), status = $('.update-status'), progress = $('.update-progress');
- const releaseStatus = $('.release-status'), downloadButton = $('.release-install'), releaseLink = $('.release-page'), checkButton = $('.release-check');
+ const releaseStatus = $('.release-status'), downloadButton = $('.release-install'), autoUpdateStatus = $('.release-install-status'), releaseLink = $('.release-page'), checkButton = $('.release-check');
+ const showAutomaticStatus = (message, error = false) => { autoUpdateStatus.textContent = message; autoUpdateStatus.hidden = !message; autoUpdateStatus.classList.toggle('error', error); };
+ const clearAutomaticStatus = () => showAutomaticStatus('');
  let releaseInfo, checking = false;
  function showReleaseAvailability() {
   downloadButton.disabled = busy || shutdownPending || stopped || checking || !info?.updateEnabled || !releaseInfo?.canInstall;
@@ -132,6 +135,7 @@
  }
  async function checkRelease() {
   if (busy || checking || shutdownPending || stopped) return;
+  clearAutomaticStatus();
   checking = true; releaseInfo = null; $('.update-tab-dot').hidden = true; downloadButton.hidden = true; releaseLink.hidden = true; showReleaseAvailability();
   releaseStatus.textContent = '正在检查 GitHub 最新版本…';
   releaseStatus.classList.remove('success');
@@ -154,12 +158,12 @@
  checkButton.addEventListener('click', checkRelease);
  downloadButton.addEventListener('click', () => {
   if (!downloadButton.disabled) runInstall(async () => {
-   showStatus('正在下载更新包并校验，请稍候…');
+   showAutomaticStatus('正在下载更新包并校验，请稍候…');
    const response = await fetch('/api/update/download', {method:'POST', headers:{'X-Lan-Copy-Action':'update'}});
    const result = await response.json();
    if (response.status !== 202) throw new Error(result.error || '下载更新失败');
    return result;
-  });
+  }, false, true);
  });
  const showStatus = (message, error = false) => { status.textContent = message; status.classList.toggle('error', error); };
  function selectTab(index, focus = false) {
@@ -226,6 +230,20 @@
   }
  });
  const uploadConcurrent = $('.upload-concurrent'), uploadStaging = $('.upload-staging'), uploadIdle = $('.upload-idle'), uploadSave = $('.upload-resource-save'), uploadStatus = $('.upload-resource-status');
+ const resourceUsage = $('.resource-usage');
+ async function loadResourceUsage() {
+  try {
+   const response = await fetch('/api/files', {cache:'no-store'}), result = await response.json();
+   if (!response.ok) throw new Error(result.error || '无法读取共享文件');
+   const bytes = (result.files || []).reduce((sum, file) => sum + (Number(file.size) || 0), 0);
+   resourceUsage.textContent = `已占用存储空间：${formatBytes(bytes)}（${(result.files || []).length} 个文件）`;
+  } catch (error) { resourceUsage.textContent = error.message || '无法统计存储空间'; }
+ }
+ function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KiB', 'MiB', 'GiB', 'TiB']; let value = bytes;
+  for (const unit of units) { value /= 1024; if (value < 1024 || unit === 'TiB') return `${value.toFixed(value < 10 ? 1 : 0)} ${unit}`; }
+ }
  let uploadSettingsBusy = false, uploadSettingsEditable = false;
  function setUploadSettings(config, editable) {
   uploadSettingsEditable = editable;
@@ -234,6 +252,7 @@
   uploadSave.disabled = !editable || uploadSettingsBusy;
  }
  async function loadUploadSettings() {
+  loadResourceUsage();
   try {
    const response = await fetch('/api/settings/upload-resources', {cache:'no-store'});
    const result = await response.json();
@@ -259,6 +278,7 @@
  });
  gear.addEventListener('click', () => { modal.showModal(); if (!stopped) { checkRelease(); loadStartup(); loadUploadSettings(); } });
  $('.settings-close').addEventListener('click', () => modal.close());
+ modal.addEventListener('close', clearAutomaticStatus);
  modal.addEventListener('click', event => { if (event.target === modal) { const r=modal.getBoundingClientRect(); if (event.clientX<r.left || event.clientX>r.right || event.clientY<r.top || event.clientY>r.bottom) modal.close(); } });
  // Consume all modal drops so the shared-space uploader never receives a package.
  for (const name of ['dragenter','dragover','dragleave','drop']) modal.addEventListener(name, event => { event.preventDefault(); event.stopPropagation(); });
@@ -276,7 +296,7 @@
    xhr.send(file);
   });
  }
- async function waitForRestart(result) {
+ async function waitForRestart(result, reportStatus = showStatus) {
   const deadline=Date.now()+90000;
   while (Date.now()<deadline) {
    await new Promise(resolve => setTimeout(resolve,1000));
@@ -284,11 +304,11 @@
     const response=await fetch('/api/app', {cache:'no-store',signal:AbortSignal.timeout(2000)});
     if (!response.ok) continue;
     const current=await response.json();
-    if (current.updateID===result.updateID) { showStatus(`已更新至 ${current.version}，正在刷新…`);location.reload();return true; }
-    if (current.updateID===`rollback-${result.updateID}`) { showStatus('新版本启动失败，已恢复旧版本。详情请查看程序目录下的 lan-copy-update.log。',true);return false; }
+    if (current.updateID===result.updateID) { reportStatus(`已更新至 ${current.version}，正在刷新…`);location.reload();return true; }
+    if (current.updateID===`rollback-${result.updateID}`) { reportStatus('新版本启动失败，已恢复旧版本。详情请查看程序目录下的 lan-copy-update.log。',true);return false; }
    } catch { /* The service is expected to be temporarily offline. */ }
   }
-  showStatus('重启未能在预期时间内完成。请查看程序目录下的 lan-copy-update.log，或手动启动程序。',true);
+  reportStatus('重启未能在预期时间内完成。请查看程序目录下的 lan-copy-update.log，或手动启动程序。',true);
   return false;
  }
  async function install(files) {
@@ -297,12 +317,13 @@
   if (files[0].size>128*1024*1024) {showStatus('更新包不能超过 128 MiB。',true);return;}
   await runInstall(() => upload(files[0]), true);
  }
- async function runInstall(start, uploading = false) {
+ async function runInstall(start, uploading = false, automatic = false) {
   if (busy || shutdownPending || stopped || !info?.updateEnabled) return;
+  if (!automatic) clearAutomaticStatus();
   busy=true;showShutdownAvailability();showReleaseAvailability();zone.disabled=true;progress.hidden=!uploading;progress.value=0;
   // Keep the modal open while installing, but allow closing and reopening it.
-  try {const result=await start();progress.hidden=true;showStatus('校验通过，正在安装并重启…');await waitForRestart(result);}
-  catch(error){showStatus(error.message,true);}
+  try {const result=await start();progress.hidden=true;(automatic ? showAutomaticStatus : showStatus)('校验通过，正在安装并重启…');await waitForRestart(result, automatic ? showAutomaticStatus : showStatus);}
+  catch(error){(automatic ? showAutomaticStatus : showStatus)(error.message,true);}
   finally {busy=false;showShutdownAvailability();progress.hidden=true;await refreshAvailability();showReleaseAvailability();}
  }
  async function refreshAvailability() {

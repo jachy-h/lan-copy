@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build one signed release, committing its version only after success."""
+"""Build signed release artifacts using a selected version."""
 
 import argparse
 from contextlib import contextmanager
@@ -24,6 +24,14 @@ def next_version(version_file, override=""):
     current = release_version(version_file.read_text().strip() if version_file.exists() else "0.1.0")
     major, minor, patch = current.split(".")
     return f"{major}.{minor}.{int(patch) + 1}"
+
+
+def build_version(version_file, override=""):
+    """Return the requested version or the saved build version without incrementing it."""
+    if override:
+        return release_version(override)
+    current = version_file.read_text().strip() if version_file.exists() else "0.1.0"
+    return release_version(current)
 
 
 @contextmanager
@@ -80,10 +88,10 @@ def make_preview():
 def build(version_file, override, lock_file, command, artifacts):
     # Recursive Make recipes also run under -n/-q/-t; never save a preview version.
     if make_preview():
-        version = next_version(version_file, override)
+        version = build_version(version_file, override)
         return subprocess.run([*command, f"VERSION={version}"], close_fds=False).returncode
     with build_lock(lock_file):
-        version = next_version(version_file, override)
+        version = build_version(version_file, override)
         started = time.monotonic()
         print(f"Building Lan Copy {version}…", flush=True)
         # Preserve GNU Make's inherited jobserver descriptors for make -j.
