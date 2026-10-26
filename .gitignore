@@ -8,6 +8,7 @@ release/
 tmp/
 .DS_Store
 .pi-lens/
+frontend/node_modules/
 
 共享文件夹-lancopy/
 shared-folder-lancopy/

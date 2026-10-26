@@ -1,27 +1,15 @@
 <!doctype html>
 <html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>文件预览 · Lan Copy</title>
-  <link rel="icon" type="image/svg+xml" href="/logo/favicon-32x32.svg" />
-  <link rel="stylesheet" href="/style.css" />
-  <script src="/preview.js" defer></script>
-</head>
-<body class="preview-page">
-  <main class="preview-shell">
-    <header class="preview-toolbar">
-      <a id="previewBack" class="secondary" href="/">返回文件列表</a>
-      <h1 id="previewTitle">文件预览</h1>
-      <a id="previewDownload" class="secondary hidden">下载文件</a>
-    </header>
-    <p id="previewStatus" class="preview-status" role="status">正在读取文件…</p>
-    <div id="textTools" class="preview-text-tools hidden">
-      <label for="textEncoding">文本编码</label>
-      <select id="textEncoding"><option value="utf-8">UTF-8</option><option value="gb18030">GB18030 / GBK</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option></select>
-    </div>
-    <section id="previewContent" class="preview-content" aria-label="文件内容"></section>
-    <p class="preview-footnote">文件通过局域网直接读取 · 预览失败时可下载原文件</p>
-  </main>
-</body>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件预览 · Lan Copy</title>
+    <link rel="icon" href="/logo/favicon-32x32.svg">
+    <script type="module" crossorigin src="/_frontend/assets/preview-UQenLhNL.js"></script>
+    <link rel="modulepreload" crossorigin href="/_frontend/assets/engine-C_EBgyFy.js">
+    <link rel="stylesheet" crossorigin href="/_frontend/assets/engine-CWzv5syg.css">
+  </head>
+  <body class="preview-page">
+    <div id="preview-app"></div>
+  </body>
 </html>

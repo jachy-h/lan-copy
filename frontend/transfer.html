@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111827">
+    <title>Lan Copy · 局域网快传</title>
+    <link rel="icon" href="/logo/favicon-32x32.svg">
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body>
+    <div id="app">
+    <header class="topbar" data-initial-shell>
+      <div class="brand"><img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt=""><div><h1>Lan Copy</h1></div></div>
+      <nav class="page-nav" aria-label="页面导航"><a href="/" >共享空间</a><a href="/transfer-text" aria-current="page">文本快传</a></nav>
+      <div class="hero-actions"></div>
+    </header>
+<main class="shell" data-initial-shell aria-busy="true">
+      <section class="text-card" inert>
+        <div class="text-compose-head"><div class="text-icon" aria-hidden="true">Aa</div><div><h2>共享一段文本</h2><p>链接、验证码、命令或临时笔记</p></div></div>
+        <textarea rows="7" placeholder="在这里粘贴或输入文字…" aria-label="要共享的文本"></textarea>
+        <div class="text-compose-foot"><span>0 B / 64 KiB</span><button class="primary" type="button">发布文本</button></div>
+      </section>
+      <section class="files-section text-section">
+        <div class="section-head"><div><h2>共享文本</h2><p>正在读取…</p></div><button class="icon-btn" type="button" title="刷新" aria-label="刷新共享内容" inert><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"/></svg></button></div>
+        <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取共享文本</strong><p>请稍候</p></div>
+      </section>
+      <footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer>
+    </main>
+    </div>
+    <script type="module" src="/src/pages/app.ts"></script>
+  </body>
+</html>

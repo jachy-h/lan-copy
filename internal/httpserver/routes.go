@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -50,17 +51,41 @@ func (s *Server) routes() http.Handler {
 		}
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 	})
+	mux.HandleFunc("GET /transfer.html", func(w http.ResponseWriter, r *http.Request) {
+		target := "/transfer-text"
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
+		w.Header().Set("Cache-Control", "no-cache")
+		http.Redirect(w, r, target, http.StatusPermanentRedirect)
+	})
+	mux.HandleFunc("GET /transfer-text", func(w http.ResponseWriter, r *http.Request) {
+		page := r.Clone(r.Context())
+		page.URL.Path = "/transfer.html"
+		page.URL.RawPath = ""
+		s.web.ServeHTTP(w, page)
+	})
 	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob:; img-src 'self' data:; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
 	})
 	mux.Handle("GET /", s.web)
 	return SecurityHeaders(mux)
 }
 
+var hashedFrontendAsset = regexp.MustCompile(`^/_frontend/assets/[^/]+-[A-Za-z0-9_-]{8}\.[^/]+$`)
+
 func StaticFiles(root fs.FS) http.Handler {
 	files := http.FileServer(http.FS(root))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Fixed URLs must revalidate after a binary upgrade. Only existing content-
+		// addressed assets may be cached permanently; never cache missing old chunks.
+		w.Header().Set("Cache-Control", "no-cache")
+		if hashedFrontendAsset.MatchString(r.URL.Path) {
+			if info, err := fs.Stat(root, strings.TrimPrefix(path.Clean(r.URL.Path), "/")); err == nil && !info.IsDir() {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+		}
 		switch strings.ToLower(path.Ext(r.URL.Path)) {
 		case ".js", ".mjs":
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -78,7 +103,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' blob: data:; worker-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

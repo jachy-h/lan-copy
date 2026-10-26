@@ -56,15 +56,53 @@ jobs:
           PYTHONDONTWRITEBYTECODE: '1'
         run: |
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          node scripts/test-service-status.cjs
-          node scripts/test-delete-confirmation.cjs
-          node scripts/test-dialog.cjs
-          node scripts/test-upload-tree.cjs
-          node scripts/test-settings-update.cjs
+      - name: Set up frontend Node.js
+        if: runner.os == 'Linux'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Verify frontend toolchain and build
+        if: runner.os == 'Linux'
+        run: |
+          npm install --global npm@11.16.0
+          cd frontend
+          npm ci
+          npm run check
+          npm run check-assets
+          python3 ../scripts/vendor_assets.py --check
+
+  browser:
+    name: Embedded frontend browser integration
+    needs: metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: stable
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@11.16.0
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run check
+          npm run check-assets
+          npx playwright install --with-deps chromium firefox webkit
+          npm run test:browser
 
   build:
     name: Build signed packages
-    needs: [metadata, test]
+    needs: [metadata, test, browser]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -75,6 +113,14 @@ jobs:
         with:
           go-version: stable
           cache: false
+      - name: Set up frontend Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Pin frontend npm version
+        run: npm install --global npm@11.16.0
       - name: Build with existing version and signing key
         env:
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}

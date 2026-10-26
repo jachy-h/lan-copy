@@ -34,7 +34,7 @@ func TestThumbnailsAndPreviewMetadata(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for fileName, body := range map[string]string{"drawing.svg": `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>`, "report.docx": "document", "notes.txt": "text", "broken.png": "not an image"} {
+	for fileName, body := range map[string]string{"drawing.svg": `<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>`, "report.docx": "document", "report.xls": "legacy sheet", "report.xlsx": "modern sheet", "notes.txt": "text", "broken.png": "not an image"} {
 		if err := os.WriteFile(filepath.Join(app.dir, fileName), []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -102,7 +102,7 @@ func TestThumbnailsAndPreviewMetadata(t *testing.T) {
 		for _, file := range listing.Entries {
 			types[file.Name] = file.PreviewType
 		}
-		if types[name] != "image/png" || types["drawing.svg"] != "image/svg+xml" || types["notes.txt"] != "text/plain; charset=utf-8" || types["report.docx"] != "" {
+		if types[name] != "image/png" || types["drawing.svg"] != "image/svg+xml" || types["notes.txt"] != "text/plain; charset=utf-8" || types["report.docx"] != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || types["report.xls"] != "application/vnd.ms-excel" || types["report.xlsx"] != "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" {
 			t.Fatalf("%s: incorrect preview metadata %v", target, types)
 		}
 	}

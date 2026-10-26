@@ -30,6 +30,8 @@ lan-copy/
 │   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
 │   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
+├── frontend/             # Vue/TypeScript 源工程 / Vue and TypeScript sources
+├── tmp/frontend-dist/    # Vite 临时构建输出，不供 Go 嵌入 / temporary Vite output, not embedded
 ├── lan-copy.syso         # 编译时自动链接的图标资源 / Icon resource linked by go build
 ├── build.bat             # Windows 快捷构建脚本 / Quick build script (Windows)
 ├── Makefile              # 全平台制品构建 / Cross-platform artifact builds
@@ -38,16 +40,30 @@ lan-copy/
 
 ## 环境要求 / Requirements
 
-Go 1.22 或更新版本。运行程序只依赖 Go 标准库；使用 Make 打包还需要 Python 3。
-Go 1.22+. The app uses only the Go standard library; Make packaging also requires Python 3.
+Go 1.22 或更新版本。运行程序只依赖 Go 标准库；发布打包还需要 Python 3，并会用固定 Node/npm 校验和构建前端产物。
+Go 1.22+. Running the app only needs Go; Release packaging also needs Python 3 and uses the pinned Node/npm toolchain to check and build frontend assets.
+
+前端迁移工程固定使用 Node.js 24.18.0 与 npm 11.16.0；安装依赖需联网，运行已构建的 Go 程序不需要 Node.js。
+The frontend migration source pins Node.js 24.18.0 and npm 11.16.0. Dependency installation needs network access; running a built Go app does not need Node.js.
 
 ## 本地运行与测试 / Run & Test
 
 ```bash
 go run .            # 运行 / run
-make test           # Python、Node.js 与 Go 全部测试 / all Python, Node.js and Go tests
+make test           # Python 与 Go 测试 / Python and Go tests
 go vet ./...        # 静态检查 / static check
+make frontend-check # npm ci、类型检查、前端测试、Vite 构建与产物校验 / npm ci, typecheck, frontend tests, Vite build and bundle check
+make frontend-sync # 重新生成前端 bundle 并同步到 web/ / rebuild and sync the frontend bundle into web/
+make frontend-release # 发布构建使用：校验、构建并同步前端 / release frontend pipeline
+make frontend-dev   # 启动 Vite 页面并代理到本机 Go 服务 / run Vite pages with a proxy to Go
 ```
+
+`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。共享空间、设置、文本快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
+
+共享空间 `/` 与文本快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。`preview.html` 继续作为独立预览入口。
+本地开发时先以 `go run . -listen :8080` 启动服务，再运行 `make frontend-dev`；Vite 默认代理到 `http://127.0.0.1:8080`，可用 `LAN_COPY_PROXY` 指定其他 Go 地址。开发代理会把同源动作请求的 Origin 规范到 Go 目标，不影响生产访问策略。
+Run `go run . -listen :8080` before `make frontend-dev`. Vite proxies to `http://127.0.0.1:8080` by default; set `LAN_COPY_PROXY` to use another Go instance. The dev proxy normalizes action request Origins to the Go target without changing production access policy.
+`frontend/` contains manually maintained Vue/TypeScript sources; `web/` contains the Vite-generated production assets committed with the source. Shared files, settings, text transfer, sharing/status controls, and standalone preview are managed by Vue pages. A standalone `go build .` uses the committed assets and does not need Node.js. The release command `make build` automatically installs frontend dependencies, runs type checks and tests, builds the frontend, syncs its embedded assets, and then packages the Go binaries; it requires Node.js/npm. Remaining manual checks are tracked in [the v0.5.0 progress record](v0.5.0-progress.md).
 
 Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 
@@ -58,6 +74,38 @@ Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 | `build.bat test` | 运行测试 / run tests |
 | `build.bat run` | 直接运行 / run directly |
 | `build.bat clean` | 清理构建产物 / clean artifacts |
+
+## v0.5.1 前端产物与验证 / Frontend artifacts and validation
+
+- `frontend/index.html`、`transfer.html`、`preview.html` 是页面唯一来源，公共样式源为 `frontend/src/style.css`。Vite 生成的 HTML 同步到 `web/`，完整资源树同步到 `web/_frontend/`，禁止手改这些产物。`web/logo/` 与 `web/vendor/` 保持独立维护，不由同步脚本覆盖。
+- `frontend/scripts/sync-assets.mjs` 校验静态/动态依赖、CSS、字体/图片和 HTML 引用，检查新增、删除及内容变化。替换失败回滚已有资源；临时副本位于不参与内嵌的 `tmp/`。
+- HTML 与固定路径资源使用 `Cache-Control: no-cache`；存在的 hash 资源使用长期 immutable 缓存。旧标签页升级后请求已删除的懒加载 chunk 时自动刷新一次，连续失败显示手动重试，避免刷新循环。
+- Go 直接构建仍使用仓库中的已提交产物；开发完成需运行 `make frontend-sync` 并一起提交 HTML 和资源。`make frontend-check` 与发布构建执行完整产物及离线 vendor 校验。
+
+页面使用固定 Node.js/npm；先在 `frontend/` 执行 `nvm use`，确认 `node --version` 为 `v24.18.0`、`npm --version` 为 `11.16.0`，不符合时安装指定工具链，不绕过 `engine-strict`。
+
+```bash
+cd frontend
+nvm use
+npm ci
+npm run check
+npm run check-assets
+npx playwright install chromium firefox webkit
+npm run test:browser
+```
+
+浏览器测试使用 Playwright `1.58.2`（开发依赖），自动构建并启动隔离的真实 Go 服务，创建临时 PDF/DOCX/XLSX/文本样本；覆盖两种预览入口、关闭与断网、Range、文本发布、缓存头及 A/B 二进制升级后的旧 chunk 恢复。测试退出清理临时数据和服务，不操作用户共享目录。Linux CI 使用 `npx playwright install --with-deps chromium firefox webkit` 安装浏览器及系统依赖。WebKit 自动化不等于真实 Safari 或 iOS 验收。
+
+`frontend/vendor-manifest.json` 记录第三方版本、来源、许可、上游 tarball integrity 与每个内嵌文件的 SHA-256。普通校验无需联网：
+
+```bash
+python3 scripts/vendor_assets.py --check
+python3 scripts/vendor_assets.py --verify-upstream
+```
+
+更新 vendor 时，从官方来源确认新版本、许可、下载地址与完整性摘要，编辑清单中相应包的 `version` / `url` / `integrity`（必要时调整选中文件路径），再执行 `python3 scripts/vendor_assets.py --update <name>`；命令先验证上游包摘要，再写入选中文件并重算文件摘要。同步更新对应 README、检查上游安全公告，运行离线与上游校验及受影响预览测试。此流程不让 Go 构建或应用运行联网。清单中的 `projectFiles` 是本项目适配器与说明文件，不能把新增第三方库放入该列表绕过摘要校验。
+
+`frontend/` contains the HTML and CSS sources; `web/*.html` and the complete `web/_frontend/` tree are generated and checked together. Logos and locally vendored libraries remain separately owned. Run the pinned toolchain checks and `npm run test:browser` for embedded-server integration. Vendor checks are offline by default; `--verify-upstream` downloads integrity-pinned archives, and `--update <name>` explicitly refreshes a package after its pin is edited. Runtime and plain Go builds need neither Node.js nor network access. See [v0.5.1 progress](v0.5.1-progress.md) for actual validation and remaining environment limits.
 
 ## 构建制品 / Building Artifacts
 
@@ -137,7 +185,7 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。目录上传先用 `POST /api/upload-tree/preflight?path=...` 提交 JSON 清单（`entries: [{path, directory}]`），响应包含一次性会话和冲突列表；确认后使用 `POST /api/upload-tree?path=...&session=...` 以 multipart 提交，首项为 `manifest` JSON（`entries`、`replace`），文件体字段为对应下标的 `file-N`。会话 15 分钟过期，取消时可调用 `DELETE /api/upload-tree/session/{id}`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；并发上传、全部暂存文件字节和请求体空闲时间分别受设置页配置约束。完成后在锁内以同文件系统改名提交，并重新校验目标。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
   - `GET/PUT /api/settings/upload-resources` 读取或修改上传全局资源限制；访客只读，PUT 仅接受本机同源请求并要求 `X-Lan-Copy-Action: upload-resources`。配置含 `concurrentUploads`、`stagingGiB`、`idleTimeoutSeconds`。
   - `GET /thumbnails/{name}` 图片缩略图：JPEG/PNG/GIF 按比例缩至最长边 128px，限制源文件大小、像素数和并发解码；其他图片格式使用浏览器图片展示。缩略图 URL 携带修改时间和大小以更新浏览器缓存
-  - `GET /preview-files/{name}` 预览资源（类型白名单、固定 MIME、inline、Range/HEAD；SVG 以 image/svg+xml 提供，CSP sandbox 禁用脚本和外部资源）；`/preview.html?path=...` 为预览页，文本最多读取前 256 KiB。PDF 使用内嵌 PDF.js 单页渲染、按需读取，支持翻页和缩放；第三方资源版本、来源、校验值和许可证见 `web/vendor/pdfjs/README.md`，更新时须一并更新库、worker、CMaps、字体和 WASM 资源
+  - `GET /preview-files/{name}` 预览资源（类型白名单、固定 MIME、inline、Range/HEAD；SVG 以 image/svg+xml 提供并用 sandbox CSP 隔离）；`/preview.html?path=...` 为预览页，文本最多读取前 256 KiB。PDF 使用内嵌 PDF.js 6.4.299 单页渲染，支持翻页和缩放。DOCX 由浏览器端 `docx-preview` 转成 HTML 预览，限制源文件 32 MiB，禁用嵌入 HTML 部件、评论和修订；不支持旧版 `.doc` 预览，仍可下载原文件。XLS/XLSX 由 Web Worker 内的 SheetJS 0.20.3 解析，单文件限制 32 MiB，每张工作表最多显示 250 行、50 列，最多显示 20 个工作表；公式显示缓存值，宏不执行。DOCX、SheetJS 预览资源版本、来源、完整性和许可证分别见 `web/vendor/docx-preview/README.md`、`web/vendor/sheetjs/README.md`；PDF.js 资源见 `web/vendor/pdfjs/README.md`。
   - `GET /files/{name}` 下载、`DELETE /api/files/{name}` 删除（嵌套路径作为整体 URL 编码；列表递归包含子文件夹中的文件）
   - `GET /api/filesystem?path=...&q=...` 读取目录（空路径为共享根目录）；指定 q 时递归搜索当前目录和子目录中的文件、文件夹名称，单次最多遍历 10000 项；客户端取消请求会中止后续遍历
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除

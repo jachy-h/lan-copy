@@ -1,135 +1,34 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, viewport-fit=cover"
-    />
-    <meta name="theme-color" content="#111827" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111827">
     <title>Lan Copy · 局域网快传</title>
-    <link rel="icon" type="image/svg+xml" href="/logo/favicon-32x32.svg" />
-    <link rel="stylesheet" href="/style.css" />
+    <link rel="icon" href="/logo/favicon-32x32.svg">
+    <script type="module" crossorigin src="/_frontend/assets/engine-C_EBgyFy.js"></script>
+    <script type="module" crossorigin src="/_frontend/assets/app-D8BZZ0qN.js"></script>
+    <link rel="stylesheet" crossorigin href="/_frontend/assets/engine-CWzv5syg.css">
   </head>
   <body>
-    <header class="topbar">
-<div class="brand">
-          <img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt="" />
-          <div>
-            <h1>Lan Copy</h1>
-          </div>
-        </div>
-<nav class="page-nav" aria-label="页面导航">
-        <a href="/">共享空间</a>
-        <a href="/transfer.html" aria-current="page">文本快传</a>
-      </nav>
-<div class="hero-actions">
-          <div class="share-access" id="shareAccess">
-            <button class="share-access-button" id="accessButton" type="button" aria-label="分享" title="分享" aria-haspopup="dialog" aria-expanded="false" aria-controls="accessPanel">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/></svg>
-            </button>
-            <section class="access-card access-popover" id="accessPanel" role="dialog" aria-labelledby="shareAccessTitle" hidden>
-              <span class="access-eyebrow" id="shareAccessTitle">分享</span>
-              <div class="share-phone">
-                <div class="access-copy">
-                  <h2 id="accessTitle">手机扫码，立即打开</h2>
-                  <p id="accessHint">手机与电脑连接同一局域网后，扫描二维码即可访问</p>
-                </div>
-                <div class="qr-code loading" id="qrCode" role="img" aria-label="局域网访问二维码"></div>
-              </div>
-              <div class="access-copy share-computer">
-                <h2>分享地址，电脑打开</h2>
-                <p>复制下方地址，分享给同一局域网内的电脑，在浏览器中打开。</p>
-                <div class="access-address">
-                  <span>局域网访问地址</span>
-                  <a id="accessAddress" href="#">正在获取局域网地址…</a>
-                </div>
-                <div class="access-url-row">
-                  <select id="accessUrl" aria-label="分享访问地址"><option>正在获取局域网地址…</option></select>
-                  <button id="copyAccessUrl" type="button">复制地址</button>
-                </div>
-              </div>
-            </section>
-          </div>
-
-          <div class="status-access" id="statusAccess">
-            <button class="status" id="serviceStatus" type="button" aria-label="局域网在线" aria-expanded="false" aria-describedby="serviceStatusPopover">
-              <span class="status-dot"></span>
-              <span class="status-label">局域网在线</span>
-            </button>
-            <div class="status-popover" id="serviceStatusPopover" role="tooltip" hidden>
-              <span class="status-popover-label">数据更新时间</span>
-              <time id="dataUpdatedAt">尚未成功更新</time>
-              <span class="status-refresh-hint" id="dataRefreshHint">文件和文本变化时实时更新</span>
-            </div>
-          </div>
-
-        </div>
-</header>
-<main class="shell">
-
-      <section class="text-card" id="textPanel">
-        <div class="text-compose-head">
-          <div class="text-icon" aria-hidden="true">Aa</div>
-          <div>
-            <h2>共享一段文本</h2>
-            <p>链接、验证码、命令或临时笔记</p>
-          </div>
-        </div>
-        <textarea
-          id="textInput"
-          rows="7"
-          placeholder="在这里粘贴或输入文字…"
-          aria-label="要共享的文本"
-        ></textarea>
-        <div class="text-compose-foot">
-          <span id="textCount">0 B / 64 KiB</span>
-          <button class="primary" id="shareTextBtn" type="button">
-            发布文本
-          </button>
-        </div>
+    <div id="app">
+    <header class="topbar" data-initial-shell>
+      <div class="brand"><img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt=""><div><h1>Lan Copy</h1></div></div>
+      <nav class="page-nav" aria-label="页面导航"><a href="/" >共享空间</a><a href="/transfer-text" aria-current="page">文本快传</a></nav>
+      <div class="hero-actions"></div>
+    </header>
+<main class="shell" data-initial-shell aria-busy="true">
+      <section class="text-card" inert>
+        <div class="text-compose-head"><div class="text-icon" aria-hidden="true">Aa</div><div><h2>共享一段文本</h2><p>链接、验证码、命令或临时笔记</p></div></div>
+        <textarea rows="7" placeholder="在这里粘贴或输入文字…" aria-label="要共享的文本"></textarea>
+        <div class="text-compose-foot"><span>0 B / 64 KiB</span><button class="primary" type="button">发布文本</button></div>
       </section>
-
       <section class="files-section text-section">
-        <div class="section-head">
-          <div>
-            <h2>共享文本</h2>
-            <p id="textSummary">正在读取…</p>
-          </div>
-          <button
-            class="icon-btn"
-            id="refreshBtn"
-            type="button"
-            title="刷新"
-            aria-label="刷新共享内容"
-          >
-            <svg viewBox="0 0 24 24">
-              <path
-                d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"
-              />
-            </svg>
-          </button>
-        </div>
-        <div class="text-list" id="textList"></div>
-        <div class="empty hidden" id="textEmptyState">
-          <div>“ ”</div>
-          <strong>还没有共享文本</strong>
-          <p>发布后，局域网内的设备可以一键复制</p>
-        </div>
+        <div class="section-head"><div><h2>共享文本</h2><p>正在读取…</p></div><button class="icon-btn" type="button" title="刷新" aria-label="刷新共享内容" inert><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"/></svg></button></div>
+        <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取共享文本</strong><p>请稍候</p></div>
       </section>
-
-      <footer>
-        文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问
-      </footer>
+      <footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer>
     </main>
-
-    <div class="toast" id="toast" role="status"></div>
-    <script src="/qrcode.js" defer></script>
-    <script src="/file-ui.js" defer></script>
-    <script src="/access.js" defer></script>
-    <script src="/dialog.js" defer></script>
-  <script src="/shell.js" defer></script>
-  <script src="/settings.js" defer></script>
-    <script src="/app.js" defer></script>
+    </div>
   </body>
 </html>

@@ -71,7 +71,6 @@ func (s *Server) serveSharedFile(w http.ResponseWriter, r *http.Request, preview
 	w.Header().Set("Content-Disposition", disposition+"; filename*=UTF-8''"+url.PathEscape(path.Base(name)))
 	http.ServeContent(w, r, name, info.ModTime(), file)
 }
-
 func (s *Server) handleLocalFileAction(w http.ResponseWriter, r *http.Request) {
 	if !isLocalRequest(r) {
 		writeError(w, http.StatusForbidden, "仅运行服务的本机可以执行此操作")

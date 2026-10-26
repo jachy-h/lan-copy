@@ -1,4 +1,4 @@
-# Run on Windows with Go and Windows SDK signtool.exe on PATH.
+# Run on Windows with Go, Python 3, pinned Node/npm and Windows SDK signtool.exe on PATH.
 # The certificate/private key stays in the current user's certificate store
 # (including certificates backed by a hardware token).
 [CmdletBinding()]
@@ -37,6 +37,13 @@ if (-not $certificate.HasPrivateKey -or $certificate.NotAfter -le (Get-Date) -or
 }
 $signToolPath = (Get-Command $SignTool -ErrorAction Stop).Source
 $goPath = (Get-Command go -ErrorAction Stop).Source
+$nodePath = (Get-Command node -ErrorAction Stop).Source
+$npmPath = (Get-Command npm -ErrorAction Stop).Source
+$nodeVersion = (& $nodePath --version).Trim()
+$npmVersion = (& $npmPath --version).Trim()
+if ($nodeVersion -ne 'v24.18.0' -or $npmVersion -ne '11.16.0') {
+    throw "Frontend release checks require Node.js 24.18.0 and npm 11.16.0 (found $nodeVersion / $npmVersion)."
+}
 $repository = Split-Path $PSScriptRoot -Parent
 $savedEnvironment = @{}
 foreach ($name in @('GOOS', 'GOARCH', 'CGO_ENABLED')) {
@@ -45,6 +52,13 @@ foreach ($name in @('GOOS', 'GOARCH', 'CGO_ENABLED')) {
 $stage = $null
 Push-Location $repository
 try {
+    Invoke-Checked 'python' @('scripts/vendor_assets.py', '--check')
+    Push-Location (Join-Path $repository 'frontend')
+    try {
+        Invoke-Checked $npmPath @('ci')
+        Invoke-Checked $npmPath @('run', 'check')
+        Invoke-Checked $npmPath @('run', 'check-assets')
+    } finally { Pop-Location }
     $output = [IO.Path]::GetFullPath($OutputDirectory)
     New-Item -ItemType Directory -Force -Path $output | Out-Null
     # Work in a unique directory: failed signing never produces a release archive.

@@ -1,12 +1,16 @@
 package httpserver
 
 import (
+	"archive/zip"
+	"bytes"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -101,12 +105,71 @@ func TestBrowserPreview(t *testing.T) {
 	}
 }
 
+func TestDOCXPreviewServesOriginalAndSupportsHEADAndRange(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	docx := makeTestDOCX(t)
+	if err := os.WriteFile(filepath.Join(app.dir, "report.docx"), docx, 0600); err != nil {
+		t.Fatal(err)
+	}
+	handler := app.routes()
+	request := httptest.NewRecorder()
+	handler.ServeHTTP(request, httptest.NewRequest(http.MethodHead, "/preview-files/report.docx", nil))
+	if request.Code != http.StatusOK || request.Header().Get("Content-Type") != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		t.Fatalf("HEAD response: status=%d headers=%v", request.Code, request.Header())
+	}
+
+	request = httptest.NewRecorder()
+	rangeRequest := httptest.NewRequest(http.MethodGet, "/preview-files/report.docx", nil)
+	rangeRequest.Header.Set("Range", "bytes=0-4")
+	handler.ServeHTTP(request, rangeRequest)
+	if request.Code != http.StatusPartialContent || !bytes.Equal(request.Body.Bytes(), docx[:5]) || request.Header().Get("Content-Range") == "" {
+		t.Fatalf("range response: status=%d range=%s body=%q", request.Code, request.Header().Get("Content-Range"), request.Body.String())
+	}
+
+	request = httptest.NewRecorder()
+	handler.ServeHTTP(request, httptest.NewRequest(http.MethodGet, "/preview-files/report.docx", nil))
+	if request.Code != http.StatusOK || !bytes.Equal(request.Body.Bytes(), docx) || request.Header().Get("Content-Type") != "application/vnd.openxmlformats-officedocument.wordprocessingml.document" {
+		t.Fatal("preview should serve the original DOCX")
+	}
+
+	request = httptest.NewRecorder()
+	handler.ServeHTTP(request, httptest.NewRequest(http.MethodGet, "/files/report.docx", nil))
+	if request.Code != http.StatusOK || !bytes.Equal(request.Body.Bytes(), docx) || !strings.HasPrefix(request.Header().Get("Content-Disposition"), "attachment;") {
+		t.Fatal("original DOCX download was changed by preview")
+	}
+}
+
+func makeTestDOCX(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	writer := zip.NewWriter(&buffer)
+	for name, content := range map[string]string{
+		"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`,
+		"word/document.xml":   `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Lan Copy DOCX preview</w:t></w:r></w:p><w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`,
+	} {
+		file, err := writer.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write([]byte(content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
 func TestPreviewPageAndBundledPDFResources(t *testing.T) {
 	app, err := newServer(t.TempDir(), 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, target := range []string{"/preview.html", "/preview.js", "/vendor/pdfjs/legacy/build/pdf.min.mjs", "/vendor/pdfjs/legacy/build/pdf.worker.min.mjs", "/vendor/pdfjs/standard_fonts/LiberationSans-Regular.ttf"} {
+	for _, target := range append(frontendResources(t), []string{"/preview.html", "/vendor/docx-preview/jszip.min.js", "/vendor/docx-preview/docx-preview.min.js", "/vendor/sheetjs/worker.js", "/vendor/sheetjs/xlsx.full.min.js", "/vendor/pdfjs/legacy/build/pdf.min.mjs", "/vendor/pdfjs/legacy/build/pdf.worker.min.mjs", "/vendor/pdfjs/standard_fonts/LiberationSans-Regular.ttf"}...) {
 		recorder := httptest.NewRecorder()
 		app.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
 		if recorder.Code != 200 || recorder.Body.Len() == 0 {
@@ -139,10 +202,10 @@ func TestBundledAssetTypesOverrideSystemMappings(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ url, contentType string }{
-		{"/preview.js", "text/javascript; charset=utf-8"},
+		{frontendResource(t, ".js"), "text/javascript; charset=utf-8"},
 		{"/vendor/pdfjs/legacy/build/pdf.min.mjs", "text/javascript; charset=utf-8"},
 		{"/vendor/pdfjs/legacy/build/pdf.worker.min.mjs", "text/javascript; charset=utf-8"},
-		{"/style.css", "text/css; charset=utf-8"},
+		{frontendResource(t, ".css"), "text/css; charset=utf-8"},
 		{"/vendor/pdfjs/wasm/openjpeg.wasm", "application/wasm"},
 	} {
 		for _, method := range []string{http.MethodGet, http.MethodHead} {
@@ -153,4 +216,47 @@ func TestBundledAssetTypesOverrideSystemMappings(t *testing.T) {
 			}
 		}
 	}
+}
+
+// Check every generated resource, including lazy chunks and nested emitted assets.
+func frontendResources(t *testing.T) []string {
+	t.Helper()
+	root := filepath.Join(testModuleRoot(), "web")
+	var resources []string
+	if err := fs.WalkDir(os.DirFS(root), "_frontend", func(name string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			resources = append(resources, "/"+name)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(resources) == 0 {
+		t.Fatal("no generated frontend resources")
+	}
+	for _, page := range []string{"index.html", "transfer.html", "preview.html"} {
+		html, err := os.ReadFile(filepath.Join(root, page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, match := range regexp.MustCompile(`(?:src|href)="(/_frontend/[^"?#]+)"`).FindAllStringSubmatch(string(html), -1) {
+			if _, err := os.Stat(filepath.Join(root, match[1])); err != nil {
+				t.Fatalf("%s reference %s: %v", page, match[1], err)
+			}
+		}
+	}
+	return resources
+}
+func frontendResource(t *testing.T, extension string) string {
+	t.Helper()
+	for _, resource := range frontendResources(t) {
+		if strings.HasSuffix(resource, extension) {
+			return resource
+		}
+	}
+	t.Fatalf("no frontend resource with extension %s", extension)
+	return ""
 }

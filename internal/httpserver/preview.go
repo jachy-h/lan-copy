@@ -50,6 +50,12 @@ func previewContentType(name string) string {
 		return "audio/aac"
 	case ".pdf":
 		return "application/pdf"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	case ".txt", ".md", ".markdown", ".log", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".conf", ".go", ".js", ".ts", ".jsx", ".tsx", ".css", ".html", ".htm", ".py", ".sh", ".sql", ".java", ".c", ".h", ".cpp", ".rs", ".bat", ".ps1":
 		return "text/plain; charset=utf-8"
 	default:

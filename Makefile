@@ -18,9 +18,9 @@ LDFLAGS := -s -w -X main.version=$(BUILD_VERSION) -X main.updatePublicKey=$(UPDA
 WINDOWS_ARCHES ?= amd64
 WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
-SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
+SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build publish artifacts windows macos checksums test clean dist-clean FORCE
+.PHONY: all build publish artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev clean dist-clean FORCE
 
 FORCE:
 
@@ -40,6 +40,8 @@ artifacts: checksums
 windows: $(WINDOWS_ARTIFACTS)
 
 macos: $(MACOS_ARTIFACTS)
+
+$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS): | frontend-release
 
 $(DIST_DIR)/Lan-Copy-Windows-%.zip: $(SOURCES) FORCE
 	@set -eu; \
@@ -83,13 +85,25 @@ checksums: windows macos
 
 test:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
-	node scripts/test-service-status.cjs
-	node scripts/test-delete-confirmation.cjs
-	node scripts/test-dialog.cjs
-	node scripts/test-upload-tree.cjs
-	node scripts/test-settings-update.cjs
-	node scripts/test-filesystem-time.cjs
 	$(GO) test ./...
+
+frontend-check:
+	python3 scripts/vendor_assets.py --check
+	cd frontend && npm ci && npm run check && npm run check-assets
+
+frontend-build:
+	cd frontend && npm run build
+
+frontend-sync:
+	cd frontend && npm run build && npm run sync-assets
+
+# Release builds own the frontend pipeline: install, verify, build, embed and re-check.
+frontend-release:
+	python3 scripts/vendor_assets.py --check
+	cd frontend && npm ci && npm run check && npm run sync-assets && npm run check-assets
+
+frontend-dev:
+	cd frontend && npm run dev
 
 clean:
 	rm -rf "$(STAGE_DIR)" $(foreach file,$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS),"$(file)") "$(DIST_DIR)/SHA256SUMS"

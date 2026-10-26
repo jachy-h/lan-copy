@@ -213,9 +213,9 @@ func TestSharedSpacePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	handler := app.routes()
-	for _, test := range []struct{ path, want, absent string }{
-		{"/", "共享空间", "共享文本"},
-		{"/transfer.html", "共享文本", "id=\"explorerTitle\""},
+	for _, test := range []struct{ path, want, absent, loading string }{
+		{"/", `id="app"`, `id="entries"`, "正在读取文件列表"},
+		{"/transfer-text", `id="app"`, `id="textInput"`, "正在读取共享文本"},
 	} {
 		result := httptest.NewRecorder()
 		handler.ServeHTTP(result, httptest.NewRequest(http.MethodGet, test.path, nil))
@@ -223,9 +223,21 @@ func TestSharedSpacePages(t *testing.T) {
 		if result.Code != http.StatusOK || !strings.Contains(body, test.want) || strings.Contains(body, test.absent) {
 			t.Fatalf("%s: status %d, unexpected page content", test.path, result.Code)
 		}
-		for _, link := range []string{`href="/"`, `href="/transfer.html"`} {
+		if !strings.Contains(body, "data-initial-shell") || !strings.Contains(body, test.loading) {
+			t.Errorf("%s: initial HTML must reserve the loading layout before Vue mounts", test.path)
+		}
+		for _, link := range []string{`href="/"`, `href="/transfer-text"`} {
 			if !strings.Contains(body, link) {
 				t.Errorf("%s: missing navigation %s", test.path, link)
+			}
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		for _, query := range []string{"", "?from=bookmark&value=%E4%B8%AD%E6%96%87"} {
+			redirect := httptest.NewRecorder()
+			handler.ServeHTTP(redirect, httptest.NewRequest(method, "/transfer.html"+query, nil))
+			if redirect.Code != http.StatusPermanentRedirect || redirect.Header().Get("Location") != "/transfer-text"+query {
+				t.Fatalf("legacy text link: status %d, location %q", redirect.Code, redirect.Header().Get("Location"))
 			}
 		}
 	}
