@@ -4,6 +4,7 @@ import { requestJSON } from '../api/client'
 import { copyText, notify } from '../ui/fileUi'
 import { confirm as confirmDialog } from '../ui/dialog'
 import { register as registerContextMenu, registerPage as registerPageContextMenu } from '../ui/contextMenu'
+import EmptyState from './EmptyState.vue'
 
 interface SharedText { id: string; content: string; created: string }
 interface TextResult { texts: SharedText[] }
@@ -149,6 +150,6 @@ onBeforeUnmount(() => {
           <pre class="text-content">{{ item.content }}</pre><div class="text-row-foot"><time :datetime="item.created">{{ formatTime(item.created) }}</time><div class="actions"><button class="copy-btn" type="button" data-text-action="copy" :data-text-id="item.id" title="复制文本" aria-label="复制文本"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8h11v11H8zM5 16H4V5h11v1"/></svg></button><button type="button" data-text-action="delete" :data-text-id="item.id" title="删除文本" aria-label="删除文本"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v5m4-5v5"/></svg></button></div></div>
         </article>
       </div>
-      <div class="empty" :class="{hidden:texts.length>0||Boolean(loadError)}" id="textEmptyState" role="status" aria-live="polite"><template v-if="!hasLoaded"><div aria-hidden="true">…</div><strong>正在读取共享文本</strong><p>请稍候</p></template><template v-else><div>“ ”</div><strong>还没有共享文本</strong><p>发布后，局域网内的设备可以一键复制</p></template></div>
+      <EmptyState id="textEmptyState" :loaded="hasLoaded" loading-title="正在读取共享文本" empty-title="还没有共享文本" empty-description="发布后，局域网内的设备可以一键复制" icon="“ ”" :hidden="texts.length>0||Boolean(loadError)" />
     </section>
 </template>

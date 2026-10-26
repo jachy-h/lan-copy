@@ -6,8 +6,14 @@ import { copyText, notify } from '../ui/fileUi'
 import { confirm as confirmDialog } from '../ui/dialog'
 import { fromEntries, fromFiles, type UploadEntry } from '../upload/uploadTree'
 import { close as closeContextMenu, open as openContextMenu, register as registerContextMenu, registerPage as registerPageContextMenu } from '../ui/contextMenu'
+import EmptyState from './EmptyState.vue'
+import UploadProgress from './UploadProgress.vue'
+import FileBreadcrumbs from './FileBreadcrumbs.vue'
+import FileListHeader from './FileListHeader.vue'
+import FileExplorerRow, { type FileEntry } from './FileExplorerRow.vue'
+import FileEditDialog from './FileEditDialog.vue'
+import FileMoveDialog from './FileMoveDialog.vue'
 
-interface FileEntry { name: string; path: string; directory: boolean; modified: string; size: number; previewType?: string }
 interface FilesystemResult { entries: FileEntry[] }
 interface MenuItem { label?: string; danger?: boolean; separator?: boolean; action?: () => void | Promise<void> }
 type Mutation = 'mkdir' | 'move' | 'rename' | 'delete'
@@ -30,8 +36,6 @@ const uploadLabel = ref('')
 const uploadProgress = ref<number | null>(null)
 const mutationPending = ref(false)
 const editOpen = ref(false)
-const editDialog = ref<HTMLDialogElement | null>(null)
-const editName = ref<HTMLInputElement | null>(null)
 const editError = ref('')
 const editTitle = ref('新建文件夹')
 const editValue = ref('')
@@ -40,7 +44,6 @@ const editItem = ref<FileEntry | null>(null)
 const editDirectory = ref('')
 const moving = ref<FileEntry | null>(null)
 const moveOpen = ref(false)
-const moveDialog = ref<HTMLDialogElement | null>(null)
 const movePath = ref('')
 const moveFolders = ref<FileEntry[]>([])
 const moveError = ref('')
@@ -249,20 +252,18 @@ function openEdit(item: FileEntry | null = null, directory = currentPath.value) 
   editValue.value = item ? item.name.slice(0, item.name.length - editExtension.value.length) : ''
   editOpen.value = true
 }
-watch(editOpen, async open => { if (!open) return; await nextTick(); if (editDialog.value && !editDialog.value.open) editDialog.value.showModal(); editName.value?.focus(); editName.value?.select() })
 function submitEdit() {
   const baseName = editValue.value.trim()
   if (!baseName || /[\\/:*?"<>|\x00-\x1f\x7f]/.test(baseName) || baseName === '.' || baseName === '..' || baseName.endsWith('.')) { editError.value = '请输入有效名称，不可包含斜线或特殊字符'; return }
   const name = baseName + editExtension.value, item = editItem.value
-  if (item && name === item.name) { editDialog.value?.close(); return }
+  if (item && name === item.name) { editOpen.value = false; return }
   const data = item ? { path: item.path, destination: item.path.includes('/') ? item.path.slice(0, item.path.lastIndexOf('/')) : '', name } : { path: editDirectory.value, name }
-  void mutate(item ? 'rename' : 'mkdir', data).then(ok => { if (ok) editDialog.value?.close() })
+  void mutate(item ? 'rename' : 'mkdir', data).then(ok => { if (ok) editOpen.value = false })
 }
 function openMove(item: FileEntry) {
   moving.value = item; movePath.value = currentPath.value; moveError.value = ''; moveOpen.value = true
   void loadMoveFolders(movePath.value)
 }
-watch(moveOpen, async open => { if (open) { await nextTick(); if (moveDialog.value && !moveDialog.value.open) moveDialog.value.showModal() } })
 async function loadMoveFolders(path: string) {
   if (!moving.value) return
   const version = ++moveVersion; moveLoading.value = true; moveError.value = ''; movePath.value = path
@@ -278,7 +279,7 @@ const moveDisabled = computed(() => moveLoading.value || movePending.value || !m
 async function confirmMove() {
   if (!moving.value || moveDisabled.value) return
   movePending.value = true
-  if (await mutate('move', { path: moving.value.path, destination: movePath.value })) moveDialog.value?.close()
+  if (await mutate('move', { path: moving.value.path, destination: movePath.value })) moveOpen.value = false
   movePending.value = false
 }
 async function deleteEntry(item: FileEntry) {
@@ -469,35 +470,21 @@ onBeforeUnmount(() => {
   <section class="files-section explorer" aria-label="共享空间文件列表">
     <div class="explorer-navigation">
       <button class="secondary" type="button" aria-label="返回上一级" :disabled="!currentPath" @click="goParent">↑ 上一级</button>
-      <nav class="breadcrumbs" aria-label="文件夹路径">
-        <template v-for="(crumb, index) in breadcrumbs" :key="crumb.path">
-          <span v-if="index" aria-hidden="true">/</span>
-          <button class="crumb" type="button" :aria-current="index===breadcrumbs.length-1?'location':undefined" @click="navigate(crumb.path)" @dragover="internalDragOver" @dragleave="internalDragLeave" @drop="internalDrop($event,crumb.path)">{{ crumb.name }}</button>
-        </template>
-      </nav>
+      <FileBreadcrumbs :items="breadcrumbs" current @navigate="navigate" @dragover="internalDragOver" @dragleave="internalDragLeave" @drop="internalDrop" />
       <div class="search-box"><input v-model="search" type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹"><button class="search-clear" type="button" aria-label="清除搜索" :hidden="!search.trim()" @click="clearSearch">×</button></div>
     </div>
-    <div class="file-list-header" role="row">
-      <div v-for="column in [{key:'name',label:'名称'},{key:'modified',label:'修改日期'},{key:'type',label:'类型'},{key:'size',label:'大小'}]" :key="column.key" role="columnheader" :aria-sort="sortKey===column.key?sortDirection:'none'"><button type="button" :data-sort="column.key" @click="setSort(column.key as 'name'|'modified'|'type'|'size')">{{ column.label }} <span>{{ sortKey===column.key?(sortDirection==='ascending'?'↑':'↓'):'' }}</span></button></div><span aria-hidden="true"></span>
-    </div>
+    <FileListHeader :sort-key="sortKey" :sort-direction="sortDirection" @sort="setSort" />
     <div id="entries" class="file-list" role="grid" aria-label="共享文件列表" aria-describedby="entrySummary" tabindex="0">
-      <article v-for="item in visibleItems" :key="item.path" class="file-row explorer-row" :class="{selected:isSelected(item), 'search-result':Boolean(search.trim())}" :data-path="item.path" role="row" :aria-selected="isSelected(item)" :tabindex="item.path===focusedPath||(!focusedPath&&item===visibleItems[0])?0:-1" draggable="true" @click="selectRow(item,$event)" @dblclick="!($event.target as Element).closest('button,a')&&openEntry(item,$event.currentTarget as HTMLElement)" @keydown="onRowKey($event,item)" @dragstart="$event.dataTransfer?.setData('application/x-lan-copy-path',item.path)" @dragover="item.directory&&internalDragOver($event)" @dragleave="internalDragLeave" @drop="item.directory&&internalDrop($event,item.path)">
-        <div class="file-main name-cell" role="gridcell"><div class="file-icon" :class="{'folder-icon':item.directory}" aria-hidden="true">{{ entryIcon(item) }}<img v-if="!item.directory&&item.previewType?.startsWith('image/')" :src="thumbnailHref(item)" alt="" loading="lazy" decoding="async" width="128" height="128" draggable="false" @load="($event.currentTarget as HTMLImageElement).parentElement?.classList.add('has-thumbnail')" @error="($event.currentTarget as HTMLImageElement).remove()"></div><button v-if="item.directory" class="file-name folder-name" type="button" :title="item.name" @click.stop="navigate(item.path)"><template v-for="(part,index) in highlightParts(item.name)" :key="index"><mark v-if="part.mark">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></button><a v-else-if="item.previewType" class="file-name download-name" :href="previewHref(item)" :title="item.name" @click="$event.preventDefault();openEntry(item,$event.currentTarget as HTMLElement)"><template v-for="(part,index) in highlightParts(item.name)" :key="index"><mark v-if="part.mark">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></a><a v-else class="file-name download-name preview-unavailable" href="#" :title="`${item.name}（该文件格式暂不支持预览）`" @click.prevent="openEntry(item,$event.currentTarget as HTMLElement)"><template v-for="(part,index) in highlightParts(item.name)" :key="index"><mark v-if="part.mark">{{ part.text }}</mark><template v-else>{{ part.text }}</template></template></a><span v-if="!item.directory&&isRecent(item.modified)" class="file-tag recent-tag" title="最近 4 小时内修改" aria-label="新：最近 4 小时内修改">新</span></div>
-        <div class="file-cell modified-cell" role="gridcell">{{ dateLabel(item.modified) }}</div><div class="file-cell type-cell" role="gridcell">{{ entryType(item) }}</div><div class="file-cell size-cell" role="gridcell">{{ item.directory?'—':formatBytes(item.size) }}</div><div class="explorer-actions"><button class="secondary row-menu-button" type="button" :aria-label="`更多操作：${item.name}`" aria-haspopup="menu" @click="openRowMenu($event,item)">⋯</button></div>
-      </article>
+      <FileExplorerRow v-for="(item,index) in visibleItems" :key="item.path" :item="item" :selected="isSelected(item)" :tabindex="item.path===focusedPath||(!focusedPath&&index===0)?0:-1" :search-result="Boolean(search.trim())" :recent="isRecent(item.modified)" :icon="entryIcon(item)" :type="entryType(item)" :date="dateLabel(item.modified)" :size-label="item.directory?'—':formatBytes(item.size)" :preview-url="previewHref(item)" :thumbnail-url="thumbnailHref(item)" :parts="highlightParts(item.name)" @select="selectRow" @open="openEntry" @navigate="navigate" @menu="openRowMenu" @key="onRowKey" @dragstart="(event,entry)=>event.dataTransfer?.setData('application/x-lan-copy-path',entry.path)" @dragover="(event)=>internalDragOver(event)" @dragleave="internalDragLeave" @drop="(event,entry)=>internalDrop(event,entry.path)" />
     </div>
-    <div class="empty" :class="{hidden:visibleItems.length>0||Boolean(loadError)}" role="status" aria-live="polite"><template v-if="!hasLoaded"><div aria-hidden="true">…</div><strong>正在读取文件列表</strong><p>请稍候</p></template><template v-else><div>▱</div><strong>{{ search.trim()?'没有匹配的文件或文件夹':'这个文件夹还是空的' }}</strong><p>将其他位置的文件移动到这里，或拖入文件上传</p></template></div>
+    <EmptyState :loaded="hasLoaded" loading-title="正在读取文件列表" :empty-title="search.trim()?'没有匹配的文件或文件夹':'这个文件夹还是空的'" empty-description="将其他位置的文件移动到这里，或拖入文件上传" icon="▱" :hidden="visibleItems.length>0||Boolean(loadError)" />
     <p v-if="loadError" class="file-meta" role="alert">{{ loadError }}</p>
-    <div v-if="uploadVisible" class="space-upload" :class="{complete:uploadComplete}" aria-live="polite"><span>{{ uploadLabel }}</span><progress max="100" :value="uploadProgress ?? undefined" aria-label="上传进度"/></div>
+    <UploadProgress v-if="uploadVisible" :label="uploadLabel" :progress="uploadProgress" :complete="uploadComplete" />
     <div class="upload-drop-message" aria-hidden="true">松开文件或文件夹，上传到当前文件夹</div>
     <p class="explorer-hint"><span>拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</span><span id="entrySummary" aria-live="polite">{{ summary }}</span></p>
   </section>
   <Teleport to="body">
-    <dialog v-if="editOpen" ref="editDialog" class="app-dialog fs-dialog" aria-labelledby="editTitle" @close="editOpen=false" @cancel.prevent="editDialog?.close()">
-      <form @submit.prevent="submitEdit"><h2 id="editTitle">{{ editTitle }}</h2><label for="entryName">名称</label><input id="entryName" ref="editName" v-model="editValue" required maxlength="200" autocomplete="off" aria-describedby="entryExtension"><p id="entryExtension" class="file-meta" :class="{hidden:!editExtension}">{{ editExtension?`后缀名 ${editExtension} 将自动保留`:'' }}</p><p class="dialog-error" role="alert">{{ editError }}</p><div class="dialog-actions"><button class="secondary" type="button" @click="editDialog?.close()">取消</button><button class="primary" type="submit" :disabled="mutationPending">保存</button></div></form>
-    </dialog>
-    <dialog v-if="moveOpen" ref="moveDialog" class="app-dialog fs-dialog" aria-labelledby="moveTitle" @close="moveOpen=false" @cancel.prevent="moveDialog?.close()">
-      <h2 id="moveTitle">移动到文件夹</h2><p class="file-meta">将“{{ moving?.name }}”移动到：</p><nav class="breadcrumbs" aria-label="目标文件夹路径"><template v-for="(crumb,index) in moveBreadcrumbs" :key="crumb.path"><span v-if="index">/</span><button class="crumb" type="button" @click="loadMoveFolders(crumb.path)">{{ crumb.name }}</button></template></nav><div class="move-folders"><p v-if="moveLoading">正在读取…</p><template v-else><button v-for="folder in moveFolders" :key="folder.path" class="folder-choice" type="button" @click="loadMoveFolders(folder.path)">▱ {{ folder.name }} ›</button><p v-if="!moveFolders.length" class="file-meta">没有可继续进入的子文件夹</p></template></div><p class="dialog-error" role="alert">{{ moveError }}</p><div class="dialog-actions"><button class="secondary" type="button" @click="moveDialog?.close()">取消</button><button class="primary" type="button" :disabled="moveDisabled" @click="confirmMove">移动到这里</button></div>
-    </dialog>
+    <FileEditDialog v-model:open="editOpen" v-model:value="editValue" :title="editTitle" :extension="editExtension" :error="editError" :pending="mutationPending" @submit="submitEdit" />
+    <FileMoveDialog v-model:open="moveOpen" :item-name="moving?.name || ''" :breadcrumbs="moveBreadcrumbs" :folders="moveFolders" :loading="moveLoading" :error="moveError" :disabled="moveDisabled" @navigate="loadMoveFolders" @confirm="confirmMove" />
   </Teleport>
 </template>
