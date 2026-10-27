@@ -16,6 +16,9 @@ test('dev text route serves the shared app and redirects legacy GET/HEAD with qu
       const response = await fetch(origin + '/transfer.html?from=bookmark&value=%E4%B8%AD', { method, redirect: 'manual' })
       assert.equal(response.status, 308)
       assert.equal(response.headers.get('location'), '/transfer-text?from=bookmark&value=%E4%B8%AD')
+      const print = await fetch(origin + '/print-queue?from=bookmark', { method })
+      assert.equal(print.status, 200)
+      if (method === 'GET') assert.ok((await print.text()).includes('正在读取打印机'))
       const page = await fetch(origin + '/transfer-text?from=bookmark', { method })
       assert.equal(page.status, 200)
       if (method === 'GET') {

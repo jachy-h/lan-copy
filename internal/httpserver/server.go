@@ -9,6 +9,7 @@ import (
 
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/filestore"
+	"lan-copy/internal/printing"
 	"lan-copy/internal/textstore"
 	"lan-copy/internal/updater"
 )
@@ -34,10 +35,12 @@ type Config struct {
 	Releases                               *updater.ReleaseService
 	Updater                                *updater.Service
 	Autostart                              *desktop.Autostart
+	Printing                               *printing.Service
 }
 
 // Server owns HTTP state; persistent state and its locks live in components.
 type Server struct {
+	printing          *printing.Service
 	updater           *updater.Service
 	releases          *updater.ReleaseService
 	autostart         *desktop.Autostart
@@ -67,7 +70,8 @@ type Server struct {
 func New(config Config) *Server {
 	appContext, cancelApp := context.WithCancel(context.Background())
 	return &Server{
-		updater: config.Updater, autostart: config.Autostart,
+		printing: config.Printing,
+		updater:  config.Updater, autostart: config.Autostart,
 		version: config.Version, updatePublicKey: config.UpdatePublicKey,
 		releases:          config.Releases,
 		texts:             config.Texts,

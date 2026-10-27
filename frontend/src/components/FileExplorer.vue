@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError, requestJSON } from '../api/client'
 import { mountPreview } from '../preview/engine'
 import { copyText, notify } from '../ui/fileUi'
+import { isPrintableFile } from '../printing/document'
 import { confirm as confirmDialog } from '../ui/dialog'
 import { fromEntries, fromFiles, type UploadEntry } from '../upload/uploadTree'
 import { close as closeContextMenu, open as openContextMenu, register as registerContextMenu, registerPage as registerPageContextMenu } from '../ui/contextMenu'
@@ -13,6 +14,8 @@ import FileListHeader from './FileListHeader.vue'
 import FileExplorerRow, { type FileEntry } from './FileExplorerRow.vue'
 import FileEditDialog from './FileEditDialog.vue'
 import FileMoveDialog from './FileMoveDialog.vue'
+
+const emit = defineEmits<{ print: [path: string] }>()
 
 interface FilesystemResult { entries: FileEntry[] }
 interface MenuItem { label?: string; danger?: boolean; separator?: boolean; action?: () => void | Promise<void> }
@@ -211,6 +214,7 @@ function fileMenuItems(trigger: HTMLElement | null): MenuItem[] {
   const actions: MenuItem[] = [{ label: item?.directory ? '在此文件夹中新建文件夹' : '新建文件夹', action: () => openEdit(null, item?.directory ? item.path : currentPath.value) }]
   if (items.length === 1 && item) {
     actions.push({ label: item.directory ? '打开' : item.previewType ? '预览' : '下载', action: () => openEntry(item, trigger) })
+    if (!item.directory && isPrintableFile(item.path)) actions.push({ label: '打印', action: () => emit('print', item.path) })
     if (!item.directory && localhostAccess) actions.push({ label: '打开所在文件夹', action: () => openContainingFolder(item, actionTrigger) })
     actions.push({ label: '移动…', action: () => openMove(item) }, { label: '重命名', action: () => openEdit(item) }, { label: '删除', danger: true, action: () => deleteEntry(item) })
   }
@@ -324,6 +328,11 @@ function onDocumentKey(event: KeyboardEvent) {
   else if (command && event.key.toLowerCase() === 'c' && selectedItems.value.length) {
     event.preventDefault(); void copyText(selectedItems.value.map(item => item.path).join('\n')).then(ok => notify(ok ? '已复制路径' : '无法访问剪贴板，请检查浏览器权限', !ok))
   }
+}
+function onDocumentClick(event: MouseEvent) {
+  const target = event.target
+  if (!(target instanceof Element) || target.closest('.explorer-row, #fileMenu, [role="menu"]')) return
+  clearSelection()
 }
 function onPopState() { if (location.pathname === '/transfer-text') return; currentPath.value = new URLSearchParams(location.hash.slice(1)).get('path') || ''; clearSelection(); focusedPath.value = null; lastListing = ''; hasLoaded.value = false; entries.value = []; summary.value = '正在读取…'; void loadDirectory() }
 function scheduleDirectoryRefresh() {
@@ -439,7 +448,7 @@ onMounted(() => {
     { label: '复制当前页面地址', action: async () => { const ok = await copyText(location.href); notify(ok ? '页面地址已复制' : '复制失败，请检查浏览器权限', !ok) } },
   ])
   menuCleanup.push(unregisterRows, unregisterPage)
-  document.addEventListener('keydown', onDocumentKey); document.addEventListener('visibilitychange', onVisibility)
+  document.addEventListener('keydown', onDocumentKey); document.addEventListener('click', onDocumentClick); document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('popstate', onPopState); window.addEventListener('lan-copy:shutdown', onShutdown); window.addEventListener('pagehide', onPageHide, { once: true })
   const previewDialog = document.querySelector<HTMLDialogElement>('#previewDialog')
   document.querySelector('#previewClose')?.addEventListener('click', closePreview, { signal: previewEvents.signal })
@@ -458,7 +467,7 @@ onBeforeUnmount(() => {
   closePreview()
   menuCleanup.forEach(cleanup => cleanup?.())
   previewEvents.abort()
-  document.removeEventListener('keydown', onDocumentKey); document.removeEventListener('visibilitychange', onVisibility)
+  document.removeEventListener('keydown', onDocumentKey); document.removeEventListener('click', onDocumentClick); document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('popstate', onPopState); window.removeEventListener('lan-copy:shutdown', onShutdown); window.removeEventListener('pagehide', onPageHide)
   document.removeEventListener('dragenter', onExternalDragEnter); document.removeEventListener('dragover', onExternalDragOver); document.removeEventListener('dragleave', onExternalDragLeave); document.removeEventListener('drop', onExternalDrop)
   if (searchTimer) clearTimeout(searchTimer); if (eventRefreshTimer) clearTimeout(eventRefreshTimer); stopFallbackRefresh(); if (freshTagTimer) clearInterval(freshTagTimer)

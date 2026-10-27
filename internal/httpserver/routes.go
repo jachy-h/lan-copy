@@ -12,6 +12,11 @@ import (
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/app", s.appInfo)
+	mux.HandleFunc("GET /api/printing", s.printingInfo)
+	mux.HandleFunc("GET /api/printing/jobs", s.printJobs)
+	mux.HandleFunc("POST /api/printing/test", s.printTestPage)
+	mux.HandleFunc("GET /api/printing/layout", s.printLayout)
+	mux.HandleFunc("POST /api/printing/documents", s.printDocument)
 	mux.HandleFunc("GET /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("GET /api/settings/upload-resources", s.uploadResourceSettings)
@@ -65,6 +70,12 @@ func (s *Server) routes() http.Handler {
 		page.URL.RawPath = ""
 		s.web.ServeHTTP(w, page)
 	})
+	mux.HandleFunc("GET /print-queue", func(w http.ResponseWriter, r *http.Request) {
+		page := r.Clone(r.Context())
+		page.URL.Path = "/print.html"
+		page.URL.RawPath = ""
+		s.web.ServeHTTP(w, page)
+	})
 	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
@@ -103,7 +114,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self' blob: data:; worker-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; font-src 'self' blob: data:; worker-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

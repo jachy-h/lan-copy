@@ -54,6 +54,7 @@ type Plan struct {
 	Cwd       string   `json:"cwd"`
 	HealthURL string   `json:"healthURL"`
 	ID        string   `json:"id"`
+	Version   string   `json:"version,omitempty"`
 }
 
 func TrustedUpdateKey(encoded string) (ed25519.PublicKey, error) {
@@ -387,6 +388,9 @@ func RunHelper(config string) error {
 	}
 	record("更新成功")
 	_ = os.Remove(backup)
+	if err := writeHistoryRecord(stage, p); err != nil {
+		record("写入更新历史失败：" + err.Error())
+	}
 	// On Windows the running helper cannot delete itself. Its directory is kept
 	// for diagnostics; no untrusted files are ever executed from uploaded paths.
 	_ = os.Remove(p.Candidate)
@@ -395,6 +399,8 @@ func RunHelper(config string) error {
 	_ = os.Remove(filepath.Join(stage, "ready"))
 	if runtime.GOOS != "windows" {
 		_ = os.RemoveAll(stage)
+	} else if err := CleanupHistory(p.Target, func(message string) { record(message) }); err != nil {
+		record("清理更新历史失败：" + err.Error())
 	}
 	return nil
 }
@@ -407,6 +413,17 @@ type Config struct {
 	Disabled   string
 	Launch     func(string, Plan) error
 	Busy       bool
+}
+
+// CleanupHistory removes completed update directories beyond the two-version
+// retention limit. Unknown and active directories are left for a later pass.
+func (u *Service) CleanupHistory() {
+	if u == nil || u.executable == "" {
+		return
+	}
+	if err := CleanupHistory(u.executable, func(message string) { fmt.Fprintln(os.Stderr, message) }); err != nil {
+		fmt.Fprintln(os.Stderr, "清理更新历史失败：", err)
+	}
 }
 
 func New(config Config) *Service {
@@ -509,7 +526,7 @@ func (u *Service) Install(source func() (io.ReadCloser, string, error), goos, ar
 	if _, err = rand.Read(token); err != nil {
 		return zero, "", &InstallError{Kind: "token", Err: err}
 	}
-	plan := Plan{Target: u.executable, Candidate: candidate, ParentPID: os.Getpid(), Args: u.args, Cwd: u.cwd, HealthURL: u.healthURL, ID: hex.EncodeToString(token)}
+	plan := Plan{Target: u.executable, Candidate: candidate, ParentPID: os.Getpid(), Args: u.args, Cwd: u.cwd, HealthURL: u.healthURL, ID: hex.EncodeToString(token), Version: manifest.Version}
 	if err := u.launch(stage, plan); err != nil {
 		return zero, "", &InstallError{Kind: "launch", Err: err}
 	}

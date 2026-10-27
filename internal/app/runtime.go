@@ -16,6 +16,7 @@ import (
 
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/httpserver"
+	"lan-copy/internal/printing"
 	"lan-copy/internal/updater"
 )
 
@@ -83,13 +84,20 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	updateService := updater.Configure(listener.Addr().String(), *dir)
+	updateService.CleanupHistory()
+	printService, err := printing.New(components.DataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
 	service := httpserver.New(httpserver.Config{
 		Dir: components.Dir, DataDir: components.DataDir,
 		Files: components.Files, Texts: components.Texts,
 		UploadResources: components.UploadResources, UploadPreflight: components.UploadPreflight,
 		Releases: components.Releases, Web: webRoot,
 		Version: version, UpdatePublicKey: updatePublicKey, MaxUpload: *maxGB << 30,
-		Updater:   updater.Configure(listener.Addr().String(), *dir),
+		Updater:   updateService,
+		Printing:  printService,
 		Autostart: desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
 	})
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)

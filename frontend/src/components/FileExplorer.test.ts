@@ -74,6 +74,14 @@ describe('FileExplorer', () => {
     expect(wrapper.get('.breadcrumbs').text()).toContain('beta')
   })
 
+  it('clears row selection when clicking outside the file rows', async () => {
+    const row = wrapper.get('.explorer-row[data-path="zeta.txt"]')
+    await row.trigger('click')
+    expect(row.classes()).toContain('selected')
+    await wrapper.get('.explorer-navigation').trigger('click')
+    expect(row.classes()).not.toContain('selected')
+  })
+
   it('debounces recursive search and highlights matching names', async () => {
     vi.useFakeTimers()
     await wrapper.get('[aria-label="搜索当前文件夹及子文件夹"]').setValue('alpha')
@@ -116,4 +124,18 @@ describe('FileExplorer', () => {
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith('/api/filesystem/rename', expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: 'beta', destination: '', name: 'renamed' }) }))
   })
+  it('opens printing only from the supported single-file menu action', async () => {
+    const row = wrapper.get('.explorer-row[data-path="recent.pdf"]')
+    await row.trigger('click')
+    expect(wrapper.emitted('print')).toBeUndefined()
+    await row.get('.row-menu-button').trigger('click')
+    const actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    await actions.find(action => action.label === '打印')!.action!()
+    expect(wrapper.emitted('print')).toEqual([['recent.pdf']])
+    for (const path of ['alpha.txt', 'beta']) {
+      await wrapper.get(`.explorer-row[data-path="${path}"] .row-menu-button`).trigger('click')
+      expect(vi.mocked(contextMenu.open).mock.calls.at(-1)![0].some(action => action.label === '打印')).toBe(false)
+    }
+  })
+
 })

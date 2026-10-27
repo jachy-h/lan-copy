@@ -27,6 +27,7 @@ lan-copy/
 │   ├── httpserver/       # 路由、HTTP 处理、SSE / routes, handlers, SSE
 │   ├── filestore/        # 文件操作与上传事务 / files and upload transactions
 │   ├── textstore/        # 文本持久化 / shared-text persistence
+│   ├── printing/         # Windows 打印版面、测试页与文件任务 / layout, test pages and document jobs
 │   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
 │   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
@@ -75,9 +76,27 @@ Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 | `build.bat run` | 直接运行 / run directly |
 | `build.bat clean` | 清理构建产物 / clean artifacts |
 
+## v0.5.6 文件打印与预览
+
+`/print-queue` 新增本地 PDF、JPG/JPEG、PNG 的选择和打印预览，支持 PDF 翻页、预览放大/缩小；图片等比居中，透明区域铺白底。纸张及方向来自 Windows 主机当前打印机设置，固定一份、单面，打印全部页面。共享空间单个支持文件的「⋯ → 打印」通过 `/print-queue?file=...&from=...` 自动载入预览，普通点击文件名保持原行为。共享来源通过既有 `/preview-files/{name}` 和 filestore 边界读取成有 50 MiB 上限的浏览器快照，避免预览后重新读取变化内容；失效读取可取消。刷新可重新加载共享来源，返回保留原文件夹；改选本地文件会清除共享来源参数。原文件不会加入共享空间。单个原文件最多 50 MiB、PDF 最多 50 页。
+
+浏览器复用内嵌 PDF.js 与图片解码生成 200 DPI 的 PNG 页面；预览和提交打印使用相同的布局与渲染代码，CSS 边界线和缩放不会进入输出。新增 `GET /api/printing/layout?printer=...` 返回物理纸张、可打印区域及版面标识；`POST /api/printing/documents` 接收 manifest 和顺序命名的 PNG 页面，必须带 `X-Lan-Copy-Action: print-document` 并通过同源校验。后端接收的是已渲染页面，不独立解析原始 PDF。共享 SPA 的 CSP 允许本地 PDF.js 所需的 WebAssembly 编译，仍不允许 JavaScript eval。
+
+`internal/printing` 管理互斥、暂存、完整 PNG 校验和清理；所有页面验证完成才进入 GDI。限制单页 12 MiB/1600 万像素、合计 128 MiB；暂存于私有应用数据目录 `print-spool/`，成功/失败/接收中断后清理，启动丢弃已确认布局的自有遗留页，保留含未知内容的目录，绝不重放任务。Windows 使用驱动返回的完整 DEVMODE，设置支持的份数/单双面字段，固定系统线程调用 GDI。提交前再次核对版面标识，设置变化时要求刷新预览。
+
+任务新增文档名称、页数、接收状态和独立的清理警告；已提交不能推断实际出纸。浏览器回归使用实际 PDF.js/图片和 HTTP multipart 上传，但打印机信息及原生提交由测试接收器模拟，不会实际出纸。Windows ABI 测试与实际设备验收分别记录，见 [v0.5.6 实施进度](v0.5.6-progress.md)。
+
+## v0.5.5 打印队列首期
+
+顶栏分享按钮左侧的打印入口进入 `/print-queue`，与共享空间、文本快传共用 SPA。`frontend/print.html` 提供直接访问的加载骨架，由 Vite 构建并同步到 `web/print.html`。
+
+Windows 主机通过系统已安装的打印机和驱动提交一张 Lan Copy 测试页，不需要开启 Windows 打印机共享或安装额外打印工具。`internal/printing` 负责原生枚举、GDI 测试页及本次启动后的最近 50 条任务；HTTP 只负责动作来源校验和协议。其他平台展示不支持提示。任务“已提交”不代表已出纸，实际结果在设备或 Windows 队列中确认。本版不包含普通文件打印或完整系统队列管理。
+
+浏览器回归对 Windows 响应进行模拟，保证不会在开发者打印机上实际出纸；交叉构建不能替代 Windows 实机打印验收。实际记录见 [v0.5.5 实施进度](v0.5.5-progress.md)。
+
 ## v0.5.1 前端产物与验证 / Frontend artifacts and validation
 
-- `frontend/index.html`、`transfer.html`、`preview.html` 是页面唯一来源，公共样式源为 `frontend/src/style.css`。Vite 生成的 HTML 同步到 `web/`，完整资源树同步到 `web/_frontend/`，禁止手改这些产物。`web/logo/` 与 `web/vendor/` 保持独立维护，不由同步脚本覆盖。
+- `frontend/index.html`、`transfer.html`、`print.html`、`preview.html` 是页面唯一来源，公共样式源为 `frontend/src/style.css`。Vite 生成的 HTML 同步到 `web/`，完整资源树同步到 `web/_frontend/`，禁止手改这些产物。`web/logo/` 与 `web/vendor/` 保持独立维护，不由同步脚本覆盖。
 - `frontend/scripts/sync-assets.mjs` 校验静态/动态依赖、CSS、字体/图片和 HTML 引用，检查新增、删除及内容变化。替换失败回滚已有资源；临时副本位于不参与内嵌的 `tmp/`。
 - HTML 与固定路径资源使用 `Cache-Control: no-cache`；存在的 hash 资源使用长期 immutable 缓存。旧标签页升级后请求已删除的懒加载 chunk 时自动刷新一次，连续失败显示手动重试，避免刷新循环。
 - Go 直接构建仍使用仓库中的已提交产物；开发完成需运行 `make frontend-sync` 并一起提交 HTML 和资源。`make frontend-check` 与发布构建执行完整产物及离线 vendor 校验。

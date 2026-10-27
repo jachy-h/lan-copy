@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>打印队列 · Lan Copy</title>
+    <link rel="icon" href="/logo/favicon-32x32.svg">
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar" data-initial-shell>
+        <div class="brand"><img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt=""><div><h1>Lan Copy</h1></div></div>
+        <nav class="page-nav" aria-label="页面导航"><a href="/">共享空间</a><a href="/transfer-text">文本快传</a></nav>
+        <div class="hero-actions"></div>
+      </header>
+      <main class="shell"><section class="print-page" aria-busy="true" data-initial-shell><div class="print-page-heading"><div><span class="print-eyebrow">局域网打印</span><h2>打印队列</h2><p>正在读取打印机和任务记录…</p></div></div></section></main>
+    </div>
+    <script type="module" src="/src/pages/app.ts"></script>
+  </body>
+</html>

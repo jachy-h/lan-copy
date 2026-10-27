@@ -216,6 +216,7 @@ func TestSharedSpacePages(t *testing.T) {
 	for _, test := range []struct{ path, want, absent, loading string }{
 		{"/", `id="app"`, `id="entries"`, "正在读取文件列表"},
 		{"/transfer-text", `id="app"`, `id="textInput"`, "正在读取共享文本"},
+		{"/print-queue", `id="app"`, `id="entries"`, "正在读取打印机"},
 	} {
 		result := httptest.NewRecorder()
 		handler.ServeHTTP(result, httptest.NewRequest(http.MethodGet, test.path, nil))
