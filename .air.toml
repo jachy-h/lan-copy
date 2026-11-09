@@ -1,0 +1,13 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -o ./tmp/main ."
+bin = "./tmp/main"
+args_bin = ["-air-dev"]
+include_ext = ["go", "tpl", "tmpl", "html"]
+exclude_dir = ["tmp", "frontend/node_modules", ".git", "release", "dist"]
+exclude_regex = ["_test.go"]
+stop_on_error = true
+send_interrupt = true
+kill_delay = "2s"

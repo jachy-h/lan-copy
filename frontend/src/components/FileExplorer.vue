@@ -190,6 +190,14 @@ function openEntry(item: FileEntry, trigger: HTMLElement | null = document.activ
   else if (item.previewType) openPreview(item.path, trigger)
   else notify('该文件格式暂不支持预览')
 }
+function downloadEntry(item: FileEntry) {
+  const link = document.createElement('a')
+  link.href = `/files/${encodeURIComponent(item.path)}`
+  link.download = item.name
+  document.body.append(link)
+  link.click()
+  link.remove()
+}
 function openPreview(path: string, trigger: HTMLElement | null) {
   const dialog = document.querySelector<HTMLDialogElement>('#previewDialog')
   if (!dialog) return
@@ -213,7 +221,8 @@ function fileMenuItems(trigger: HTMLElement | null): MenuItem[] {
   const actionTrigger = trigger?.matches('.explorer-row') ? trigger.querySelector<HTMLElement>('.row-menu-button') || trigger : trigger
   const actions: MenuItem[] = [{ label: item?.directory ? '在此文件夹中新建文件夹' : '新建文件夹', action: () => openEdit(null, item?.directory ? item.path : currentPath.value) }]
   if (items.length === 1 && item) {
-    actions.push({ label: item.directory ? '打开' : item.previewType ? '预览' : '下载', action: () => openEntry(item, trigger) })
+    if (item.directory || item.previewType) actions.push({ label: item.directory ? '打开' : '预览', action: () => openEntry(item, trigger) })
+    if (!item.directory) actions.push({ label: '下载', action: () => downloadEntry(item) })
     if (!item.directory && isPrintableFile(item.path)) actions.push({ label: '打印', action: () => emit('print', item.path) })
     if (!item.directory && localhostAccess) actions.push({ label: '打开所在文件夹', action: () => openContainingFolder(item, actionTrigger) })
     actions.push({ label: '移动…', action: () => openMove(item) }, { label: '重命名', action: () => openEdit(item) }, { label: '删除', danger: true, action: () => deleteEntry(item) })

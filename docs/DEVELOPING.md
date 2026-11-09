@@ -115,16 +115,18 @@ npm run test:browser
 
 浏览器测试使用 Playwright `1.58.2`（开发依赖），自动构建并启动隔离的真实 Go 服务，创建临时 PDF/DOCX/XLSX/文本样本；覆盖两种预览入口、关闭与断网、Range、文本发布、缓存头及 A/B 二进制升级后的旧 chunk 恢复。测试退出清理临时数据和服务，不操作用户共享目录。Linux CI 使用 `npx playwright install --with-deps chromium firefox webkit` 安装浏览器及系统依赖。WebKit 自动化不等于真实 Safari 或 iOS 验收。
 
-`frontend/vendor-manifest.json` 记录第三方版本、来源、许可、上游 tarball integrity 与每个内嵌文件的 SHA-256。普通校验无需联网：
+`frontend/package.json` 与 lockfile 固定预览依赖版本和来源。Node 脚本从已安装依赖生成 `/vendor/` 资源；检查命令比较生成树与提交资源，不下载上游文件：
 
 ```bash
-python3 scripts/vendor_assets.py --check
-python3 scripts/vendor_assets.py --verify-upstream
+npm ci
+npm run check-vendor
+npm run sync-assets
+npm run check-assets
 ```
 
-更新 vendor 时，从官方来源确认新版本、许可、下载地址与完整性摘要，编辑清单中相应包的 `version` / `url` / `integrity`（必要时调整选中文件路径），再执行 `python3 scripts/vendor_assets.py --update <name>`；命令先验证上游包摘要，再写入选中文件并重算文件摘要。同步更新对应 README、检查上游安全公告，运行离线与上游校验及受影响预览测试。此流程不让 Go 构建或应用运行联网。清单中的 `projectFiles` 是本项目适配器与说明文件，不能把新增第三方库放入该列表绕过摘要校验。
+更新 vendor 时调整精确依赖版本或来源并更新 `package-lock.json`，然后生成、检查并提交 `web/vendor/`。开发和 Go 运行时不会下载资源；全新 npm 安装需要可访问锁文件中的包来源。
 
-`frontend/` contains the HTML and CSS sources; `web/*.html` and the complete `web/_frontend/` tree are generated and checked together. Logos and locally vendored libraries remain separately owned. Run the pinned toolchain checks and `npm run test:browser` for embedded-server integration. Vendor checks are offline by default; `--verify-upstream` downloads integrity-pinned archives, and `--update <name>` explicitly refreshes a package after its pin is edited. Runtime and plain Go builds need neither Node.js nor network access. See [v0.5.1 progress](v0.5.1-progress.md) for actual validation and remaining environment limits.
+`frontend/` contains the HTML, CSS and vendor source files. `web/*.html`, `web/_frontend/` and `web/vendor/` are generated from the frontend sources and npm dependencies, then checked together. Runtime and plain Go builds use committed embedded files and need neither Node.js nor network access. Run the pinned toolchain checks and `npm run test:browser` for embedded-server integration. See [v0.5.7 progress](v0.5.7-progress.md) for current validation.
 
 ## 构建制品 / Building Artifacts
 

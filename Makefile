@@ -88,7 +88,6 @@ test:
 	$(GO) test ./...
 
 frontend-check:
-	python3 scripts/vendor_assets.py --check
 	cd frontend && npm ci && npm run check && npm run check-assets
 
 frontend-build:
@@ -99,7 +98,6 @@ frontend-sync:
 
 # Release builds own the frontend pipeline: install, verify, build, embed and re-check.
 frontend-release:
-	python3 scripts/vendor_assets.py --check
 	cd frontend && npm ci && npm run check && npm run sync-assets && npm run check-assets
 
 frontend-dev:

@@ -80,6 +80,15 @@ func (s *Server) routes() http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
 	})
+	if s.airDev {
+		mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = io.WriteString(w, `<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Lan Copy · 前端调试</title></head>
+<body><main><h1>Lan Copy 后端已启动</h1><p>请通过 <code>make frontend-dev</code> 启动前端调试项目</p><p>启动后，请访问终端中 Vite 输出的地址。</p></main></body></html>`)
+		})
+	}
 	mux.Handle("GET /", s.web)
 	return SecurityHeaders(mux)
 }

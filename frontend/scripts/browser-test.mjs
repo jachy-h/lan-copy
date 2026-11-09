@@ -13,7 +13,7 @@ import { testUpgrade } from './upgrade-test.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const require = createRequire(import.meta.url)
-const JSZip = require('../../web/vendor/docx-preview/jszip.min.js')
+const JSZip = require('jszip')
 const temporary = await mkdtemp(path.join(tmpdir(), 'lan-copy-browser-'))
 const shared = path.join(temporary, 'shared')
 await mkdir(shared)
@@ -343,14 +343,30 @@ try {
         if (expected) assert.ok((await page.locator(selector).textContent()).includes(expected))
         if (file.endsWith('.pdf')) {
           await page.waitForFunction(() => document.querySelector('#previewStatus').textContent.includes('第 1 / 2 页'))
-          assert.ok(await page.locator('canvas').evaluate(canvas => {
+          assert.ok(await page.locator('canvas').first().evaluate(canvas => {
             const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data
             for (let index = 0; index < pixels.length; index += 4) if (pixels[index] > 150 && pixels[index + 1] < 100 && pixels[index + 2] < 100) return true
             return false
           }), 'PDF JPEG image was not rendered')
-          await page.getByRole('button', { name: '下一页', exact: true }).click()
-          await page.waitForFunction(() => document.querySelector('#previewStatus').textContent.includes('第 2 / 2 页'))
+          await page.getByRole('spinbutton', { name: 'PDF 页码', exact: true }).fill('2')
+          await page.getByRole('spinbutton', { name: 'PDF 页码', exact: true }).dispatchEvent('change')
+          await page.waitForFunction(() => document.querySelector('input[aria-label="PDF 页码"]').value === '2')
         }
+        for (const width of [390, 320]) {
+          await page.setViewportSize({width, height: 844})
+          await delay(250)
+          const layout = await page.evaluate(() => {
+            const content = document.querySelector('#previewContent').getBoundingClientRect()
+            const paper = document.querySelector('.preview-docx-page')?.getBoundingClientRect()
+            return { overflow: document.documentElement.scrollWidth > innerWidth,
+              height: content.height, bottom: content.bottom, paperFits: !paper || paper.right <= content.right + 1 }
+          })
+          assert.ok(!layout.overflow, `${surface}/${file}: page overflow`)
+          assert.ok(layout.height >= 844 * .6, `${surface}/${file}: content too short`)
+          assert.ok(layout.bottom <= 845, `${surface}/${file}: content below screen`)
+          assert.ok(layout.paperFits, 'Word page does not fit')
+        }
+        await page.setViewportSize({ width: 1280, height: 900 })
         violations.push(...await page.evaluate(() => window.__cspViolations))
         if (surface === 'dialog') {
           await page.locator('#previewClose').click()

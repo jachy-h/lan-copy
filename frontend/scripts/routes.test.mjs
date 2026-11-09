@@ -29,3 +29,26 @@ test('dev text route serves the shared app and redirects legacy GET/HEAD with qu
     }
   } finally { await server.close() }
 })
+
+
+test('dev vendor assets provide module and WebAssembly MIME types', async () => {
+  const server = await createServer({
+    configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
+    logLevel: 'silent', server: { host: '127.0.0.1', port: 0 },
+  })
+  try {
+    await server.listen()
+    const origin = `http://127.0.0.1:${server.httpServer.address().port}`
+    for (const [path, type] of [
+      ['pdfjs/legacy/build/pdf.min.mjs', 'text/javascript'],
+      ['pdfjs/legacy/build/pdf.worker.min.mjs', 'text/javascript'],
+      ['sheetjs/worker.js', 'text/javascript'],
+      ['pdfjs/wasm/openjpeg.wasm', 'application/wasm'],
+    ]) {
+      const response = await fetch(`${origin}/vendor/${path}`)
+      assert.equal(response.status, 200, path)
+      assert.equal(response.headers.get('content-type'), type, path)
+      await response.arrayBuffer()
+    }
+  } finally { await server.close() }
+})

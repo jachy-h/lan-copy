@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { extname, resolve } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 
@@ -11,6 +12,29 @@ const proxyOptions = { target: apiTarget, changeOrigin: true, configure(proxy: P
 export default defineConfig(({ command }) => ({
   root,
   plugins: [vue(), {
+    name: 'local-vendor-assets',
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        const pathname = new URL(request.url || '/', 'http://localhost').pathname
+        if (!pathname.startsWith('/vendor/')) return next()
+        const file = resolve(root, '../tmp/frontend-vendor', `.${pathname.slice('/vendor'.length)}`)
+        if (!file.startsWith(resolve(root, '../tmp/frontend-vendor') + '/')) {
+          response.statusCode = 400
+          return response.end()
+        }
+        try {
+          const data = await readFile(file)
+          const contentTypes: Record<string, string> = {
+            '.mjs': 'text/javascript', '.js': 'text/javascript',
+            '.wasm': 'application/wasm', '.css': 'text/css',
+          }
+          response.setHeader('Content-Type', contentTypes[extname(file)] || 'application/octet-stream')
+          response.setHeader('Cache-Control', 'no-store')
+          response.end(data)
+        } catch { response.statusCode = 404; response.end('Not found') }
+      })
+    },
+  }, {
     name: 'text-transfer-route',
     configureServer(server) {
       server.middlewares.use((request, response, next) => {
@@ -27,7 +51,7 @@ export default defineConfig(({ command }) => ({
       })
     },
   }],
-  server: { proxy: Object.fromEntries(['/api', '/files', '/preview-files', '/thumbnails', '/vendor', '/logo', '/filesystem.html'].map(prefix => [prefix, proxyOptions])) },
+  server: { proxy: Object.fromEntries(['/api', '/files', '/preview-files', '/thumbnails', '/logo', '/filesystem.html'].map(prefix => [prefix, proxyOptions])) },
   publicDir: resolve(root, 'public'),
   base: command === 'serve' ? '/' : '/_frontend/',
   build: {

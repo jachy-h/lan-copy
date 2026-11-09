@@ -51,6 +51,9 @@ go run .
 
 打开 <http://localhost:8080>。源码运行不支持页面更新。
 
+前后端联调时，在项目根目录运行 `air` 启动后端，再在另一终端运行 `make frontend-dev`，访问 Vite 输出的地址。Air 通过仓库 `.air.toml` 传入 `-air-dev`，此时后端 `/` 只显示前端调试启动提示；API、vendor 和 logo 资源仍可用于 Vite 代理。普通 `go run .`、`go build .` 和发布制品继续提供完整内嵌前端。
+
+
 ### 构建与发布
 
 需要 Go、Make 和 Python 3。首次构建前，按[更新发布说明](docs/UPDATING.md#固定发布签名公钥)生成 `.config/update.key` 和 `.config/update.pub`；后续版本复用同一套密钥，私钥不要提交或分发。

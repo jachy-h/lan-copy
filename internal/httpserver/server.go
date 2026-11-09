@@ -25,6 +25,7 @@ type fileInfo struct {
 }
 
 type Config struct {
+	AirDev                                 bool
 	Dir, DataDir, Version, UpdatePublicKey string
 	MaxUpload                              int64
 	Web                                    fs.FS
@@ -40,6 +41,7 @@ type Config struct {
 
 // Server owns HTTP state; persistent state and its locks live in components.
 type Server struct {
+	airDev            bool
 	printing          *printing.Service
 	updater           *updater.Service
 	releases          *updater.ReleaseService
@@ -70,6 +72,7 @@ type Server struct {
 func New(config Config) *Server {
 	appContext, cancelApp := context.WithCancel(context.Background())
 	return &Server{
+		airDev:   config.AirDev,
 		printing: config.Printing,
 		updater:  config.Updater, autostart: config.Autostart,
 		version: config.Version, updatePublicKey: config.UpdatePublicKey,

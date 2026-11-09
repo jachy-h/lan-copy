@@ -46,6 +46,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
   let pdfTask: PDFLoadingTask | undefined;
   let renderTask: PDFRenderTask | undefined;
   let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+  let docxObserver: ResizeObserver | undefined;
   let spreadsheetWorker: Worker | undefined;
   let spreadsheetTabs: HTMLElement | undefined;
   let spreadsheetRequestID = 0;
@@ -114,10 +115,6 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     const tools = document.createElement("nav");
     tools.className = "preview-pdf-tools";
     tools.setAttribute("aria-label", "PDF 翻页与缩放");
-    const previous = document.createElement("button");
-    previous.className = "secondary"; previous.textContent = "上一页";
-    const next = document.createElement("button");
-    next.className = "secondary"; next.textContent = "下一页";
     const pageNumber = document.createElement("input");
     pageNumber.type = "number"; pageNumber.min = "1"; pageNumber.max = String(pdf.numPages);
     pageNumber.setAttribute("aria-label", "PDF 页码");
@@ -126,59 +123,116 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     [["fit", "适合宽度"], ["1", "100%"], ["1.5", "150%"], ["2", "200%"]].forEach(([value, text]) => {
       const option = document.createElement("option"); option.value = value; option.textContent = text; zoom.append(option);
     });
-    tools.append(previous, pageNumber, total, next, zoom);
+    tools.setAttribute("aria-label", "PDF 连续阅读与缩放");
+    const hint = document.createElement("span"); hint.textContent = "连续阅读";
+    tools.append(pageNumber, total, hint, zoom);
     content.before(tools);
     content.classList.add("pdf-canvas-container");
-    const canvas = document.createElement("canvas");
-    canvas.setAttribute("role", "img");
-    content.append(canvas);
-    let pageIndex = 1, busy = false, renderedPage: PDFPage | undefined;
-    async function render() {
+    let generation = 0, busy = false;
+    const wanted = new Set<number>();
+    const frames = Array.from({length: pdf.numPages}, (_, i) => {
+      const frame = document.createElement("div");
+      frame.className = "preview-pdf-page";
+      frame.dataset.page = String(i + 1);
+      frame.setAttribute("aria-label", `PDF 第 ${i + 1} 页`);
+      content.append(frame);
+      return frame;
+    });
+    let baseWidth = 612, baseHeight = 792;
+    const sizes = new Map<number, {width: number; height: number}>();
+    function scaleFor(width: number) {
+      const style = getComputedStyle(content);
+      const available = content.clientWidth - parseFloat(style.paddingLeft || "0") - parseFloat(style.paddingRight || "0");
+      return zoom.value === "fit" ? Math.max(.1, Math.min(available / width, 2)) : Number(zoom.value);
+    }
+    function sizeFrame(index: number) {
+      const size = sizes.get(index) || {width: baseWidth, height: baseHeight};
+      const scale = scaleFor(size.width);
+      frames[index].style.width = `${size.width * scale}px`;
+      frames[index].style.height = `${size.height * scale}px`;
+    }
+    function currentPage() {
+      const top = content.getBoundingClientRect().top;
+      const index = frames.findIndex(frame => frame.getBoundingClientRect().bottom > top + 24);
+      return Math.max(0, index);
+    }
+    function updatePosition() {
+      pageNumber.value = String(currentPage() + 1);
+    }
+    async function pump() {
       if (busy || controller.signal.aborted) return;
       busy = true;
-      [previous, next, pageNumber, zoom].forEach(node => node.disabled = true);
-      pageNumber.value = String(pageIndex);
-      message(`正在显示第 ${pageIndex} 页…`);
       try {
-        renderedPage?.cleanup();
-        renderedPage = await pdf.getPage(pageIndex);
-        if (controller.signal.aborted) { renderedPage.cleanup(); return; }
-        const base = renderedPage.getViewport({scale: 1});
-        const scale = zoom.value === "fit" ? Math.min((content.clientWidth - 24) / base.width, 2) : Number(zoom.value);
-        const viewport = renderedPage.getViewport({scale: Math.max(0.1, scale)});
-        const pixels = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(16000000 / (viewport.width * viewport.height)));
-        canvas.width = Math.ceil(viewport.width * pixels);
-        canvas.height = Math.ceil(viewport.height * pixels);
-        canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`;
-        canvas.setAttribute("aria-label", `PDF 第 ${pageIndex} 页，共 ${pdf.numPages} 页`);
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas 不可用");
-        renderTask = renderedPage.render({canvasContext: context, viewport, transform: [pixels, 0, 0, pixels, 0, 0]});
-        await renderTask.promise;
-        renderTask = undefined;
-        if (controller.signal.aborted) return;
-        message(`第 ${pageIndex} / ${pdf.numPages} 页 · 可翻页或缩放查看`);
-        content.scrollTop = 0; content.scrollLeft = 0;
-      } catch (error) {
-        if (!controller.signal.aborted) message("此页无法显示，请尝试其他页面，或下载原文件。");
-      } finally {
-        busy = false;
-        if (!controller.signal.aborted) {
-          previous.disabled = pageIndex <= 1; next.disabled = pageIndex >= pdf.numPages;
-          pageNumber.disabled = false; zoom.disabled = false;
+        for (const index of wanted) {
+          const frame = frames[index];
+          if (frame.childElementCount) continue;
+          const version = generation;
+          let page: PDFPage | undefined;
+          try {
+            page = await pdf.getPage(index + 1);
+            if (controller.signal.aborted) return;
+            if (version !== generation || !wanted.has(index)) continue;
+            const base = page.getViewport({scale: 1});
+            sizes.set(index, base); sizeFrame(index);
+            const viewport = page.getViewport({scale: scaleFor(base.width)});
+            const pixels = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(8000000 / (viewport.width * viewport.height)));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.ceil(viewport.width * pixels); canvas.height = Math.ceil(viewport.height * pixels);
+            canvas.style.width = `${viewport.width}px`; canvas.style.height = `${viewport.height}px`;
+            canvas.setAttribute("role", "img"); canvas.setAttribute("aria-label", `PDF 第 ${index + 1} 页，共 ${pdf.numPages} 页`);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("Canvas 不可用");
+            renderTask = page.render({canvasContext: context, viewport, transform: [pixels, 0, 0, pixels, 0, 0]});
+            await renderTask.promise;
+            if (controller.signal.aborted) return;
+            if (version === generation && wanted.has(index)) {
+              frame.replaceChildren(canvas);
+              message(`第 ${currentPage() + 1} / ${pdf.numPages} 页 · 连续阅读`);
+              status.hidden = true;
+            }
+          } catch {
+            if (!controller.signal.aborted && version === generation && wanted.has(index)) {
+              frame.textContent = `第 ${index + 1} 页无法显示，请下载原文件。`;
+              message(frame.textContent); status.hidden = false;
+            }
+          } finally { renderTask = undefined; page?.cleanup(); }
         }
-      }
+      } finally { busy = false; }
+      // A zoom/resize may invalidate a page while its render is pending.
+      if (!controller.signal.aborted && [...wanted].some(index => !frames[index].childNodes.length)) void pump();
     }
-    previous.addEventListener("click", () => { if (!busy && pageIndex > 1) { pageIndex--; render(); } });
-    next.addEventListener("click", () => { if (!busy && pageIndex < pdf.numPages) { pageIndex++; render(); } });
+    const first = await pdf.getPage(1);
+    if (controller.signal.aborted) { first.cleanup(); return; }
+    const base = first.getViewport({scale: 1}); baseWidth = base.width; baseHeight = base.height;
+    first.cleanup();
+    frames.forEach((_, index) => sizeFrame(index));
+    pageNumber.value = "1";
+    const observer = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        const index = Number((entry.target as HTMLElement).dataset.page) - 1;
+        if (entry.isIntersecting) wanted.add(index);
+        else { wanted.delete(index); frames[index].replaceChildren(); }
+      }
+      void pump();
+    }, {root: content, rootMargin: "400px 0px"});
+    frames.forEach(frame => observer.observe(frame));
+    controller.signal.addEventListener("abort", () => { observer.disconnect(); status.hidden = false; }, {once: true});
+    content.addEventListener("scroll", updatePosition, {signal: controller.signal, passive: true});
     pageNumber.addEventListener("change", () => {
       const value = Number(pageNumber.value);
-      if (!Number.isInteger(value) || value < 1 || value > pdf.numPages) { pageNumber.value = String(pageIndex); return; }
-      pageIndex = value; render();
-    });
-    zoom.addEventListener("change", render);
-    window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (zoom.value === "fit") render(); }, 150); }, {signal: controller.signal});
-    await render();
+      if (!Number.isInteger(value) || value < 1 || value > pdf.numPages) { updatePosition(); return; }
+      content.scrollTop += frames[value - 1].getBoundingClientRect().top - content.getBoundingClientRect().top;
+    }, {signal: controller.signal});
+    function relayout() {
+      const index = currentPage();
+      const fraction = (content.getBoundingClientRect().top - frames[index].getBoundingClientRect().top) / Math.max(1, frames[index].offsetHeight);
+      generation++; renderTask?.cancel();
+      frames.forEach((frame, i) => { frame.replaceChildren(); sizeFrame(i); });
+      content.scrollTop += frames[index].getBoundingClientRect().top - content.getBoundingClientRect().top + fraction * frames[index].offsetHeight;
+      void pump();
+    }
+    zoom.addEventListener("change", relayout, {signal: controller.signal});
+    window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayout, 150); }, {signal: controller.signal});
   }
 
   async function showDOCX(response: Response) {
@@ -209,6 +263,32 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       useBase64URL: true,
     });
     if (controller.signal.aborted) return;
+    // Preserve paper layout while reserving only its scaled visual size.
+    const pages = [...docxMount.querySelectorAll<HTMLElement>("section.docx")].map(page => {
+      const frame = document.createElement("div");
+      frame.className = "preview-docx-page";
+      page.before(frame);
+      frame.append(page);
+      return {page, frame};
+    });
+    function fitPages() {
+      if (controller.signal.aborted) return;
+      const wrapper = docxMount.querySelector<HTMLElement>(".docx-wrapper");
+      if (!wrapper) return;
+      for (const {page, frame} of pages) {
+        const scale = Math.min(1, wrapper.clientWidth / Math.max(1, page.offsetWidth));
+        page.style.transformOrigin = "top left";
+        page.style.transform = `scale(${scale})`;
+        frame.style.width = `${page.offsetWidth * scale}px`;
+        frame.style.height = `${page.offsetHeight * scale}px`;
+      }
+    }
+    fitPages();
+    if (typeof ResizeObserver !== "undefined") {
+      docxObserver = new ResizeObserver(fitPages);
+      docxObserver.observe(content);
+      pages.forEach(({page}) => docxObserver!.observe(page));
+    }
     for (const anchor of docxMount.querySelectorAll<HTMLAnchorElement>("a[href]")) {
       const href = anchor.getAttribute("href");
       if (!href) continue;
@@ -392,6 +472,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     if (controller.signal.aborted) return;
     controller.abort();
     clearTimeout(resizeTimer);
+    docxObserver?.disconnect();
     renderTask?.cancel();
     pdfTask?.destroy().catch(() => {});
     spreadsheetWorker?.terminate();

@@ -12,6 +12,10 @@ async function fixture(t) {
   await mkdir(path.join(build, '.vite'), { recursive: true })
   await mkdir(path.join(build, 'assets/nested'), { recursive: true })
   await mkdir(path.join(root, 'web/_frontend'), { recursive: true })
+  await mkdir(path.join(root, 'tmp/frontend-vendor/example'), { recursive: true })
+  await mkdir(path.join(root, 'web/vendor'), { recursive: true })
+  await writeFile(path.join(root, 'tmp/frontend-vendor/example/library.js'), 'generated vendor')
+  await writeFile(path.join(root, 'web/vendor/obsolete.js'), 'old vendor')
   const manifest = {}
   for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html']) {
     manifest[page] = { file: page, isEntry: true, imports: ['main'] }
@@ -31,6 +35,8 @@ test('syncs HTML, lazy imports, styles and nested assets; detects drift and dele
   await syncAssets(root)
   await syncAssets(root, { check: true })
   assert.equal(await readFile(path.join(root, 'web/_frontend/assets/nested/font.woff2'), 'utf8'), 'nested/font.woff2')
+  assert.equal(await readFile(path.join(root, 'web/vendor/example/library.js'), 'utf8'), 'generated vendor')
+  await assert.rejects(readFile(path.join(root, 'web/vendor/obsolete.js')))
   await assert.rejects(readFile(path.join(root, 'web/_frontend/obsolete.js')))
   await writeFile(path.join(root, 'web/index.html'), 'drift')
   await assert.rejects(syncAssets(root, { check: true }), /differs/)
@@ -52,6 +58,7 @@ test('failed multi-target installation restores all HTML and resources', async t
   assert.equal(await readFile(path.join(root, 'web/index.html'), 'utf8'), 'old HTML')
   assert.equal(await readFile(path.join(root, 'web/transfer.html'), 'utf8'), 'old HTML')
   assert.equal(await readFile(path.join(root, 'web/_frontend/obsolete.js'), 'utf8'), 'old JS')
+  assert.equal(await readFile(path.join(root, 'web/vendor/obsolete.js'), 'utf8'), 'old vendor')
 })
 
 test('real Vite compilation keeps scoped CSS, lazy chunks and imported nested assets', async t => {
@@ -61,6 +68,7 @@ test('real Vite compilation keeps scoped CSS, lazy chunks and imported nested as
   const root = await mkdtemp(path.join(frontend, 'node_modules/.asset-fixture-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, 'web')); await mkdir(path.join(root, 'nested'))
+  await mkdir(path.join(root, 'tmp/frontend-vendor'), { recursive: true })
   for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html']) await writeFile(path.join(root, page), '<div id="app"></div><script type="module" src="/main.ts"></script>')
   await writeFile(path.join(root, 'main.ts'), 'import {createApp} from "vue"; window.openLazy = async () => createApp((await import("./Lazy.vue")).default).mount("#app")')
   await writeFile(path.join(root, 'Lazy.vue'), '<template><div class="probe">lazy</div></template><style scoped>.probe { background: url("./nested/marker.svg") }</style>')

@@ -51,6 +51,9 @@ go run .
 
 Open <http://localhost:8080>. Browser updates are disabled when running from source.
 
+For development, run `air` at the repository root and `make frontend-dev` in another terminal, then open the URL printed by Vite. The repository `.air.toml` passes `-air-dev`, which replaces the backend `/` page with frontend startup instructions. APIs, vendor files, and logos remain available to the Vite proxy. Regular `go run .`, `go build .`, and release artifacts continue to serve the embedded frontend.
+
+
 ### Build and release
 
 Requires Go, Make, and Python 3. Before the first build, follow the [update release guide](docs/UPDATING.md) to create `.config/update.key` and `.config/update.pub`. Reuse the same keys for subsequent releases; never commit or distribute the private key.

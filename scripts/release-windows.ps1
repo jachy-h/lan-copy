@@ -1,4 +1,4 @@
-# Run on Windows with Go, Python 3, pinned Node/npm and Windows SDK signtool.exe on PATH.
+# Run on Windows with Go, pinned Node/npm and Windows SDK signtool.exe on PATH.
 # The certificate/private key stays in the current user's certificate store
 # (including certificates backed by a hardware token).
 [CmdletBinding()]
@@ -52,10 +52,10 @@ foreach ($name in @('GOOS', 'GOARCH', 'CGO_ENABLED')) {
 $stage = $null
 Push-Location $repository
 try {
-    Invoke-Checked 'python' @('scripts/vendor_assets.py', '--check')
     Push-Location (Join-Path $repository 'frontend')
     try {
         Invoke-Checked $npmPath @('ci')
+        Invoke-Checked $npmPath @('run', 'check-vendor')
         Invoke-Checked $npmPath @('run', 'check')
         Invoke-Checked $npmPath @('run', 'check-assets')
     } finally { Pop-Location }

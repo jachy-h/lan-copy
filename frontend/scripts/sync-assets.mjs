@@ -17,6 +17,16 @@ async function listFiles(directory, relative = '') {
 export async function syncAssets(projectRoot, { check = false, move = rename } = {}) {
   const buildRoot = path.join(projectRoot, 'tmp/frontend-dist')
   const webRoot = path.join(projectRoot, 'web')
+  const vendorRoot = path.join(projectRoot, 'tmp/frontend-vendor')
+  const vendorFiles = await listFiles(vendorRoot)
+  if (process.argv.includes('--check-vendor')) {
+    const actual = await listFiles(path.join(webRoot, 'vendor'))
+    if (JSON.stringify(actual) !== JSON.stringify(vendorFiles)) throw new Error('Vendor file list differs')
+    for (const file of vendorFiles) {
+      if (!(await readFile(path.join(vendorRoot, file))).equals(await readFile(path.join(webRoot, 'vendor', file)))) throw new Error(`Vendor differs: ${file}`)
+    }
+    return
+  }
   const pages = ['index.html', 'transfer.html', 'preview.html', 'print.html']
   const manifest = JSON.parse(await readFile(path.join(buildRoot, '.vite/manifest.json'), 'utf8'))
   const built = (await listFiles(buildRoot)).filter(file => !file.startsWith('.vite/'))
@@ -53,20 +63,31 @@ export async function syncAssets(projectRoot, { check = false, move = rename } =
       const destination = pages.includes(file) ? path.join(webRoot, file) : path.join(webRoot, '_frontend', file)
       if (!(await readFile(path.join(buildRoot, file))).equals(await readFile(destination))) throw new Error(`Frontend differs: ${file}; run make frontend-sync`)
     }
+    const actualVendor = await listFiles(path.join(webRoot, 'vendor'))
+    if (JSON.stringify(actualVendor) !== JSON.stringify(vendorFiles)) throw new Error('Vendor file list differs; run make frontend-sync')
+    for (const file of vendorFiles) {
+      if (!(await readFile(path.join(vendorRoot, file))).equals(await readFile(path.join(webRoot, 'vendor', file)))) throw new Error(`Vendor differs: ${file}; run make frontend-sync`)
+    }
     return
   }
   // Stage outside the embedded tree. Preflight and staging never remove working assets.
   const staging = await mkdtemp(path.join(projectRoot, 'tmp/frontend-sync-'))
-  const targets = ['_frontend', ...pages]
+  const targets = ['_frontend', 'vendor', ...pages]
   const backedUp = [], installed = []
   let keepStaging = false
   try {
     await mkdir(path.join(staging, 'new/_frontend'), { recursive: true })
+    await mkdir(path.join(staging, 'new/vendor'), { recursive: true })
     await mkdir(path.join(staging, 'old'), { recursive: true })
     for (const file of built) {
       const destination = path.join(staging, 'new', pages.includes(file) ? file : `_frontend/${file}`)
       await mkdir(path.dirname(destination), { recursive: true })
       await cp(path.join(buildRoot, file), destination)
+    }
+    for (const file of vendorFiles) {
+      const destination = path.join(staging, 'new/vendor', file)
+      await mkdir(path.dirname(destination), { recursive: true })
+      await cp(path.join(vendorRoot, file), destination)
     }
     for (const target of targets) {
       try { await move(path.join(webRoot, target), path.join(staging, 'old', target)); backedUp.push(target) }
@@ -93,5 +114,5 @@ export async function syncAssets(projectRoot, { check = false, move = rename } =
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
   await syncAssets(root, { check: process.argv.includes('--check') })
-  console.log('Frontend HTML and complete resource tree are synchronized')
+  console.log(process.argv.includes('--check-vendor') ? 'Vendor resources match npm dependencies' : 'Frontend HTML and complete resource tree are synchronized')
 }

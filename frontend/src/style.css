@@ -1318,3 +1318,54 @@ button:disabled { opacity: .5; cursor: default; }
 .document-zoom-controls { display: flex; justify-content: flex-end; align-items: center; gap: 14px; margin: -4px 0 8px; font-size: 11px; color: var(--muted); }
 .document-zoom-controls .print-text-button { padding: 4px 0; }
 .document-shared-origin { margin: 8px 0; font-size: 12px; color: #536985; line-height: 1.7; overflow-wrap: anywhere; }
+
+/* Fit paper pages without changing document layout. */
+.preview-docx-container .docx-wrapper { padding: 0; background: transparent; gap: 12px; }
+.preview-docx-page { position: relative; flex: none; }
+.preview-docx-page > section.docx { margin: 0 !important; }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) {
+ .preview-dialog[open], .preview-page .preview-shell { display: flex; flex-direction: column; gap: 8px; height: 100vh; height: 100dvh; min-height: 0; box-sizing: border-box; padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+ .preview-dialog[open] { width: 100%; max-height: none; max-width: none; margin: 0; border: 0; border-radius: 0; overflow: hidden; }
+ .preview-toolbar, .preview-dialog-toolbar { flex: none; flex-wrap: nowrap; align-items: center; gap: 8px; }
+ .preview-toolbar h1, .preview-dialog-toolbar h2 { order: initial; flex: 1; font-size: 14px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+ .preview-toolbar > a, .preview-dialog-toolbar .secondary { padding: 8px; min-height: 44px; white-space: nowrap; font-size: 12px; }
+ .preview-dialog-toolbar > div { flex-direction: row; flex: none; gap: 6px; }
+ .preview-status { flex: none; margin: 0; font-size: 12px; line-height: 1.5; max-height: 3em; overflow: auto; }
+ .preview-footnote { display: none; }
+ .preview-shell > .preview-content, .preview-dialog > .preview-content { flex: 1; min-height: 0; max-height: none; width: 100%; border-radius: 6px; overscroll-behavior: contain; }
+ .preview-content.preview-docx-container, .preview-content.pdf-canvas-container { padding: 4px; }
+ .preview-content .preview-image:not(.original-size), .preview-content .preview-media { max-height: 100%; }
+ .preview-sheet-table-scroll { height: 100%; max-height: none; }
+ .preview-text-tools, .preview-sheet-tabs { flex: none; margin: 0; padding: 0; gap: 6px; }
+ .preview-pdf-tools { flex: none; flex-wrap: nowrap; gap: 4px; margin: 0; }
+ .preview-pdf-tools button, .preview-pdf-tools input, .preview-pdf-tools select { min-height: 44px; padding: 4px; font-size: 16px; min-width: 0; }
+ .preview-pdf-tools button { font-size: 12px; white-space: nowrap; }
+ .preview-pdf-tools input { width: 48px; }
+ .preview-pdf-tools select { flex: 1; width: 0; }
+ .preview-pdf-tools span { white-space: nowrap; font-size: 12px; }
+ .preview-text-tools select { font-size: 16px; }
+}
+
+/* Keep reading controls compact and scroll the document, not the toolbar. */
+.preview-shell { display: flex; flex-direction: column; height: 100vh; height: 100dvh; gap: 6px; }
+.preview-dialog[open] { display: flex; flex-direction: column; height: min(92dvh, 1000px); gap: 6px; overflow: hidden; }
+.preview-shell > .preview-content, .preview-dialog > .preview-content { flex: 1; min-height: 0; max-height: none; }
+.preview-toolbar h1, .preview-dialog-toolbar h2 { margin: 0; }
+.preview-status { margin: 0; }
+.preview-status[hidden] { display: none; }
+.preview-footnote { display: none; }
+.preview-pdf-tools { flex: none; margin: 0; gap: 6px; flex-wrap: nowrap; }
+.preview-pdf-tools input, .preview-pdf-tools select { min-height: 32px; height: 32px; padding: 2px 6px; font-size: 16px; }
+.preview-pdf-tools input { width: 52px; }
+.preview-pdf-tools select { margin-left: auto; flex: none; width: auto; }
+.pdf-canvas-container { overflow-anchor: none; padding: 4px; }
+.preview-pdf-page { position: relative; margin: 0 auto 6px; background: white; box-shadow: 0 1px 4px #14213d18; flex: none; }
+.preview-pdf-page canvas { margin: 0; box-shadow: none; }
+@media (max-width: 600px) {
+ .preview-shell, .preview-dialog[open] { gap: 4px; }
+ .preview-pdf-tools span { font-size: 11px; }
+}
+.preview-dialog { background: #f4f7fb; }
+@media (max-width: 600px), (max-height: 500px) and (pointer: coarse) {
+ .preview-dialog[open] { height: 100vh; height: 100dvh; }
+}

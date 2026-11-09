@@ -1,25 +1,29 @@
 {
   "name": "lan-copy-frontend",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.8",
   "type": "module",
   "engines": {
     "node": "24.18.0",
     "npm": "11.16.0"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "node scripts/vendor-assets.mjs && vite --host 127.0.0.1",
     "typecheck": "vue-tsc --noEmit",
     "test": "vitest run && node --test scripts/*.test.mjs",
-    "build": "vite build",
-    "sync-assets": "node scripts/sync-assets.mjs",
-    "check-assets": "node scripts/sync-assets.mjs --check",
+    "build": "node scripts/vendor-assets.mjs && vite build",
+    "sync-assets": "node scripts/vendor-assets.mjs && node scripts/sync-assets.mjs",
+    "check-assets": "node scripts/vendor-assets.mjs && node scripts/sync-assets.mjs --check",
     "check": "npm run typecheck && npm test && npm run build",
-    "check-vendor": "python3 ../scripts/vendor_assets.py --check",
+    "check-vendor": "node scripts/vendor-assets.mjs && node scripts/sync-assets.mjs --check-vendor",
     "test:browser": "node scripts/browser-test.mjs"
   },
   "dependencies": {
-    "vue": "3.5.44"
+    "docx-preview": "0.4.1",
+    "jszip": "3.10.2",
+    "pdfjs-dist": "6.4.299",
+    "vue": "3.5.44",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@types/node": "24.10.1",

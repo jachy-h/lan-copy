@@ -13,6 +13,7 @@ beforeEach(() => {
   root = document.createElement('section')
   root.innerHTML = '<p id="previewStatus"></p><div id="textTools" class="hidden"><select id="textEncoding"><option value="utf-8">UTF-8</option></select></div><div id="previewContent"></div>'
   document.body.append(root)
+  vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} })
   vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { headers: { 'Content-Type': 'application/pdf' } })))
 })
 afterEach(() => { preview?.destroy(); preview = undefined; cleanup.splice(0).forEach(fn => fn()); root.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.mocked(loadPDF).mockReset() })
@@ -58,17 +59,29 @@ describe('preview engine lifetime', () => {
     expect(page.cleanup).toHaveBeenCalled()
   })
 
-  it('supports pagination and zoom and cancels an active render on close', async () => {
+  it('renders nearby pages continuously and cancels rendering on close', async () => {
     const { document, page, renderTask } = pdfFixture()
+    let intersect!: (entries: Partial<IntersectionObserverEntry>[]) => void
+    const disconnect = vi.fn()
+    vi.stubGlobal('IntersectionObserver', class {
+      constructor(callback: typeof intersect) { intersect = callback }
+      observe() {} disconnect = disconnect
+    })
     preview = mountPreview(root, 'one.pdf'); await flush()
-    expect(root.querySelector('#previewStatus')!.textContent).toContain('第 1 / 2 页')
-    ;[...root.querySelectorAll('button')].find(button => button.textContent === '下一页')!.click()
-    await flush(); expect(document.getPage).toHaveBeenLastCalledWith(2)
+    const frames = [...root.querySelectorAll('.preview-pdf-page')]
+    expect(frames).toHaveLength(2)
+    expect(page.render).not.toHaveBeenCalled()
+    intersect(frames.map(target => ({target, isIntersecting: true})))
+    await flush()
+    expect(root.querySelectorAll('canvas')).toHaveLength(2)
+    expect(document.getPage).toHaveBeenLastCalledWith(2)
+    intersect([{target: frames[0], isIntersecting: false}])
+    expect(frames[0].querySelector('canvas')).toBeNull()
     const pending = deferred<void>(); renderTask.promise = pending.promise
     const zoom = root.querySelector('select[aria-label="PDF 缩放"]') as HTMLSelectElement
     zoom.value = '1.5'; zoom.dispatchEvent(new Event('change')); await flush()
-    expect(page.render).toHaveBeenCalledTimes(3)
-    preview.destroy(); expect(renderTask.cancel).toHaveBeenCalledOnce()
+    preview.destroy(); expect(renderTask.cancel).toHaveBeenCalled()
+    expect(disconnect).toHaveBeenCalledOnce()
     pending.resolve(); await flush()
     expect(root.querySelector('canvas')).toBeNull()
   })

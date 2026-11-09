@@ -36,6 +36,7 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		}
 		return
 	}
+	airDev := flag.Bool("air-dev", false, "Air 开发模式：首页显示前端调试启动提示")
 	listen := flag.String("listen", ":8080", "监听地址")
 	dir := flag.String("dir", DefaultStorageName(desktop.SystemLanguage()), "文件存储目录")
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
@@ -94,7 +95,7 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		Dir: components.Dir, DataDir: components.DataDir,
 		Files: components.Files, Texts: components.Texts,
 		UploadResources: components.UploadResources, UploadPreflight: components.UploadPreflight,
-		Releases: components.Releases, Web: webRoot,
+		Releases: components.Releases, Web: webRoot, AirDev: *airDev,
 		Version: version, UpdatePublicKey: updatePublicKey, MaxUpload: *maxGB << 30,
 		Updater:   updateService,
 		Printing:  printService,

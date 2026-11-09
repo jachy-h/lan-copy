@@ -69,9 +69,9 @@ jobs:
           npm install --global npm@11.16.0
           cd frontend
           npm ci
+          npm run check-vendor
           npm run check
           npm run check-assets
-          python3 ../scripts/vendor_assets.py --check
 
   browser:
     name: Embedded frontend browser integration

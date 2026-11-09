@@ -37,6 +37,29 @@ beforeEach(async () => {
 afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals(); window.location.hash = '' })
 
 describe('FileExplorer', () => {
+  it.each(['alpha.txt', 'recent.pdf'])('downloads %s independently of preview support', async (path) => {
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      expect(this.getAttribute('href')).toBe(`/files/${encodeURIComponent(path)}`)
+      expect(this.download).toBe(path)
+      expect(this.isConnected).toBe(true)
+    })
+    try {
+      await wrapper.get(`.explorer-row[data-path="${path}"] .row-menu-button`).trigger('click')
+      const actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+      expect(actions.some(action => action.label === '预览')).toBe(path === 'recent.pdf')
+      await actions.find(action => action.label === '下载')!.action!()
+      expect(click).toHaveBeenCalledOnce()
+      expect(document.querySelector('a[download]')).toBeNull()
+    } finally { click.mockRestore() }
+  })
+
+  it('does not offer a file download for folders', async () => {
+    await wrapper.get('.explorer-row[data-path="beta"] .row-menu-button').trigger('click')
+    const actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    expect(actions.some(action => action.label === '打开')).toBe(true)
+    expect(actions.some(action => action.label === '下载')).toBe(false)
+  })
+
   it('reserves the empty area on initial load and keeps it visible during revalidation', async () => {
     wrapper.unmount()
     // Drain jsdom's pending history event from the test setup before remounting.
