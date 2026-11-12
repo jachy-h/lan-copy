@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
+import { generateVendor } from './vendor-assets.mjs'
 
 test('dev text route serves the shared app and redirects legacy GET/HEAD with query intact', async () => {
   const server = await createServer({
@@ -32,6 +33,7 @@ test('dev text route serves the shared app and redirects legacy GET/HEAD with qu
 
 
 test('dev vendor assets provide module and WebAssembly MIME types', async () => {
+  await generateVendor()
   const server = await createServer({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
     logLevel: 'silent', server: { host: '127.0.0.1', port: 0 },
