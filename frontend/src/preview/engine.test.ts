@@ -94,6 +94,7 @@ describe('preview engine lifetime', () => {
       observe() {} disconnect = disconnect
     })
     preview = mountPreview(root, 'one.pdf'); await flush()
+    expect((root.querySelector('select[aria-label="PDF 缩放"]') as HTMLSelectElement).value).toBe('1')
     const frames = [...root.querySelectorAll('.preview-pdf-page')]
     expect(frames).toHaveLength(2)
     expect(page.render).not.toHaveBeenCalled()

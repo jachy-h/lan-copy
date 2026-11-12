@@ -148,6 +148,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     [["fit", "适合宽度"], ["1", "100%"], ["1.5", "150%"], ["2", "200%"]].forEach(([value, text]) => {
       const option = document.createElement("option"); option.value = value; option.textContent = text; zoom.append(option);
     });
+    zoom.value = "1";
     tools.setAttribute("aria-label", "PDF 连续阅读与缩放");
     const hint = document.createElement("span"); hint.textContent = "连续阅读";
     tools.append(pageNumber, total, hint, zoom);
@@ -178,9 +179,13 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     }
     function currentPage() {
       const top = content.getBoundingClientRect().top;
-      // Pick the page that owns most of the reading viewport. A fixed 200px
-      // threshold misreports the last page when the viewport is taller than a
-      // scaled page and the container cannot scroll it all the way to the top.
+      const maxScroll = content.scrollHeight - content.clientHeight;
+      // When pages fit in the viewport, the first page is the natural default.
+      if (maxScroll <= 2 || content.scrollTop <= 2) return 0;
+      // At the end of a document the final page may be shorter than the
+      // viewport and cannot align with the top; treat it as current.
+      if (content.scrollTop >= maxScroll - 2) return frames.length - 1;
+      // Pick the page that owns most of the reading viewport.
       const focus = top + Math.min(320, content.clientHeight * 0.4);
       const index = frames.findIndex(frame => frame.getBoundingClientRect().bottom > focus);
       return Math.max(0, index);
