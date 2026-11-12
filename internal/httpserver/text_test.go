@@ -189,7 +189,7 @@ func TestTextValidation(t *testing.T) {
 		status  int
 	}{
 		{name: "empty", content: "  \n", status: http.StatusBadRequest},
-		{name: "too large", content: strings.Repeat("x", textstore.MaxTextBytes+1), status: http.StatusRequestEntityTooLarge},
+		{name: "too large", content: strings.Repeat("x", textstore.MaxTextChars+1), status: http.StatusRequestEntityTooLarge},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

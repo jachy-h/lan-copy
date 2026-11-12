@@ -670,13 +670,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath), 'resizing-sidebar': resizingSidebar }" :style="{ '--sidebar-width': `${sidebarWidth}px` }" aria-label="共享空间文件列表">
-    <aside class="explorer-sidebar" aria-label="共享资源目录">
+  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath), 'resizing-sidebar': resizingSidebar }" :style="{ '--sidebar-width': `${sidebarWidth}px` }" aria-label="内网空间文件列表">
+    <aside class="explorer-sidebar" aria-label="内网资源目录">
       <div class="explorer-sidebar-head">
-        <strong>共享资源</strong>
+        <strong>内网资源</strong>
         <button class="secondary tree-close" type="button" aria-label="关闭资源目录" @click="treeOpen = false">×</button>
       </div>
-      <div class="explorer-tree" role="tree" aria-label="共享空间目录树">
+      <div class="explorer-tree" role="tree" aria-label="内网空间目录树">
         <div v-for="row in treeRows" :key="row.key" class="tree-row" :class="{ active: isTreeActive(row), 'tree-row-status': Boolean(row.status), 'tree-row-file': !row.directory, 'tree-row-error': row.status === 'error' }" role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.directory && !row.status ? treeExpanded.has(row.path) : undefined" :aria-selected="!row.status && isTreeActive(row)" :style="{ paddingLeft: `${8 + row.depth * 14}px` }">
           <button v-if="row.directory && !row.status" class="tree-twisty" type="button" :aria-label="`${treeExpanded.has(row.path) ? '收起' : '展开'}目录：${row.label}`" @click.stop="toggleTree(row.path)">{{ treeExpanded.has(row.path) ? '▾' : '▸' }}</button>
           <span v-else class="tree-twisty-spacer" aria-hidden="true" />

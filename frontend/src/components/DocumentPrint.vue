@@ -163,7 +163,7 @@ onBeforeUnmount(() => {
     <div class="print-card-heading"><h3 id="document-print-title">文件打印与预览</h3><span class="print-count">PDF · JPG · PNG</span></div>
     <p class="print-description">选择文件，确认版面后发送到主机打印。</p>
     <label class="print-file-picker" :class="{disabled: working || offline}"><input type="file" accept=".pdf,.jpg,.jpeg,.png" aria-label="选择打印文件" :disabled="working || offline" @change="selectFile"><span>{{ file ? '更换文件' : '选择文件' }}</span><strong>{{ file?.name || 'PDF、JPG/JPEG 或 PNG' }}</strong></label>
-    <p v-if="loadedSharedPath" class="document-shared-origin">共享空间 · {{ loadedSharedPath }}</p>
+    <p v-if="loadedSharedPath" class="document-shared-origin">内网空间 · {{ loadedSharedPath }}</p>
     <p class="print-description">单个文件最多 50 MiB，PDF 最多 50 页。</p>
     <div class="document-preview-heading"><strong>打印预览</strong><button type="button" class="print-text-button" :disabled="!printer || working || loadingLayout || offline" @click="refreshLayout">{{ loadingLayout ? '读取版面…' : '刷新预览' }}</button></div>
     <div v-if="layout && source" class="document-zoom-controls" aria-label="预览缩放"><button class="print-text-button" type="button" aria-label="缩小打印预览" :disabled="zoom <= 1" @click="zoom = Math.max(1, zoom - .5)">缩小</button><span>{{ zoom === 1 ? '适应纸张' : `${zoom * 100}%` }}</span><button class="print-text-button" type="button" aria-label="放大打印预览" :disabled="zoom >= 3" @click="zoom = Math.min(3, zoom + .5)">放大</button></div>

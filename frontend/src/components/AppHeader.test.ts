@@ -1,18 +1,27 @@
-import { mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AppHeader from './AppHeader.vue'
 import { beginUpload, dismissUpload, minimizeUpload, startUpload, updateUploadProgress, uploadProgress } from '../upload/progress'
 
 let wrapper: ReturnType<typeof mount> | undefined
 const stubs = { SharePopover: true, SettingsDialog: true, ServiceStatus: true }
 
-afterEach(() => { wrapper?.unmount(); wrapper = undefined; dismissUpload(); document.body.replaceChildren() })
+beforeEach(() => { vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ bytes: 2048, files: 3 }) }))) })
+afterEach(() => { wrapper?.unmount(); wrapper = undefined; dismissUpload(); document.body.replaceChildren(); vi.unstubAllGlobals() })
 
 function render() {
   wrapper = mount(AppHeader, { props: { page: 'files', filesHref: '/' }, global: { stubs } })
 }
 
 describe('AppHeader upload indicator', () => {
+  it('shows local storage usage from the logo tooltip', async () => {
+    render()
+    await flushPromises()
+    expect(wrapper!.get('.storage-tooltip-usage').text()).toContain('2.0 KB')
+    expect(wrapper!.get('.storage-tooltip').text()).toContain('3 个文件')
+    expect(wrapper!.get('.storage-tooltip').text()).toContain('已开启端到端加密')
+  })
+
   it('places the minimized transfer button immediately before the print button', async () => {
     render()
     expect(wrapper!.find('.transfer-access-button').exists()).toBe(false)

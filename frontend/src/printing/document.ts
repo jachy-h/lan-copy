@@ -31,8 +31,8 @@ export async function loadSharedPrintFile(path: string, signal: AbortSignal): Pr
   if (!isPrintableFile(path) || path.startsWith('/') || /[\\\0]/.test(path) || parts.some(part => !part || part === '.' || part === '..')) throw new Error('共享文件路径或格式无效')
   const response = await fetch(`/preview-files/${encodeURIComponent(path)}`, { cache: 'no-store', signal })
   if (!response.ok) {
-    if (response.status === 404) throw new Error('共享文件已被移动或删除，请返回共享空间重新选择')
-    throw new Error('无法读取共享文件，请返回共享空间重试')
+    if (response.status === 404) throw new Error('共享文件已被移动或删除，请返回内网空间重新选择')
+    throw new Error('无法读取共享文件，请返回内网空间重试')
   }
   const declaredSize = Number(response.headers.get('Content-Length'))
   if (Number.isFinite(declaredSize) && declaredSize > MAX_SOURCE_BYTES) {

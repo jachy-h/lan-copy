@@ -30,5 +30,6 @@ onBeforeUnmount(() => { preview?.destroy(); preview = null })
       <button id="previewClose" class="secondary preview-close" type="button" aria-label="关闭预览" @click="emit('close')">×</button>
     </header>
     <section id="previewContent" class="preview-content" aria-label="文件内容"></section>
+    <div id="previewFooter" class="preview-footer"></div>
   </section>
 </template>

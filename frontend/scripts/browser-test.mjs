@@ -131,7 +131,7 @@ try {
     await page.locator('header').evaluate(header => { header.dataset.spaMarker = 'retained' })
     await page.getByRole('link', { name: '文本快传', exact: true }).click()
     await page.locator('#textInput').fill('SPA draft')
-    await page.getByRole('link', { name: '共享空间', exact: true }).click()
+    await page.getByRole('link', { name: '内网空间', exact: true }).click()
     await page.waitForURL('**/#path=spa-folder')
     assert.equal(await page.locator('header').getAttribute('data-spa-marker'), 'retained')
     await page.goBack()
@@ -159,7 +159,7 @@ try {
         await page.getByRole('link', { name: '文本快传', exact: true }).click()
         await page.waitForSelector('#textInput')
         await page.screenshot({ path: path.join(screenshots, `transfer-${width}.png`), fullPage: true })
-        await page.getByRole('link', { name: '共享空间', exact: true }).click()
+        await page.getByRole('link', { name: '内网空间', exact: true }).click()
         await page.waitForSelector('.explorer')
       }
     }
@@ -284,7 +284,7 @@ try {
     assert.equal(documentRequests, 3)
     // A normal filename click still previews. Only the ellipsis menu's Print
     // action selects the shared source, and entering/reloading never prints it.
-    await page.getByRole('link', { name: '共享空间', exact: true }).click()
+    await page.getByRole('link', { name: '内网空间', exact: true }).click()
     await page.locator('.explorer-row[data-path="print-folder"]').dblclick()
     await page.waitForURL('**/#path=print-folder')
     const sharedRow = page.locator(`.explorer-row[data-path="${sharedPrintPath}"]`)
@@ -300,7 +300,7 @@ try {
     assert.equal(documentRequests, 3, 'entering print preview must not submit')
     await page.reload()
     await page.waitForFunction(() => !document.querySelector('.document-submit').disabled)
-    await page.getByRole('link', { name: '共享空间', exact: true }).click()
+    await page.getByRole('link', { name: '内网空间', exact: true }).click()
     await page.waitForURL('**/#path=print-folder')
     await page.goBack()
     await page.waitForFunction(() => !document.querySelector('.document-submit').disabled)
@@ -311,7 +311,7 @@ try {
     await page.locator('.print-job').filter({ hasText: sharedPrintName }).locator('.submitted').waitFor()
     assert.equal(documentRequests, 4)
     await page.reload()
-    await page.getByText('共享文件已被移动或删除，请返回共享空间重新选择', { exact: true }).waitFor()
+    await page.getByText('共享文件已被移动或删除，请返回内网空间重新选择', { exact: true }).waitFor()
     assert.ok(await page.locator('.document-submit').isDisabled())
 
     await page.unroute('**/api/printing**')
@@ -319,7 +319,7 @@ try {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto(origin)
     await page.getByRole('link', { name: '文本快传', exact: true }).click()
-    await page.getByRole('link', { name: '共享空间', exact: true }).click()
+    await page.getByRole('link', { name: '内网空间', exact: true }).click()
     await page.locator('.explorer-row[data-path="sample.txt"]').dblclick()
     await page.waitForSelector('.inline-preview .preview-text')
     await page.getByRole('link', { name: '文本快传', exact: true }).click()
@@ -341,6 +341,9 @@ try {
         }
         await page.waitForSelector(selector, { timeout: 20000 })
         if (expected) assert.ok((await page.locator(selector).textContent()).includes(expected))
+        if (file.endsWith('.xlsx')) {
+          assert.equal(await page.locator('.preview-sheet-tabs').evaluate(tabs => tabs.closest('#previewFooter') !== null), true, 'spreadsheet tabs must stay in the bottom footer')
+        }
         if (file.endsWith('.pdf')) {
           await page.waitForFunction(() => document.querySelector('#previewStatus').textContent.includes('第 1 / 2 页'))
           assert.ok(await page.locator('canvas').first().evaluate(canvas => {
@@ -410,7 +413,7 @@ try {
     await page.goto(origin + '/transfer.html')
     await page.waitForURL('**/transfer-text')
     await page.locator('#textInput').fill(`browser integration ${name}`)
-    await page.getByRole('button', { name: '发布文本', exact: true }).click()
+    await page.getByRole('button', { name: '保存', exact: true }).click()
     await page.waitForFunction(text => [...document.querySelectorAll('.text-content')].some(node => node.textContent === text), `browser integration ${name}`)
     // Exercise the stale-chunk event emitted by Vite after deployment.
     await page.evaluate(() => sessionStorage.removeItem('lan-copy:asset-reload'))

@@ -27,6 +27,7 @@ const offline = ref(false)
 const pending = computed(() => jobs.value.some(job => job.status === 'preparing' || job.status === 'queued' || job.status === 'processing'))
 const canPrint = computed(() => available.value && printers.value.some(p => p.name === selected.value) && !loading.value && !jobsLoading.value && !jobsError.value && !sending.value && !pending.value && !offline.value)
 const statusText = { preparing: '正在接收', queued: '等待提交', processing: '正在提交', submitted: '已提交', failed: '提交失败' }
+const serviceStatus = computed(() => offline.value ? '服务已关闭' : loading.value ? '正在检测打印服务…' : available.value ? (printers.value.length ? `打印服务已连接 · ${printers.value.length} 台打印机` : '打印服务已连接 · 未发现打印机') : '当前主机未提供打印服务')
 const controller = new AbortController()
 let timer: ReturnType<typeof setTimeout> | undefined
 let disposed = false
@@ -102,7 +103,8 @@ onBeforeUnmount(() => { disposed = true; controller.abort(); clearTimeout(timer)
 
 <template>
   <section class="print-page" aria-labelledby="print-title">
-    <div class="print-page-heading"><div><span class="print-eyebrow">局域网打印</span><h2 id="print-title">打印队列</h2><p>通过运行 Lan Copy 的电脑，连接你的打印机。</p></div><span class="print-version-badge">文件打印</span></div>
+    <div class="print-page-heading"><div><span class="print-eyebrow">局域网打印 · 实验功能</span><div class="print-title-row"><h2 id="print-title">打印队列</h2><span class="print-beta-badge">Beta</span></div><p>通过运行 Lan Copy 的电脑，连接你的打印机。</p></div><span class="print-version-badge">仅 Windows 主机</span></div>
+    <div class="print-status-strip" :class="{ offline, unavailable: !offline && !loading && !available }" role="status"><span class="print-status-dot" aria-hidden="true"></span><strong>{{ serviceStatus }}</strong><span class="print-status-hint">Beta 功能，接口和界面可能继续调整。</span></div>
     <p v-if="offline" class="print-alert" role="alert">服务已关闭，请重新启动 Lan Copy 后刷新页面。</p>
     <div class="print-layout">
       <section class="print-card print-setup" aria-labelledby="printer-title" :aria-busy="loading">

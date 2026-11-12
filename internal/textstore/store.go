@@ -13,10 +13,12 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const (
-	MaxTextBytes   = 64 << 10
+	MaxTextChars   = 100000
+	MaxTextBytes   = 1 << 20
 	FileName       = ".lan-copy-texts.json"
 	BackupFileName = ".lan-copy-texts.backup"
 	MaxCount       = 1000
@@ -59,7 +61,7 @@ func (s *Store) Create(content string) (Snippet, error) {
 	if strings.TrimSpace(content) == "" {
 		return Snippet{}, ErrEmpty
 	}
-	if len([]byte(content)) > MaxTextBytes {
+	if utf8.RuneCountInString(content) > MaxTextChars || len([]byte(content)) > MaxTextBytes {
 		return Snippet{}, ErrTextLimit
 	}
 	idBytes := make([]byte, 8)

@@ -19,7 +19,7 @@ const sharedPrintPath = ref(new URLSearchParams(location.search).get('file') || 
 const draft = ref('')
 let shutdown = false
 function onShutdown() { shutdown = true }
-function updateTitle() { document.title = `${{files:'共享空间', transfer:'文本快传', print:'打印队列'}[page.value]} · Lan Copy` }
+function updateTitle() { document.title = `${{files:'内网空间', transfer:'文本快传', print:'打印队列'}[page.value]} · Lan Copy` }
 async function syncRoute() {
   closeContextMenu(false)
   page.value = currentPage()

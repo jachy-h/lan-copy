@@ -42,7 +42,9 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
   const content = $("#previewContent");
   const status = $("#previewStatus");
   const toolsHost = root.querySelector<HTMLElement>("#previewTools");
+  const footerHost = root.querySelector<HTMLElement>("#previewFooter");
   const mountTools = (node: HTMLElement) => { if (toolsHost) toolsHost.append(node); else content.before(node); };
+  const mountFooter = (node: HTMLElement) => { if (footerHost) footerHost.append(node); else content.after(node); };
   const resource = `/preview-files/${encodeURIComponent(path)}`;
   const controller = new AbortController();
   const textLimit = 256 * 1024;
@@ -376,11 +378,11 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       message("工作簿中没有可预览的工作表。");
       return;
     }
-    if (result.names.length > 1) {
+    if (result.names.length) {
       spreadsheetTabs = document.createElement("nav");
       spreadsheetTabs.className = "preview-sheet-tabs";
       spreadsheetTabs.setAttribute("aria-label", "工作表");
-      mountTools(spreadsheetTabs);
+      mountFooter(spreadsheetTabs);
       for (const name of result.names) {
         const button = document.createElement("button");
         button.type = "button";

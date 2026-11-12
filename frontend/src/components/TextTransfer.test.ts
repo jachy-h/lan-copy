@@ -31,26 +31,36 @@ describe('TextTransfer', () => {
     fetchMock.mockImplementation(() => new Promise(resolve => { finish = resolve }))
     wrapper = mount(TextTransfer, { attachTo: document.body })
     expect(wrapper.get('#textEmptyState').isVisible()).toBe(true)
-    expect(wrapper.get('#textEmptyState').text()).toContain('正在读取共享文本')
+    expect(wrapper.get('#textEmptyState').text()).toContain('正在读取内容')
     finish(response({ texts: [] }))
     await flushPromises()
     const empty = wrapper.get('#textEmptyState').element
     await wrapper.get('#refreshBtn').trigger('click')
     expect(wrapper.get('#textEmptyState').element).toBe(empty)
     expect(wrapper.get('#textEmptyState').isVisible()).toBe(true)
-    expect(wrapper.get('#textEmptyState').text()).toContain('还没有共享文本')
-    expect(wrapper.get('#textSummary').text()).toBe('等待文字传入')
+    expect(wrapper.get('#textEmptyState').text()).toContain('还没有保存内容')
+    expect(wrapper.get('#textSummary').text()).toBe('等待内容传入')
     finish(response({ texts: [] }))
     await flushPromises()
   })
 
-  it('counts UTF-8 bytes and rejects content over the 64 KiB server limit', async () => {
+  it('counts characters and rejects content over the 100,000 character limit', async () => {
     const input = wrapper.get('#textInput')
-    await input.setValue('界'.repeat(21846)) // 65,538 UTF-8 bytes
+    await input.setValue('界'.repeat(100001))
     expect(wrapper.get('#textCount').classes()).toContain('over-limit')
     await wrapper.get('#shareTextBtn').trigger('click')
     expect(fetchMock.mock.calls.some(([url, init]) => url === '/api/texts' && init?.method === 'POST')).toBe(false)
-    expect(vi.mocked(fileUi.notify)).toHaveBeenCalledWith('文本超过 64 KiB 限制', true)
+    expect(vi.mocked(fileUi.notify)).toHaveBeenCalledWith('文本超过 100,000 字限制', true)
+  })
+
+  it('renders detected links as new-tab anchors', async () => {
+    wrapper.unmount()
+    fetchMock.mockImplementation(async () => response({ texts: [{ ...sample, content: 'see https://example.com/a，和 www.example.org。' }] }))
+    wrapper = mount(TextTransfer, { attachTo: document.body })
+    await flushPromises()
+    const links = wrapper.findAll('.text-content a')
+    expect(links.map(link => link.attributes('href'))).toEqual(['https://example.com/a', 'https://www.example.org'])
+    expect(links.every(link => link.attributes('target') === '_blank' && link.attributes('rel') === 'noopener noreferrer')).toBe(true)
   })
 
   it('publishes text as JSON and refreshes after a successful response', async () => {
@@ -59,7 +69,7 @@ describe('TextTransfer', () => {
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith('/api/texts', expect.objectContaining({ method: 'POST', body: JSON.stringify({ content: 'command line' }) }))
     expect((wrapper.get('#textInput').element as HTMLTextAreaElement).value).toBe('')
-    expect(vi.mocked(fileUi.notify)).toHaveBeenCalledWith('文本已共享')
+    expect(vi.mocked(fileUi.notify)).toHaveBeenCalledWith('文本已保存')
   })
 
   it('copies a shared item and confirms deletion before calling the API', async () => {

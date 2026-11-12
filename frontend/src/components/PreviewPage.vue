@@ -31,6 +31,7 @@ onBeforeUnmount(() => { preview?.destroy(); preview = null })
       <a id="previewDownload" class="secondary" :class="{hidden:!downloadHref}" :href="downloadHref" :download="title">下载</a>
     </header>
     <section id="previewContent" class="preview-content" aria-label="文件内容"></section>
+    <div id="previewFooter" class="preview-footer"></div>
     <p class="preview-footnote">文件通过局域网直接读取 · 预览失败时可下载原文件</p>
   </main>
 </template>

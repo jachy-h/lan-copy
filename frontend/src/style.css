@@ -1631,3 +1631,59 @@ button:disabled { opacity: .5; cursor: default; }
 .explorer-resizer:focus-visible { outline: 2px solid #75a2ff; outline-offset: -2px; }
 .resizing-sidebar, .resizing-sidebar * { cursor: col-resize !important; user-select: none !important; }
 @media (max-width: 860px) { .explorer-resizer { display: none; } }
+
+/* Spreadsheet sheet tabs sit below the table like a desktop spreadsheet. */
+.preview-footer { flex: none; min-height: 0; }
+.preview-footer:empty { display: none; }
+.preview-sheet-tabs { display: flex; gap: 4px; overflow-x: auto; margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); background: #f8fafc; }
+.preview-sheet-tabs button { flex: 0 0 auto; min-height: 32px; padding: 5px 14px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #5b6b82; font-size: 12px; cursor: pointer; }
+.preview-sheet-tabs button:hover { background: #eef4fd; color: var(--blue-dark); }
+.preview-sheet-tabs button[aria-current="true"] { border-color: #cbdcf7; background: #fff; color: var(--blue-dark); box-shadow: 0 1px 2px #14213d0f; font-weight: 650; }
+
+/* Text transfer: link rendering and a quieter compose/list layout. */
+.text-section-head { margin-bottom: 8px; }
+.text-section-head p { margin-top: 0; }
+.text-content a { color: var(--blue-dark); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.text-content a:hover { color: #1746a2; }
+
+/* Print queue Beta presentation. */
+.print-page { padding-top: 8px; }
+.print-page-heading { align-items: flex-start; margin-bottom: 18px; }
+.print-title-row { display: flex; align-items: center; gap: 10px; }
+.print-beta-badge { display: inline-flex; align-items: center; padding: 3px 9px; border: 1px solid #f0c36d; border-radius: 999px; color: #865709; background: #fff7e0; font-size: 11px; font-weight: 750; letter-spacing: .04em; }
+.print-version-badge { border-color: #e1e8f2; color: #5b6b82; background: #f7f9fc; }
+.print-status-strip { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; color: #52627a; background: #fff; font-size: 12px; }
+.print-status-strip strong { font-weight: 620; }
+.print-status-dot { flex: 0 0 8px; width: 8px; height: 8px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 4px #16a34a1a; }
+.print-status-strip.offline .print-status-dot, .print-status-strip.unavailable .print-status-dot { background: #b42318; box-shadow: 0 0 0 4px #b423181a; }
+.print-status-hint { margin-left: auto; color: #8a97a9; font-size: 11px; }
+.print-card { border-radius: 14px; background: #fff; box-shadow: 0 1px 2px #14213d0a; }
+.print-card-heading h3 { font-size: 15px; }
+.print-task-section { margin-top: 18px; }
+@media (max-width: 700px) {
+ .print-page { padding-top: 0; }
+ .print-page-heading { gap: 10px; }
+ .print-status-strip { align-items: flex-start; flex-wrap: wrap; padding: 10px 12px; }
+ .print-status-hint { flex-basis: 100%; margin-left: 18px; }
+ .print-title-row { flex-wrap: wrap; }
+}
+
+.inline-preview > .preview-footer { margin-top: -10px; }
+.preview-shell > .preview-footer { margin-top: -6px; }
+
+/* Logo storage tooltip. */
+.brand { position: relative; cursor: default; border-radius: 10px; }
+.brand:focus-visible { outline: 2px solid #75a2ff; outline-offset: 4px; }
+.brand .logo { transition: transform .18s ease; }
+.brand:hover .logo, .brand:focus-visible .logo { transform: scale(1.05); }
+.storage-tooltip { position: absolute; top: calc(100% + 12px); left: 0; z-index: 24; display: grid; gap: 5px; width: 276px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; box-shadow: 0 16px 44px #14213d26; opacity: 0; visibility: hidden; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease, visibility .16s; pointer-events: none; }
+.brand:hover .storage-tooltip, .brand:focus-visible .storage-tooltip, .brand:focus-within .storage-tooltip { opacity: 1; visibility: visible; transform: translateY(0); }
+.storage-tooltip strong { color: var(--ink); font-size: 12px; font-weight: 650; }
+.storage-tooltip > span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+.storage-tooltip-usage { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--line); }
+.storage-tooltip-usage span { color: var(--muted); }
+.storage-tooltip-usage b { color: var(--blue-dark); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.storage-tooltip-note { justify-self: start; padding: 3px 8px; border-radius: 999px; color: #865709 !important; background: #fff7e0; font-weight: 600; }
+@media (max-width: 480px) {
+ .storage-tooltip { width: min(276px, calc(100vw - 24px)); }
+}

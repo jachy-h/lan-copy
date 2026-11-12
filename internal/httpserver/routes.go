@@ -32,6 +32,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/events", s.changeEvents)
 	mux.HandleFunc("GET /api/files", s.listFiles)
 	mux.HandleFunc("GET /api/filesystem", s.listDirectory)
+	mux.HandleFunc("GET /api/storage", s.storageUsage)
 	mux.HandleFunc("POST /api/filesystem/{action}", s.mutateDirectory)
 	mux.Handle("POST /api/upload-tree", s.trackTransfer(transferUpload, http.HandlerFunc(s.uploadTree)))
 	mux.HandleFunc("POST /api/upload-tree/preflight", s.preflightUploadTree)

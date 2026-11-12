@@ -59,9 +59,9 @@ make frontend-release # 发布构建使用：校验、构建并同步前端 / re
 make frontend-dev   # 启动 Vite 页面并代理到本机 Go 服务 / run Vite pages with a proxy to Go
 ```
 
-`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。共享空间、设置、文本快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
+`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、文本快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
 
-共享空间 `/` 与文本快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。`preview.html` 继续作为独立预览入口。
+内网空间 `/` 与文本快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。`preview.html` 继续作为独立预览入口。
 本地开发时先以 `go run . -listen :8080` 启动服务，再运行 `make frontend-dev`；Vite 默认代理到 `http://127.0.0.1:8080`，可用 `LAN_COPY_PROXY` 指定其他 Go 地址。开发代理会把同源动作请求的 Origin 规范到 Go 目标，不影响生产访问策略。
 Run `go run . -listen :8080` before `make frontend-dev`. Vite proxies to `http://127.0.0.1:8080` by default; set `LAN_COPY_PROXY` to use another Go instance. The dev proxy normalizes action request Origins to the Go target without changing production access policy.
 `frontend/` contains manually maintained Vue/TypeScript sources; `web/` contains the Vite-generated production assets committed with the source. Shared files, settings, text transfer, sharing/status controls, and standalone preview are managed by Vue pages. A standalone `go build .` uses the committed assets and does not need Node.js. The release command `make build` automatically installs frontend dependencies, runs type checks and tests, builds the frontend, syncs its embedded assets, and then packages the Go binaries; it requires Node.js/npm. Remaining manual checks are tracked in [the v0.5.0 progress record](v0.5.0-progress.md).
@@ -78,7 +78,7 @@ Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 
 ## v0.5.6 文件打印与预览
 
-`/print-queue` 新增本地 PDF、JPG/JPEG、PNG 的选择和打印预览，支持 PDF 翻页、预览放大/缩小；图片等比居中，透明区域铺白底。纸张及方向来自 Windows 主机当前打印机设置，固定一份、单面，打印全部页面。共享空间单个支持文件的「⋯ → 打印」通过 `/print-queue?file=...&from=...` 自动载入预览，普通点击文件名保持原行为。共享来源通过既有 `/preview-files/{name}` 和 filestore 边界读取成有 50 MiB 上限的浏览器快照，避免预览后重新读取变化内容；失效读取可取消。刷新可重新加载共享来源，返回保留原文件夹；改选本地文件会清除共享来源参数。原文件不会加入共享空间。单个原文件最多 50 MiB、PDF 最多 50 页。
+`/print-queue` 新增本地 PDF、JPG/JPEG、PNG 的选择和打印预览，支持 PDF 翻页、预览放大/缩小；图片等比居中，透明区域铺白底。纸张及方向来自 Windows 主机当前打印机设置，固定一份、单面，打印全部页面。内网空间单个支持文件的「⋯ → 打印」通过 `/print-queue?file=...&from=...` 自动载入预览，普通点击文件名保持原行为。共享来源通过既有 `/preview-files/{name}` 和 filestore 边界读取成有 50 MiB 上限的浏览器快照，避免预览后重新读取变化内容；失效读取可取消。刷新可重新加载共享来源，返回保留原文件夹；改选本地文件会清除共享来源参数。原文件不会加入内网空间。单个原文件最多 50 MiB、PDF 最多 50 页。
 
 浏览器复用内嵌 PDF.js 与图片解码生成 200 DPI 的 PNG 页面；预览和提交打印使用相同的布局与渲染代码，CSS 边界线和缩放不会进入输出。新增 `GET /api/printing/layout?printer=...` 返回物理纸张、可打印区域及版面标识；`POST /api/printing/documents` 接收 manifest 和顺序命名的 PNG 页面，必须带 `X-Lan-Copy-Action: print-document` 并通过同源校验。后端接收的是已渲染页面，不独立解析原始 PDF。共享 SPA 的 CSP 允许本地 PDF.js 所需的 WebAssembly 编译，仍不允许 JavaScript eval。
 
@@ -88,7 +88,7 @@ Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 
 ## v0.5.5 打印队列首期
 
-顶栏分享按钮左侧的打印入口进入 `/print-queue`，与共享空间、文本快传共用 SPA。`frontend/print.html` 提供直接访问的加载骨架，由 Vite 构建并同步到 `web/print.html`。
+顶栏分享按钮左侧的打印入口进入 `/print-queue`，与内网空间、文本快传共用 SPA。`frontend/print.html` 提供直接访问的加载骨架，由 Vite 构建并同步到 `web/print.html`。
 
 Windows 主机通过系统已安装的打印机和驱动提交一张 Lan Copy 测试页，不需要开启 Windows 打印机共享或安装额外打印工具。`internal/printing` 负责原生枚举、GDI 测试页及本次启动后的最近 50 条任务；HTTP 只负责动作来源校验和协议。其他平台展示不支持提示。任务“已提交”不代表已出纸，实际结果在设备或 Windows 队列中确认。本版不包含普通文件打印或完整系统队列管理。
 
@@ -211,7 +211,7 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `GET /api/filesystem?path=...&q=...` 读取目录（空路径为共享根目录）；指定 q 时递归搜索当前目录和子目录中的文件、文件夹名称，单次最多遍历 10000 项；客户端取消请求会中止后续遍历
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
-  - `/` 共享空间首页，`/transfer.html` 文本共享页面（文本发布、复制和删除；文件上传与浏览统一在共享空间），旧地址 `/filesystem.html` 重定向到首页；文件夹对应存储目录中的真实目录，无额外索引数据库
+  - `/` 内网空间首页，`/transfer.html` 文本共享页面（文本发布、复制和删除；文件上传与浏览统一在内网空间），旧地址 `/filesystem.html` 重定向到首页；文件夹对应存储目录中的真实目录，无额外索引数据库
   - `GET/POST /api/texts`、`DELETE /api/texts/{id}` 共享文本保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查
