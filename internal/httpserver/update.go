@@ -44,6 +44,11 @@ func (s *Server) installUpdatePackage(w http.ResponseWriter, r *http.Request, on
 		writeError(w, http.StatusForbidden, "无效的更新请求，请从 Lan Copy 页面发起")
 		return
 	}
+	s.applyUpdatePackage(w, r, online)
+}
+
+// applyUpdatePackage shares verification, installation and recovery across entry points.
+func (s *Server) applyUpdatePackage(w http.ResponseWriter, r *http.Request, online bool) {
 	if reason := s.updateUnavailableReason(); reason != "" {
 		writeError(w, http.StatusServiceUnavailable, reason)
 		return

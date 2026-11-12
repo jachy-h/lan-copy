@@ -14,11 +14,16 @@ let wrapper: ReturnType<typeof mount>
 beforeEach(async () => {
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true } })
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } })
-  fetchMock = vi.fn(async (url: string) => {
+  fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
     if (url === '/api/app') return response(app)
     if (url === '/api/update/check') return response(noUpdate)
     if (url === '/api/settings/autostart') return response({ enabled: false, available: false, reason: '本机不可用' })
     if (url === '/api/settings/upload-resources') return response({ config: { concurrentUploads: 3, stagingGiB: 20, idleTimeoutSeconds: 60 }, editable: true })
+    if (url === '/api/settings/deploy-token') {
+      if (init?.method === 'PUT') return response({ configured: true, source: 'file' })
+      if (init?.method === 'DELETE') return response({ configured: false, source: 'none' })
+      return response({ configured: false, source: 'none' })
+    }
     if (url === '/api/files') return response({ files: [{ size: 1024 }] })
     if (url === '/api/shutdown/status') return response({ uploads: 0, downloads: 0 })
     throw new Error(`Unexpected request: ${url}`)
@@ -29,7 +34,12 @@ beforeEach(async () => {
   await flushPromises()
 })
 
-afterEach(() => { wrapper?.unmount(); vi.unstubAllGlobals() })
+afterEach(() => {
+  wrapper?.unmount()
+  vi.unstubAllGlobals()
+  vi.mocked(dialogs.confirm).mockReset().mockResolvedValue(false)
+  vi.mocked(dialogs.confirmText).mockReset().mockResolvedValue(false)
+})
 const inDialog = (selector: string) => {
   const element = document.body.querySelector(selector)
   if (!element) throw new Error(`Missing dialog element: ${selector}`)
@@ -62,6 +72,33 @@ describe('SettingsDialog', () => {
     await flushPromises()
     const write = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/upload-resources' && init?.method === 'PUT')
     expect(new Headers(write?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('upload-resources')
+  })
+
+  it('saves and deletes the deploy token from the settings page', async () => {
+    vi.mocked(dialogs.confirm).mockResolvedValue(true)
+    ;(inDialog('[data-settings-tab="deploy"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(inDialog('.deploy-token-status').textContent).toContain('未设置令牌')
+
+    const input = inDialog('.deploy-token-input') as HTMLInputElement
+    input.value = 'pasted-token'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    ;(inDialog('.deploy-token-save') as HTMLButtonElement).click()
+    await flushPromises()
+    const save = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/deploy-token' && init?.method === 'PUT')
+    expect(save).toBeTruthy()
+    expect(new Headers(save?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('deploy-token')
+    expect(JSON.parse(String(save?.[1]?.body))).toEqual({ token: 'pasted-token' })
+    expect(inDialog('.deploy-token-status').textContent).toContain('部署令牌已保存')
+    expect((inDialog('.deploy-token-input') as HTMLInputElement).value).toBe('')
+
+    ;(inDialog('.deploy-token-clear') as HTMLButtonElement).click()
+    await flushPromises()
+    const remove = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/deploy-token' && init?.method === 'DELETE')
+    expect(remove).toBeTruthy()
+    expect(new Headers(remove?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('deploy-token')
+    expect(inDialog('.deploy-token-status').textContent).toContain('自动部署接口已关闭')
+    expect((inDialog('.deploy-token-clear') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('does not shut down when the confirmation is cancelled', async () => {

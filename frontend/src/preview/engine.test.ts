@@ -30,6 +30,32 @@ function pdfFixture() {
 }
 
 describe('preview engine lifetime', () => {
+  it('exposes module failures and browser diagnostics safely and removes them on close', async () => {
+    vi.mocked(loadPDF).mockRejectedValue(new TypeError('Promise.withResolvers is not a function <script>'))
+    preview = mountPreview(root, 'one.pdf'); await flush()
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('加载 PDF 组件')
+    expect(root.querySelector('.preview-error-details')!.textContent).toContain('Promise.withResolvers')
+    expect(root.querySelector('.preview-error-details')!.textContent).toContain('浏览器：')
+    expect(root.querySelector('script')).toBeNull()
+    preview.destroy()
+    expect(root.querySelector('.preview-error-details')).toBeNull()
+    expect((root.querySelector('#previewStatus') as HTMLElement).hidden).toBe(false)
+  })
+
+  it('keeps HTTP failures distinguishable from damaged documents', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 503 }))
+    preview = mountPreview(root, 'one.pdf'); await flush()
+    expect(root.querySelector('.preview-error-details')!.textContent).toContain('HTTP 503')
+    expect(loadPDF).not.toHaveBeenCalled()
+  })
+
+  it('continues reading without IntersectionObserver', async () => {
+    pdfFixture()
+    vi.stubGlobal('IntersectionObserver', undefined)
+    preview = mountPreview(root, 'one.pdf'); await flush()
+    expect(root.querySelectorAll('canvas')).toHaveLength(2)
+  })
+
   it('never creates a PDF task when its module resolves after close', async () => {
     const { module } = pdfFixture(), pending = deferred<PDFModule>()
     vi.mocked(loadPDF).mockReturnValue(pending.promise)

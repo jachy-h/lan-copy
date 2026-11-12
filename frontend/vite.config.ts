@@ -55,6 +55,7 @@ export default defineConfig(({ command }) => ({
   publicDir: resolve(root, 'public'),
   base: command === 'serve' ? '/' : '/_frontend/',
   build: {
+    target: ['chrome90', 'safari15'],
     outDir: resolve(root, '../tmp/frontend-dist'),
     emptyOutDir: true,
     sourcemap: false,

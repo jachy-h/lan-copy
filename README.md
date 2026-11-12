@@ -69,6 +69,8 @@ make publish                 # 干净的 main 分支：构建、提交版本、�
 
 `make publish` 要求先提交所有代码，并输入 `y` 确认目标版本（`n` 取消），自动递增版本并仅提交 `VERSION`，创建版本标签后推送到 `origin`，由 Actions 完成正式发布。
 
+支持通过 `scripts/deploy.py` 将签名包上传到目标机器并确认重启结果，替代浏览器拖拽；配置和命令见[本地脚本自动部署](docs/UPDATING.md#本地脚本自动部署cd)。
+
 推送 `main` 后，GitHub Actions 自动测试并构建签名包；推送与 `VERSION` 一致的 `v版本号` 标签后发布 GitHub Release。首次需配置仓库签名密钥，见[自动构建与发布](docs/GITHUB-ACTIONS.md)。
 
 - [开发者文档](docs/DEVELOPING.md)：架构、命令行参数、测试、Docker 和跨平台构建。

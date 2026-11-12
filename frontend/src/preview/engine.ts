@@ -1,3 +1,4 @@
+import { previewFailure } from './errors'
 import { loadPDF, type PDFDocument, type PDFLoadingTask, type PDFPage, type PDFRenderTask } from './pdf'
 
 interface DocxRenderer {
@@ -53,8 +54,26 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
   const spreadsheetRequests = new Map<number, { resolve(value: SheetResult): void; reject(error: Error): void }>();
   let textBytes: Uint8Array = new Uint8Array();
   let textTruncated = false;
+  let stage = "请求文件";
+  let failureDetails: HTMLDetailsElement | undefined;
 
   function message(text: string) { if (!controller.signal.aborted) status.textContent = text; }
+  function failure(error: unknown, failedStage = stage) {
+    if (controller.signal.aborted) return;
+    const result = previewFailure(failedStage, error);
+    status.hidden = false;
+    status.classList.add("preview-status-error");
+    message(result.summary);
+    if (!failureDetails) {
+      failureDetails = document.createElement("details");
+      failureDetails.className = "preview-error-details";
+      content.before(failureDetails);
+    }
+    const summary = document.createElement("summary"); summary.textContent = "查看错误详情";
+    const detail = document.createElement("pre");
+    detail.textContent = `阶段：${failedStage}\n原因：${result.detail}\n浏览器：${navigator.userAgent}\n连接：${location.protocol} / ${window.isSecureContext ? "安全上下文" : "普通局域网连接"}`;
+    failureDetails.replaceChildren(summary, detail);
+  }
   function getSpreadsheetWorker() {
     if (spreadsheetWorker) return spreadsheetWorker;
     spreadsheetWorker = new Worker("/vendor/sheetjs/worker.js");
@@ -93,9 +112,11 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
 
   async function showPDF() {
     message("正在载入 PDF…");
+    stage = "加载 PDF 组件";
     const pdfjs = await loadPDF();
     if (controller.signal.aborted) return;
     pdfjs.GlobalWorkerOptions.workerSrc = "/vendor/pdfjs/legacy/build/pdf.worker.min.mjs";
+    stage = "启动 PDF 解析并读取文档";
     pdfTask = pdfjs.getDocument({
       url: resource,
       cMapUrl: "/vendor/pdfjs/cmaps/", cMapPacked: true,
@@ -108,7 +129,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     let pdf: PDFDocument;
     try { pdf = await pdfTask.promise; }
     catch (error) {
-      message(error instanceof Error && error.name === "PasswordException" ? "此 PDF 需要密码，请下载后打开。" : "PDF 无法读取，文件可能已损坏，请下载后打开。");
+      failure(error);
       return;
     }
     if (controller.signal.aborted) return;
@@ -153,7 +174,10 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     }
     function currentPage() {
       const top = content.getBoundingClientRect().top;
-      const index = frames.findIndex(frame => frame.getBoundingClientRect().bottom > top + 24);
+      // Ignore a thin tail of the previous page, especially when the last
+      // page is shorter than the reading viewport and cannot align at its top.
+      const focus = top + Math.min(200, content.clientHeight / 2);
+      const index = frames.findIndex(frame => frame.getBoundingClientRect().bottom > focus);
       return Math.max(0, index);
     }
     function updatePosition() {
@@ -187,13 +211,15 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
             if (controller.signal.aborted) return;
             if (version === generation && wanted.has(index)) {
               frame.replaceChildren(canvas);
-              message(`第 ${currentPage() + 1} / ${pdf.numPages} 页 · 连续阅读`);
-              status.hidden = true;
+              if (!failureDetails) {
+                message(`第 ${currentPage() + 1} / ${pdf.numPages} 页 · 连续阅读`);
+                status.hidden = true;
+              }
             }
-          } catch {
+          } catch (error) {
             if (!controller.signal.aborted && version === generation && wanted.has(index)) {
               frame.textContent = `第 ${index + 1} 页无法显示，请下载原文件。`;
-              message(frame.textContent); status.hidden = false;
+              failure(error, `渲染 PDF 第 ${index + 1} 页`);
             }
           } finally { renderTask = undefined; page?.cleanup(); }
         }
@@ -201,22 +227,38 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       // A zoom/resize may invalidate a page while its render is pending.
       if (!controller.signal.aborted && [...wanted].some(index => !frames[index].childNodes.length)) void pump();
     }
+    stage = "读取 PDF 首页";
     const first = await pdf.getPage(1);
     if (controller.signal.aborted) { first.cleanup(); return; }
     const base = first.getViewport({scale: 1}); baseWidth = base.width; baseHeight = base.height;
     first.cleanup();
     frames.forEach((_, index) => sizeFrame(index));
     pageNumber.value = "1";
-    const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        const index = Number((entry.target as HTMLElement).dataset.page) - 1;
-        if (entry.isIntersecting) wanted.add(index);
-        else { wanted.delete(index); frames[index].replaceChildren(); }
-      }
+    stage = "初始化 PDF 连续阅读";
+    function updateVisiblePages() {
+      const bounds = content.getBoundingClientRect();
+      frames.forEach((frame, index) => {
+        const rect = frame.getBoundingClientRect();
+        if (rect.bottom >= bounds.top - 400 && rect.top <= bounds.bottom + 400) wanted.add(index);
+        else { wanted.delete(index); frame.replaceChildren(); }
+      });
       void pump();
-    }, {root: content, rootMargin: "400px 0px"});
-    frames.forEach(frame => observer.observe(frame));
-    controller.signal.addEventListener("abort", () => { observer.disconnect(); status.hidden = false; }, {once: true});
+    }
+    if (typeof IntersectionObserver !== "undefined") {
+      const observer = new IntersectionObserver(entries => {
+        for (const entry of entries) {
+          const index = Number((entry.target as HTMLElement).dataset.page) - 1;
+          if (entry.isIntersecting) wanted.add(index);
+          else { wanted.delete(index); frames[index].replaceChildren(); }
+        }
+        void pump();
+      }, {root: content, rootMargin: "400px 0px"});
+      frames.forEach(frame => observer.observe(frame));
+      controller.signal.addEventListener("abort", () => observer.disconnect(), {once: true});
+    } else {
+      content.addEventListener("scroll", updateVisiblePages, {signal: controller.signal, passive: true});
+      updateVisiblePages();
+    }
     content.addEventListener("scroll", updatePosition, {signal: controller.signal, passive: true});
     pageNumber.addEventListener("change", () => {
       const value = Number(pageNumber.value);
@@ -229,7 +271,8 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       generation++; renderTask?.cancel();
       frames.forEach((frame, i) => { frame.replaceChildren(); sizeFrame(i); });
       content.scrollTop += frames[index].getBoundingClientRect().top - content.getBoundingClientRect().top + fraction * frames[index].offsetHeight;
-      void pump();
+      if (typeof IntersectionObserver === "undefined") updateVisiblePages();
+      else void pump();
     }
     zoom.addEventListener("change", relayout, {signal: controller.signal});
     window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(relayout, 150); }, {signal: controller.signal});
@@ -414,10 +457,11 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       const response = await fetch(resource, {method: isDOCX || isSpreadsheet ? "GET" : "HEAD", cache: "no-store", signal: controller.signal});
       if (controller.signal.aborted) return;
       if (!response.ok) {
-        message(response.status === 415 ? "此文件暂不支持浏览器预览，请下载后打开。" : response.status === 404 ? "文件已被移动或删除，请返回文件列表刷新。" : "无法读取文件，请返回文件列表重试。");
+        failure(new Error(`HTTP ${response.status}：${response.status === 404 ? "文件已被移动或删除" : response.status === 415 ? "此文件类型不支持预览" : response.statusText || "文件请求失败"}`));
         return;
       }
       const type = response.headers.get("Content-Type") || "";
+      stage = "读取或解析文件";
       if (isDOCX && type.startsWith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")) {
         await showDOCX(response);
       } else if (isSpreadsheet && (type === "application/vnd.ms-excel" || type.startsWith("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))) {
@@ -465,12 +509,15 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
         message("此文件暂不支持浏览器预览，请下载后打开。");
       }
     } catch (error) {
-      if (!(error instanceof Error && error.name === "AbortError")) message("读取失败，请刷新重试，或下载原文件。");
+      if (!(error instanceof Error && error.name === "AbortError")) failure(error);
     }
   }
   function destroy() {
     if (controller.signal.aborted) return;
     controller.abort();
+    failureDetails?.remove();
+    status.hidden = false;
+    status.classList.remove("preview-status-error");
     clearTimeout(resizeTimer);
     docxObserver?.disconnect();
     renderTask?.cancel();

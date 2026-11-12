@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"time"
 
+	"lan-copy/internal/deploytoken"
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/httpserver"
 	"lan-copy/internal/printing"
@@ -91,15 +92,20 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	deployAuth, err := deploytoken.New(components.DataDir, os.Getenv("LAN_COPY_DEPLOY_TOKEN"))
+	if err != nil {
+		log.Fatal("无法读取自动部署令牌: ", err)
+	}
 	service := httpserver.New(httpserver.Config{
 		Dir: components.Dir, DataDir: components.DataDir,
 		Files: components.Files, Texts: components.Texts,
 		UploadResources: components.UploadResources, UploadPreflight: components.UploadPreflight,
 		Releases: components.Releases, Web: webRoot, AirDev: *airDev,
 		Version: version, UpdatePublicKey: updatePublicKey, MaxUpload: *maxGB << 30,
-		Updater:   updateService,
-		Printing:  printService,
-		Autostart: desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
+		DeployAuth: deployAuth,
+		Updater:    updateService,
+		Printing:   printService,
+		Autostart:  desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
 	})
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)

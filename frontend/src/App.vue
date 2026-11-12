@@ -4,8 +4,8 @@ import AppHeader from './components/AppHeader.vue'
 import AppFooter from './components/AppFooter.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import TextTransfer from './components/TextTransfer.vue'
-import FilePreviewDialog from './components/FilePreviewDialog.vue'
 import PrintQueue from './components/PrintQueue.vue'
+import UploadProgress from './components/UploadProgress.vue'
 import { close as closeContextMenu } from './ui/contextMenu'
 
 type Page = 'files' | 'transfer' | 'print'
@@ -55,7 +55,7 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
 
 <template>
   <AppHeader :page="page" :files-href="filesHref" @navigate="navigate" />
-  <FilePreviewDialog />
+  <UploadProgress />
   <main class="shell">
     <FileExplorer v-if="page === 'files'" @print="printSharedFile" />
     <TextTransfer v-else-if="page === 'transfer'" v-model="draft" />
@@ -63,5 +63,5 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
     <AppFooter />
   </main>
   <div id="fileMenu" class="file-menu" role="menu" hidden></div>
-  <div class="toast" id="toast" role="status"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" popover="manual"></div>
 </template>

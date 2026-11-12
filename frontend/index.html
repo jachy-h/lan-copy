@@ -15,20 +15,29 @@
       <div class="hero-actions"></div>
     </header>
     <main class="shell"><!-- Keep this initial shell aligned with FileExplorer.vue; Vue replaces it after loading. -->
-<section class="files-section explorer" aria-label="共享空间文件列表" aria-busy="true" data-initial-shell>
-      <div class="explorer-navigation" inert>
-        <button class="secondary" type="button" aria-label="返回上一级" disabled>↑ 上一级</button>
-        <nav class="breadcrumbs" aria-label="文件夹路径"><button class="crumb" type="button" aria-current="location">全部文件</button></nav>
-        <div class="search-box"><input type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹"></div>
+<section class="files-section explorer explorer-workspace" aria-label="共享空间文件列表" aria-busy="true" data-initial-shell>
+      <aside class="explorer-sidebar" aria-label="共享资源目录">
+        <div class="explorer-sidebar-head"><strong>共享资源</strong></div>
+        <div class="explorer-tree" role="tree" aria-label="共享空间目录树">
+          <div class="tree-row active" role="treeitem" aria-level="1" aria-selected="true" style="padding-left:8px"><span class="tree-twisty" aria-hidden="true">▾</span><span class="tree-label"><span class="tree-icon tree-folder" aria-hidden="true">▱</span><span class="tree-name">全部文件</span></span></div>
+          <div class="tree-row tree-row-status" role="treeitem" aria-level="2" style="padding-left:22px"><span class="tree-twisty-spacer" aria-hidden="true"></span><span class="tree-status">正在读取…</span></div>
+        </div>
+      </aside>
+      <div class="explorer-main">
+        <div class="explorer-navigation" inert>
+          <button class="secondary" type="button" aria-label="返回上一级" disabled>↑ 上一级</button>
+          <nav class="breadcrumbs" aria-label="文件夹路径"><button class="crumb" type="button" aria-current="location">全部文件</button></nav>
+          <div class="search-box"><input type="search" placeholder="搜索当前文件夹及子文件夹…" aria-label="搜索当前文件夹及子文件夹"></div>
+        </div>
+        <div class="file-list-header" role="row" inert>
+          <div role="columnheader" aria-sort="ascending"><button type="button">名称 <span>↑</span></button></div>
+          <div role="columnheader"><button type="button">修改日期</button></div>
+          <div role="columnheader"><button type="button">类型</button></div>
+          <div role="columnheader"><button type="button">大小</button></div><span aria-hidden="true"></span>
+        </div>
+        <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取文件列表</strong><p>请稍候</p></div>
+        <p class="explorer-hint"><span>拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</span><span>正在读取…</span></p>
       </div>
-      <div class="file-list-header" role="row" inert>
-        <div role="columnheader" aria-sort="ascending"><button type="button">名称 <span>↑</span></button></div>
-        <div role="columnheader"><button type="button">修改日期</button></div>
-        <div role="columnheader"><button type="button">类型</button></div>
-        <div role="columnheader"><button type="button">大小</button></div><span aria-hidden="true"></span>
-      </div>
-      <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取文件列表</strong><p>请稍候</p></div>
-      <p class="explorer-hint"><span>拖入文件或文件夹上传到当前文件夹 · 拖动已共享内容到文件夹即可移动</span><span>正在读取…</span></p>
     </section><footer>文件仅保存在运行 Lan Copy 的电脑上 · 同一局域网内设备可访问</footer></main>
     </div>
     <script type="module" src="/src/pages/app.ts"></script>

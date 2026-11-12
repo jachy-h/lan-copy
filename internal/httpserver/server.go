@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"lan-copy/internal/deploytoken"
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/filestore"
 	"lan-copy/internal/printing"
@@ -27,6 +28,7 @@ type fileInfo struct {
 type Config struct {
 	AirDev                                 bool
 	Dir, DataDir, Version, UpdatePublicKey string
+	DeployAuth                             *deploytoken.Store
 	MaxUpload                              int64
 	Web                                    fs.FS
 	Files                                  *filestore.Store
@@ -48,6 +50,7 @@ type Server struct {
 	autostart         *desktop.Autostart
 	version           string
 	updatePublicKey   string
+	deployAuth        *deploytoken.Store
 	dir               string
 	dataDir           string
 	maxUpload         int64
@@ -72,9 +75,10 @@ type Server struct {
 func New(config Config) *Server {
 	appContext, cancelApp := context.WithCancel(context.Background())
 	return &Server{
-		airDev:   config.AirDev,
-		printing: config.Printing,
-		updater:  config.Updater, autostart: config.Autostart,
+		airDev:     config.AirDev,
+		deployAuth: config.DeployAuth,
+		printing:   config.Printing,
+		updater:    config.Updater, autostart: config.Autostart,
 		version: config.Version, updatePublicKey: config.UpdatePublicKey,
 		releases:          config.Releases,
 		texts:             config.Texts,

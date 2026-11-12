@@ -74,3 +74,28 @@ Windows PowerShell 发布流程使用 `LAN_COPY_UPDATE_PUBLIC_KEY` 环境变量�
 ## 验证
 
 `go test ./...` 包含压缩包、强制签名、局域网更新和跨站请求限制测试，并在当前系统上构建和启动真实程序，验证更新成功、启动失败恢复及共享数据保留。`go test -short ./...` 跳过真实进程测试。Windows 和 macOS 的完整进程测试需要分别在对应系统运行；交叉编译只能验证平台代码可编译。
+
+## 本地脚本自动部署（CD）
+
+首次需手动安装包含部署接口的版本。之后可在设置弹窗的“部署”页直接粘贴令牌保存，接口立即启用，不需要重启；任何能打开该页面的人都可以设置、修改或删除令牌。令牌只保存 SHA-256 摘要，不写入共享目录，也不在页面回显。删除页面令牌后，如果启动时配置了 `LAN_COPY_DEPLOY_TOKEN`，会继续使用该环境变量作为后备令牌。
+
+在项目根目录执行 `make deploytoken` 生成独立随机令牌；命令会显示令牌并保存到 `.config/deploy.token`（权限 0600，Git 忽略）。如需替换已有令牌，执行 `make deploytoken ROTATE=1`，然后到目标页面重新保存新令牌。
+
+页面保存的令牌优先于启动环境变量；未保存且未配置环境变量时接口关闭。更新后启动的新进程会继续读取保存的令牌。由于该页面不做来源限制，请只在可信局域网内开放服务；发布包仍必须通过内置公钥的 Ed25519 验签。
+
+本地发布入口为 `scripts/release-local.mjs`（Node.js 18+），顶部 `DEPLOY_URL` 默认配置为 `http://192.168.2.88:8080/`。它复用现有构建与 Python 部署脚本，需要 Make、Go、Python 3 及前端构建环境。本地设置与目标页面相同的令牌，然后执行：
+
+```sh
+export LAN_COPY_DEPLOY_TOKEN='<目标机器配置的令牌>'
+node scripts/release-local.mjs --package release/Lan-Copy-Windows-amd64.zip
+```
+
+可用 `--dry-run` 预览，`--url` 临时覆盖地址，`--version x.y.z` 指定构建版本，`--skip-build` 直接部署现有包。默认使用当前 VERSION，不递增、不提交或推送 Git。`--skip-build` 与 `--version` 不能同时使用。脚本从任意工作目录启动均使用仓库根目录解析包路径。Node 入口测试命令为 `node --test scripts/test-release-local.mjs`。
+
+已安装个人 skill `lan-copy-release-deploy`，可通过 `$lan-copy-release-deploy` 调用本地发布入口；它会按目标 `/api/app` 返回的平台选择压缩包。
+
+上传包必须匹配目标机器平台；macOS Apple Silicon 使用 `release/Lan-Copy-macOS-Apple-Silicon.tar.gz`。也可在 `make publish` 成功后调用该脚本上传本地产物，无需等待 GitHub Release。脚本不会递增版本、修改 Git 或自动重试部署；可以纳入自己的发布脚本。重启确认默认等待 90 秒，可用 `--timeout` 调整。退出码 0 表示观察到本次更新标识及目标版本，非 0 表示拒绝、回滚、连接失败或未确认成功；超时请检查日志。
+
+接口为 `POST /api/deploy`，请求头 `Authorization: Bearer <令牌>`，请求体直接发送 ZIP 或 tar.gz 字节（非 multipart）。令牌只负责部署访问认证，发布包仍须通过原有的签名、平台和程序身份校验，并受更新禁用开关、128 MiB 上限和并发更新限制约束。接口返回 202 和 `{ "status": "restarting", "version": "...", "updateID": "..." }` 仅表示开始更新；需轮询 `GET /api/app` 核对 `updateID` 和 `version`，`rollback-<updateID>` 表示恢复旧版。未配置令牌返回 503，认证失败返回 401，其他安装错误与页面上传接口一致。
+
+令牌不要提交到仓库；跨不可信网络请使用 HTTPS（例如通过现有反向代理），HTTP 会明文传输令牌。脚本支持 HTTPS 并验证证书，拒绝自动跟随重定向。

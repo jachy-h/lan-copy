@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { requestJSON } from '../api/client'
-import { notify } from '../ui/fileUi'
+import { notify, raiseToast } from '../ui/fileUi'
 import { confirm as confirmDialog, confirmText as confirmTyped } from '../ui/dialog'
 
 interface AppInfo {
@@ -12,6 +12,7 @@ interface UpdateInfo { available: boolean; comparable: boolean; version: string;
 interface TransferCounts { uploads: number; downloads: number }
 interface UploadConfig { concurrentUploads: number; stagingGiB: number; idleTimeoutSeconds: number }
 interface AutoStartState { enabled: boolean; available: boolean; reason?: string }
+interface DeployTokenState { configured: boolean; source: 'none' | 'file' | 'environment' }
 
 const isOpen = ref(false)
 const dialogEl = ref<HTMLDialogElement | null>(null)
@@ -37,6 +38,11 @@ const manualStatus = ref('正在检查更新条件…')
 const manualError = ref(false)
 const automaticStatus = ref('')
 const automaticError = ref(false)
+const deployState = ref<DeployTokenState | null>(null)
+const deployToken = ref('')
+const deployBusy = ref(false)
+const deployStatus = ref('正在读取自动部署设置…')
+const deployError = ref(false)
 const progress = ref(0)
 const installingUpload = ref(false)
 const picker = ref<HTMLInputElement | null>(null)
@@ -44,7 +50,7 @@ const updateTabDot = computed(() => Boolean(releaseInfo.value?.available))
 
 const showDialog = () => {
   isOpen.value = true
-  if (!stopped.value) { void checkRelease(); void loadStartup(); void loadResources() }
+  if (!stopped.value) { void checkRelease(); void loadStartup(); void loadResources(); void loadDeployToken() }
 }
 const closeDialog = () => {
   if (dialogEl.value?.open) dialogEl.value.close()
@@ -56,6 +62,7 @@ watch(isOpen, async open => {
   if (!open) return
   await nextTick()
   if (dialogEl.value && !dialogEl.value.open) dialogEl.value.showModal()
+  raiseToast()
 })
 function onNativeClose() { isOpen.value = false; automaticStatus.value = '' }
 function onBackdrop(event: MouseEvent) {
@@ -65,12 +72,13 @@ function switchTab(next: string, focus = false) {
   tab.value = next
   if (focus) document.querySelector<HTMLButtonElement>(`[data-settings-tab="${next}"]`)?.focus()
   if (next === 'update') void checkRelease()
+  if (next === 'deploy') void loadDeployToken()
 }
 function onTabKey(event: KeyboardEvent, index: number) {
   const keys = ['ArrowUp', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'Home', 'End']
   if (!keys.includes(event.key)) return
   event.preventDefault()
-  const tabs = ['about', 'general', 'resources', 'update']
+  const tabs = ['about', 'general', 'resources', 'update', 'deploy']
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1) + tabs.length) % tabs.length
   switchTab(tabs[next], true)
 }
@@ -140,6 +148,42 @@ async function saveResources() {
     uploadConfig.value = result.config; uploadEditable.value = result.editable; uploadStatus.value = '已保存。'
   } catch (error) { uploadStatus.value = message(error, '无法保存上传限制') }
   finally { uploadBusy.value = false }
+}
+
+function deployStateLabel(state: DeployTokenState) {
+  if (state.source === 'environment') return '当前使用启动环境变量 LAN_COPY_DEPLOY_TOKEN 中的令牌。保存新令牌后将改用页面设置。'
+  if (state.source === 'file') return '已保存自动部署令牌，部署脚本可以使用同一个令牌。'
+  return '未设置令牌。保存后自动部署接口立即启用。'
+}
+async function loadDeployToken() {
+  try {
+    const state = await requestJSON<DeployTokenState>('/api/settings/deploy-token', { cache: 'no-store' })
+    deployState.value = state; deployStatus.value = deployStateLabel(state); deployError.value = false
+  } catch (error) {
+    deployState.value = null; deployStatus.value = message(error, '无法读取自动部署设置'); deployError.value = true
+  }
+}
+async function saveDeployToken() {
+  if (deployBusy.value || stopped.value) return
+  const token = deployToken.value.trim()
+  if (!token) { deployStatus.value = '请粘贴部署令牌。'; deployError.value = true; return }
+  deployBusy.value = true; deployStatus.value = '正在保存…'; deployError.value = false
+  try {
+    deployState.value = await requestJSON<DeployTokenState>('/api/settings/deploy-token', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Lan-Copy-Action': 'deploy-token' }, body: JSON.stringify({ token }) })
+    deployToken.value = ''; deployStatus.value = '部署令牌已保存，自动部署接口已启用。'; notify('部署令牌已保存')
+  } catch (error) { deployStatus.value = message(error, '无法保存部署令牌'); deployError.value = true }
+  finally { deployBusy.value = false }
+}
+async function clearDeployToken() {
+  if (deployBusy.value || deployState.value?.source !== 'file') return
+  if (!await confirmDialog({ title: '删除部署令牌？', message: '删除后自动部署接口将停止接受请求，直到重新保存令牌。', confirmText: '删除', danger: true })) return
+  deployBusy.value = true; deployStatus.value = '正在删除…'; deployError.value = false
+  try {
+    deployState.value = await requestJSON<DeployTokenState>('/api/settings/deploy-token', { method: 'DELETE', headers: { 'X-Lan-Copy-Action': 'deploy-token' } })
+    deployStatus.value = deployState.value.configured ? '页面保存的令牌已删除，继续使用启动环境变量中的令牌。' : '部署令牌已删除，自动部署接口已关闭。'
+    notify('部署令牌已删除')
+  } catch (error) { deployStatus.value = message(error, '无法删除部署令牌'); deployError.value = true }
+  finally { deployBusy.value = false }
 }
 
 async function checkRelease() {
@@ -262,7 +306,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
       <header class="settings-header"><h2 id="settingsTitle">设置</h2><button type="button" class="settings-close" aria-label="关闭设置" @click="closeDialog">×</button></header>
       <div class="settings-layout">
         <nav class="settings-menu" aria-label="设置菜单" role="tablist" aria-orientation="vertical">
-          <button v-for="(entry, index) in [{id:'about',name:'关于',desc:'版本与项目'},{id:'general',name:'通用',desc:'启动与关闭'},{id:'resources',name:'资源',desc:'存储与上传限制'},{id:'update',name:'更新',desc:'检查并安装版本'}]" :key="entry.id" :id="`${entry.id}Tab`" type="button" role="tab" :data-settings-tab="entry.id" :aria-selected="tab===entry.id" :aria-controls="`${entry.id}Settings`" :tabindex="tab===entry.id?0:-1" @click="switchTab(entry.id)" @keydown="onTabKey($event,index)">
+          <button v-for="(entry, index) in [{id:'about',name:'关于',desc:'版本与项目'},{id:'general',name:'通用',desc:'启动与关闭'},{id:'resources',name:'资源',desc:'存储与上传限制'},{id:'update',name:'更新',desc:'检查并安装版本'},{id:'deploy',name:'部署',desc:'自动部署令牌'}]" :key="entry.id" :id="`${entry.id}Tab`" type="button" role="tab" :data-settings-tab="entry.id" :aria-selected="tab===entry.id" :aria-controls="`${entry.id}Settings`" :tabindex="tab===entry.id?0:-1" @click="switchTab(entry.id)" @keydown="onTabKey($event,index)">
             <span>{{ entry.name }}<span v-if="entry.id==='update'&&updateTabDot" class="update-tab-dot" aria-label="有新版本" /></span><small>{{ entry.desc }}</small>
           </button>
         </nav>
@@ -271,6 +315,7 @@ onBeforeUnmount(() => document.removeEventListener('visibilitychange', onVisibil
           <section v-show="tab==='general'" id="generalSettings" role="tabpanel" aria-labelledby="generalTab"><h3>启动设置</h3><label class="autostart-option"><span>开机自启动</span><input type="checkbox" class="autostart-toggle" role="switch" :checked="startup?.enabled||false" :disabled="!startup?.available||startupBusy||stopped" @change="startup && (startup.enabled=($event.target as HTMLInputElement).checked); saveStartup()"></label><p>登录此电脑后，自动在后台启动 Lan Copy，不打开浏览器。关闭软件后，下次登录仍会启动。</p><p>开启后请保留程序与共享文件夹的位置；移动程序后需重新开启此选项。</p><p class="autostart-status" role="status" aria-live="polite">{{ startup?.reason || (startup ? startup.enabled ? '已开启，下次登录时自动启动。' : '未开启开机自启动。' : '正在读取启动设置…') }}</p><div class="shutdown-setting"><h3>关闭软件</h3><p>关闭后，所有设备都将无法继续访问。共享文件和文本会保留。</p><button class="secondary danger" type="button" :disabled="shutdownDisabled" aria-describedby="shutdownHint" @click="shutdown">{{ stopped ? '已关闭' : '关闭 Lan Copy' }}</button><p id="shutdownHint" role="status" aria-live="polite">{{ shutdownHint }}</p></div></section>
           <section v-show="tab==='resources'" id="resourcesSettings" role="tabpanel" aria-labelledby="resourcesTab"><h3>资源</h3><p>查看共享文件当前占用的空间，并设置上传并发数、临时接收空间和连接空闲时间。限制仅影响之后开始的上传。</p><p class="resource-usage" role="status" aria-live="polite">{{ usageText }}</p><label class="upload-resource-field"><span>并发上传数<small>同时接收文件的任务数量上限</small></span><input v-model.number="uploadConfig.concurrentUploads" class="upload-concurrent" type="number" min="1" max="32" step="1" :disabled="!uploadEditable||uploadBusy"></label><label class="upload-resource-field"><span>暂存空间（GiB）<small>所有进行中上传共用的临时空间上限</small></span><input v-model.number="uploadConfig.stagingGiB" class="upload-staging" type="number" min="1" max="1024" step="1" :disabled="!uploadEditable||uploadBusy"></label><label class="upload-resource-field"><span>读取空闲超时（秒）<small>上传连接持续无数据时自动中止的等待时间</small></span><input v-model.number="uploadConfig.idleTimeoutSeconds" class="upload-idle" type="number" min="5" max="600" step="1" :disabled="!uploadEditable||uploadBusy"></label><button class="primary upload-resource-save" type="button" :disabled="!uploadEditable||uploadBusy" @click="saveResources">保存设置</button><p class="upload-resource-status" role="status" aria-live="polite">{{ uploadStatus }}</p></section>
           <section v-show="tab==='update'" id="updateSettings" role="tabpanel" aria-labelledby="updateTab"><h3>自动更新</h3><p class="settings-version">{{ versionLabel }}</p><p>局域网内的访客也可以发起更新；更新的是运行 Lan Copy 的电脑。</p><p class="release-status" :class="{success:releaseInfo&&!releaseError,error:releaseError}" role="status" aria-live="polite">{{ updateStatus }}</p><div class="release-actions"><div class="release-install-group"><button v-if="releaseInfo?.available" class="primary release-install" type="button" :disabled="updateDisabled||!releaseInfo.canInstall" @click="downloadUpdate">下载并更新</button><p v-if="automaticStatus" class="release-install-status" :class="{error:automaticError}" role="status" aria-live="polite">{{ automaticStatus }}</p></div><a v-if="releaseInfo&&(releaseInfo.available||releaseInfo.comparable)" class="release-page" :href="releaseInfo.pageURL" target="_blank" rel="noopener noreferrer">前往查看 ↗</a><button class="secondary release-check" type="button" :disabled="updateDisabled" @click="checkRelease">重新检查</button></div><h3 class="manual-update-title">手动更新</h3><p class="update-explanation">拖入本机系统对应的新版发布包，校验通过后自动安装并重启。共享文件和文字会保留，请先等待其他文件传输完成。</p><button class="update-dropzone" type="button" :disabled="updateDisabled" @click="openPicker" @dragover.prevent="($event.currentTarget as HTMLButtonElement).classList.add('dragging')" @dragleave="($event.currentTarget as HTMLButtonElement).classList.remove('dragging')" @drop="onDrop"><strong>拖入更新包，或点击选择</strong><span>支持 .zip / .tar.gz · 最大 128 MiB</span></button><input ref="picker" type="file" accept=".zip,.gz,.tgz" hidden @change="onPicker"><p class="update-trust">{{ info?.signedUpdates ? '所有更新包必须通过内置可信公钥的签名验证。' : '尚未配置可信更新公钥，自动更新已禁用。' }}</p><progress class="update-progress" max="100" :value="progress" :hidden="!installingUpload" aria-label="更新包上传进度"/><p class="update-status" :class="{error:manualError}" role="status" aria-live="polite">{{ manualStatus }}</p></section>
+          <section v-show="tab==='deploy'" id="deploySettings" role="tabpanel" aria-labelledby="deployTab"><h3>自动部署</h3><p>保存部署令牌后，发布脚本可以使用同一个令牌上传签名包并重启服务。任何能打开本页面的人都可以设置、修改或删除此令牌。</p><label class="upload-resource-field deploy-token-field"><span>部署令牌<small>从部署环境复制的令牌，或使用至少 32 位随机字符</small></span><input v-model="deployToken" class="deploy-token-input" type="password" autocomplete="new-password" autocapitalize="off" spellcheck="false" placeholder="粘贴部署令牌" :disabled="deployBusy||stopped" @keydown.enter.prevent="saveDeployToken"></label><div class="deploy-token-actions"><button class="primary deploy-token-save" type="button" :disabled="deployBusy||stopped" @click="saveDeployToken">保存令牌</button><button class="secondary danger deploy-token-clear" type="button" :disabled="deployBusy||stopped||deployState?.source!=='file'" @click="clearDeployToken">删除令牌</button></div><p class="deploy-token-status" :class="{error:deployError}" role="status" aria-live="polite">{{ deployStatus }}</p></section>
         </div>
       </div>
     </dialog>

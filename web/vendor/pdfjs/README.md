@@ -5,3 +5,5 @@ Integrity: sha512-AVl138zALtfaAPvADulE0PZThbYzCBS79nL4pOSL/6Sm/4AH5A21BD9VHt97Ol
 License: Apache-2.0; see LICENSE and bundled asset license files.
 
 Only the legacy browser library, worker, CMaps, standard fonts and WASM decoders are vendored. No CDN or runtime installation is used.
+
+The library and worker are rebuilt together with esbuild (Chrome 90 / Safari 15 syntax target) and core-js stable polyfills, including Promise.withResolvers, Array.at and structuredClone. This extends compatibility beyond the upstream legacy runtime baseline; it does not guarantee every PDF feature on every device. The PDF.js version remains identical in both modules. All assets and core-js licensing are bundled locally.

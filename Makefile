@@ -20,7 +20,7 @@ WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
 SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build publish artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev clean dist-clean FORCE
+.PHONY: all build publish artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
 
 FORCE:
 
@@ -101,7 +101,10 @@ frontend-release:
 	cd frontend && npm ci && npm run check && npm run sync-assets && npm run check-assets
 
 frontend-dev:
-	cd frontend && npm run dev
+	cd frontend && npm run dev -- --host
+
+deploytoken:
+	@python3 scripts/deploy_token.py $(if $(ROTATE),--rotate,)
 
 clean:
 	rm -rf "$(STAGE_DIR)" $(foreach file,$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS),"$(file)") "$(DIST_DIR)/SHA256SUMS"

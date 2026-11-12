@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import FileExplorer from './FileExplorer.vue'
 import * as dialogs from '../ui/dialog'
 import * as contextMenu from '../ui/contextMenu'
+import { mountPreview } from '../preview/engine'
 
 vi.mock('../ui/dialog', () => ({ confirm: vi.fn().mockResolvedValue(false), confirmText: vi.fn().mockResolvedValue(false) }))
 vi.mock('../ui/contextMenu', () => ({ open: vi.fn(), close: vi.fn(), register: vi.fn(), registerPage: vi.fn() }))
+vi.mock('../preview/engine', () => ({ mountPreview: vi.fn(() => ({ destroy: vi.fn() })) }))
 
 const entries = [
   { name: 'zeta.txt', path: 'zeta.txt', directory: false, modified: '2026-10-25T00:00:00Z', size: 10 },
@@ -97,6 +99,28 @@ describe('FileExplorer', () => {
     expect(wrapper.get('.breadcrumbs').text()).toContain('beta')
   })
 
+  it('navigates and expands folders from the resource tree', async () => {
+    const folder = wrapper.findAll('.tree-row .tree-label').find(label => label.text().includes('beta'))
+    expect(folder).toBeTruthy()
+    await folder!.trigger('click')
+    await flushPromises()
+    expect(location.hash).toContain('path=beta')
+    expect(wrapper.get('.tree-row.active').text()).toContain('beta')
+    expect(wrapper.get('.tree-status').text()).toBe('空文件夹')
+  })
+
+  it('opens file previews in the inline pane and returns to the list', async () => {
+    await wrapper.get('.explorer-row[data-path="recent.pdf"] .file-name').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.inline-preview').exists()).toBe(true)
+    expect(wrapper.find('.explorer-navigation').exists()).toBe(false)
+    expect(document.querySelector('#previewDialog')).toBeNull()
+    expect(vi.mocked(mountPreview)).toHaveBeenCalledWith(expect.any(HTMLElement), 'recent.pdf')
+    await wrapper.get('#previewBack').trigger('click')
+    expect(wrapper.find('.inline-preview').exists()).toBe(false)
+    expect(wrapper.find('.explorer-navigation').exists()).toBe(true)
+  })
+
   it('clears row selection when clicking outside the file rows', async () => {
     const row = wrapper.get('.explorer-row[data-path="zeta.txt"]')
     await row.trigger('click')
@@ -147,6 +171,29 @@ describe('FileExplorer', () => {
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledWith('/api/filesystem/rename', expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: 'beta', destination: '', name: 'renamed' }) }))
   })
+  it('copies named share links instead of raw paths', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+
+    const fileRow = wrapper.get('.explorer-row[data-path="zeta.txt"]')
+    await fileRow.get('.row-menu-button').trigger('click')
+    const fileActions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    expect(fileActions.some(action => action.label === '复制路径')).toBe(false)
+    await fileActions.find(action => action.label === '复制分享链接')!.action!()
+    expect(writeText).toHaveBeenLastCalledWith(`zeta.txt： ${location.origin}/preview.html?path=zeta.txt`)
+
+    const folderRow = wrapper.get('.explorer-row[data-path="beta"]')
+    await folderRow.get('.row-menu-button').trigger('click')
+    const folderActions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    await folderActions.find(action => action.label === '复制分享链接')!.action!()
+    expect(writeText).toHaveBeenLastCalledWith(`beta： ${location.origin}/#path=beta`)
+
+    await folderRow.trigger('click')
+    await folderRow.trigger('keydown', { key: 'c', ctrlKey: true })
+    await flushPromises()
+    expect(writeText).toHaveBeenLastCalledWith(`beta： ${location.origin}/#path=beta`)
+  })
+
   it('opens printing only from the supported single-file menu action', async () => {
     const row = wrapper.get('.explorer-row[data-path="recent.pdf"]')
     await row.trigger('click')

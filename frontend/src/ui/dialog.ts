@@ -1,3 +1,5 @@
+import { raiseToast } from './fileUi'
+
 export interface ConfirmOptions { title?: string; message: string; confirmText?: string; danger?: boolean }
 export interface ConfirmTextOptions extends ConfirmOptions { requiredText: string }
 let queue: Promise<unknown> = Promise.resolve()
@@ -31,7 +33,7 @@ export function confirm({ title = '确认操作', message, confirmText = '确定
     cancel.addEventListener('click', () => dialog.close())
     accept.addEventListener('click', () => { accepted = true; dialog.close() })
     dialog.addEventListener('close', () => { dialog.remove(); if (previousFocus?.isConnected) previousFocus.focus(); resolve(accepted) }, { once: true })
-    blockDrop(dialog); document.body.append(dialog); dialog.showModal()
+    blockDrop(dialog); document.body.append(dialog); dialog.showModal(); raiseToast()
   }))
 }
 
@@ -50,6 +52,6 @@ export function confirmText({ title = '需要输入确认信息', message, requi
     cancel.addEventListener('click', () => dialog.close())
     accept.addEventListener('click', () => { if (input.value !== requiredText) return; accepted = true; dialog.close() })
     dialog.addEventListener('close', () => { dialog.remove(); if (previousFocus?.isConnected) previousFocus.focus(); resolve(accepted) }, { once: true })
-    blockDrop(dialog); document.body.append(dialog); dialog.showModal(); input.focus()
+    blockDrop(dialog); document.body.append(dialog); dialog.showModal(); input.focus(); raiseToast()
   }))
 }

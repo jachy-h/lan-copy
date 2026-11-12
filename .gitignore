@@ -15,3 +15,5 @@ shared-folder-lancopy/
 
 # Local signing keys and configuration
 /.config/
+__pycache__/
+*.pyc

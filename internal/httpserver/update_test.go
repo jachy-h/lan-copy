@@ -457,6 +457,8 @@ func TestLANUpdateRequiresSignature(t *testing.T) {
 		change                  func(map[string][]byte)
 		want                    int
 	}{
+		{name: "CD signed update", host: "cd", key: key, want: 202},
+		{name: "CD unsigned rejected", host: "cd", key: key, change: func(e map[string][]byte) { delete(e, "release/update.sig") }, want: 400},
 		{name: "signed IPv4 LAN update", host: "192.168.1.2:8080", remote: "192.168.1.9:2000", key: key, want: 202},
 		{name: "signed IPv6 LAN update", host: "[fd00::2]:8080", remote: "[fd00::9]:2000", key: key, want: 202},
 		{name: "signed local hostname update", host: "lan-copy.local:8080", remote: "192.168.1.9:2000", key: key, want: 202},
@@ -505,6 +507,11 @@ func TestLANUpdateRequiresSignature(t *testing.T) {
 			}
 			r := httptest.NewRequest("POST", "http://"+tc.host+"/api/update", bytes.NewReader(zipUpdateTest(t, entries)))
 			r.RemoteAddr = tc.remote
+			if tc.host == "cd" {
+				r.URL.Path = "/api/deploy"
+				app.deployAuth = newDeployAuth(t, "test-secret")
+				r.Header.Set("Authorization", "Bearer test-secret")
+			}
 			r.Header.Set("Origin", "http://"+tc.host)
 			r.Header.Set("Sec-Fetch-Site", "same-origin")
 			r.Header.Set("X-Lan-Copy-Action", "update")

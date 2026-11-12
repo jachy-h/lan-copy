@@ -69,6 +69,8 @@ Builds use the exact version in `VERSION` (or `0.1.0` if the file is missing) an
 
 `make publish` requires all code changes to be committed first and asks you to confirm the target version with `y` (`n` cancels). It increments the version, commits only `VERSION`, creates the release tag, and pushes to `origin` so Actions can publish the release.
 
+Use `scripts/deploy.py` to upload a signed package to a target machine and confirm the restarted version. See the [CD setup and commands](docs/UPDATING.md#本地脚本自动部署cd).
+
 Pushing `main` runs tests and builds signed packages in GitHub Actions. Pushing a `vVERSION` tag matching the committed `VERSION` publishes a GitHub Release. Configure repository signing credentials first; see [automated builds and releases](docs/GITHUB-ACTIONS.md).
 
 - [Developer guide](docs/DEVELOPING.md): architecture, command-line options, tests, Docker, and cross-platform builds.

@@ -17,6 +17,8 @@ export async function testUpgrade(root, temporary, chromium) {
   for (const file of await readdir(root)) if (file.endsWith('.go') || file === 'go.mod') await cp(path.join(root, file), path.join(snapshot, file))
   await cp(path.join(root, 'internal'), path.join(snapshot, 'internal'), { recursive: true })
   await cp(path.join(root, 'web'), path.join(snapshot, 'web'), { recursive: true })
+  // The synchronizer validates generated vendor assets as well as Vite output.
+  await cp(path.join(root, 'tmp/frontend-vendor'), path.join(snapshot, 'tmp/frontend-vendor'), { recursive: true })
   for (const version of ['A', 'B']) {
     await build({ configFile: path.join(root, 'frontend/vite.config.ts'), logLevel: 'silent', plugins: [{
       name: 'upgrade-test-probe',

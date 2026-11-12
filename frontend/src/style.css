@@ -706,14 +706,21 @@ footer {
 }
 .toast {
 	position: fixed;
-	left: 50%;
+	top: auto;
+	right: auto;
 	bottom: 28px;
+	left: 50%;
+	width: max-content;
+	max-width: calc(100vw - 32px);
+	margin: 0;
 	padding: 11px 17px;
+	border: 0;
 	color: white;
 	background: #17233c;
 	border-radius: 10px;
 	box-shadow: 0 10px 30px rgba(20, 30, 50, 0.22);
 	font-size: 13px;
+	overflow-wrap: anywhere;
 	transform: translate(-50%, 18px);
 	opacity: 0;
 	pointer-events: none;
@@ -971,19 +978,12 @@ button:disabled { opacity: .5; cursor: default; }
 .explorer-row .file-meta { overflow-wrap: anywhere; }
 .upload-drop-message { display: none; position: absolute; inset: 0; z-index: 2; align-items: center; justify-content: center; padding: 20px; border: 2px dashed var(--blue); border-radius: inherit; color: var(--blue-dark); background: #edf4fff2; font-size: 17px; font-weight: 650; pointer-events: none; }
 .upload-dragging .upload-drop-message { display: flex; }
-.space-upload { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
-.space-upload span { flex: 1; overflow-wrap: anywhere; }
-.space-upload progress { width: 100px; height: 6px; accent-color: var(--blue); }
 @media (min-width: 640px) and (max-width: 900px) {
  .topbar .status-label, .topbar .shutdown-btn span { display: inline; }
  .topbar .status, .topbar .shutdown-btn { padding: 6px 8px; font-size: 11px; }
  .topbar .status-dot { margin-right: 6px; }
  .topbar .shutdown-btn { width: auto; height: 32px; }
 }
-@media (max-width: 600px) {
- .space-upload { flex-wrap: wrap; }
-}
-
 /* Browser-only previews, with no third-party services or runtime dependencies. */
 .preview-shell { width: min(1200px, 100%); margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 .preview-toolbar { display: flex; align-items: center; gap: 16px; }
@@ -1046,8 +1046,6 @@ button:disabled { opacity: .5; cursor: default; }
  .topbar .access-url-row select { width: 100%; }
 }
 .search-result .file-name { white-space: normal; overflow-wrap: anywhere; }
-.space-upload.complete { color: #15803d; }
-.space-upload.complete progress { accent-color: #16a34a; }
 
 /* Detailed filesystem view and its navigation/selection controls. */
 .explorer-navigation { display: flex; align-items: center; gap: 6px; min-width: 0; }
@@ -1185,6 +1183,11 @@ button:disabled { opacity: .5; cursor: default; }
 .upload-resource-field input { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 .upload-resource-field input:disabled { background: #f8fafc; color: #64748b; }
 .settings-content .upload-resource-status.error { color: #b42318; }
+.deploy-token-field { margin-top: 18px; }
+.deploy-token-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.deploy-token-actions button { min-height: 40px; }
+.deploy-token-status { margin-top: 14px; font-size: 12px; }
+.settings-content .deploy-token-status.error { color: #b42318; }
 
 /* Confirmation, file actions and settings share the same modal surface. */
 .app-dialog { background: white; }
@@ -1207,6 +1210,65 @@ button:disabled { opacity: .5; cursor: default; }
 .release-install-group { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
 .settings-content .release-install-status { max-width: min(420px, 100%); margin: 8px 0 0; padding: 9px 12px; border: 1px solid #f0cd82; border-radius: 9px; color: #854d0e; background: #fff7e5; font-size: 13px; font-weight: 650; line-height: 1.55; }
 .settings-content .release-install-status.error { border-color: #f2b8b5; color: #b42318; background: #fff2f1; }
+
+/* Upload progress stays discoverable while its dialog is minimized. */
+.transfer-access-button { position: relative; flex: 0 0 34px; color: var(--blue-dark); }
+.transfer-access-button .transfer-button-ring { position: absolute; inset: -2px; border-radius: 50%; pointer-events: none; opacity: 0; background: conic-gradient(var(--blue) var(--transfer-progress, 0%), #dbe6fb 0); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px)); }
+.transfer-access-button.active .transfer-button-ring { opacity: 1; }
+.transfer-access-button.active::after { content: ''; position: absolute; inset: 1px; border: 2px solid transparent; border-top-color: var(--blue); border-radius: 50%; animation: transfer-spin .9s linear infinite; }
+.transfer-access-button.active svg { animation: transfer-lift 1.4s ease-in-out infinite; }
+.transfer-access-button.complete { color: #15803d; }
+.transfer-access-button.error { color: #b42318; }
+.transfer-button-dot { position: absolute; top: 0; right: 0; width: 9px; height: 9px; border: 2px solid #fff; border-radius: 50%; background: #16a34a; }
+.transfer-button-dot.error { background: #b42318; }
+
+.transfer-dialog { position: fixed; top: calc(64px + env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); z-index: 13; width: min(400px, calc(100vw - 32px)); padding: 16px; border: 1px solid #dbe4f5; border-radius: 16px; background: #fff; box-shadow: 0 18px 50px #14213d2b; outline: none; animation: transfer-dialog-in .18s ease-out both; }
+.transfer-dialog:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.transfer-dialog-head { display: flex; align-items: flex-start; gap: 12px; }
+.transfer-dialog-mark { flex: 0 0 36px; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #fff; background: var(--blue); }
+.transfer-dialog-mark.complete { background: #16a34a; }
+.transfer-dialog-mark.error { background: #b42318; }
+.transfer-dialog-mark.cancelled { background: #b45309; }
+.transfer-dialog-mark.reading, .transfer-dialog-mark.uploading { animation: transfer-pulse 1.6s ease-in-out infinite; }
+.transfer-dialog-mark svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.transfer-dialog-mark.reading svg, .transfer-dialog-mark.uploading svg { animation: transfer-lift 1.4s ease-in-out infinite; }
+.transfer-dialog-copy { flex: 1; min-width: 0; }
+.transfer-dialog-copy h2 { font-size: 15px; letter-spacing: -.2px; }
+.transfer-dialog-label { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.transfer-dialog-collapse { flex: 0 0 auto; display: flex; align-items: center; gap: 3px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 8px; background: #fff; color: var(--muted); font-size: 11px; cursor: pointer; }
+.transfer-dialog-collapse:hover { color: var(--ink); background: #f5f8fd; border-color: #cfdaec; }
+.transfer-dialog-collapse svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.transfer-progress { position: relative; overflow: hidden; height: 8px; margin-top: 16px; border-radius: 999px; background: #e9eff9; }
+.transfer-progress-fill { position: relative; display: block; overflow: hidden; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #3977f6, #6b98ff); transition: width .22s ease; }
+.transfer-dialog.uploading .transfer-progress-fill::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, #ffffff66, transparent); transform: translateX(-100%); animation: transfer-sheen 1.2s ease-in-out infinite; }
+.transfer-progress-indeterminate { position: absolute; top: 0; bottom: 0; left: 0; width: 40%; border-radius: inherit; background: linear-gradient(90deg, #3977f6, #6b98ff); transform: translateX(-110%); animation: transfer-indeterminate 1.15s ease-in-out infinite; }
+.transfer-dialog.complete .transfer-progress { background: #e7f6ec; }
+.transfer-dialog.complete .transfer-progress-fill { background: #16a34a; }
+.transfer-dialog.error .transfer-progress { background: #fbe9e7; }
+.transfer-dialog.cancelled .transfer-progress { background: #fbf0df; }
+.transfer-dialog.error .transfer-progress-indeterminate, .transfer-dialog.cancelled .transfer-progress-indeterminate { width: 100%; transform: none; animation: none; }
+.transfer-dialog.error .transfer-progress-indeterminate { background: #e2a19b; }
+.transfer-dialog.cancelled .transfer-progress-indeterminate { background: #dfb474; }
+.transfer-dialog-meta { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 9px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.transfer-dialog-meta span { min-width: 0; overflow-wrap: anywhere; }
+.transfer-dialog-meta strong { flex: 0 0 auto; color: var(--blue-dark); font-size: 11px; font-variant-numeric: tabular-nums; }
+.transfer-dialog.complete .transfer-dialog-meta strong { color: #15803d; }
+.transfer-dialog.error .transfer-dialog-meta strong { color: #b42318; }
+.transfer-dialog.cancelled .transfer-dialog-meta strong { color: #b45309; }
+@keyframes transfer-spin { to { transform: rotate(360deg); } }
+@keyframes transfer-lift { 0%, 100% { transform: translateY(1px); } 50% { transform: translateY(-1px); } }
+@keyframes transfer-pulse { 0%, 100% { box-shadow: 0 0 0 0 #3977f644; } 50% { box-shadow: 0 0 0 5px #3977f600; } }
+@keyframes transfer-indeterminate { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
+@keyframes transfer-sheen { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+@keyframes transfer-dialog-in { from { opacity: 0; transform: translateY(-6px) scale(.98); } }
+@media (max-width: 600px) {
+ .transfer-dialog { top: auto; bottom: max(12px, env(safe-area-inset-bottom)); right: max(11px, env(safe-area-inset-right)); left: max(11px, env(safe-area-inset-left)); width: auto; padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+ .transfer-dialog, .transfer-dialog *, .transfer-access-button, .transfer-access-button * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+ .transfer-progress-indeterminate { transform: none !important; width: 100% !important; animation: none !important; opacity: .55; }
+ .transfer-dialog.uploading .transfer-progress-fill::after { display: none; }
+}
 
 /* Print setup and the current host's test-job history. */
 .print-access-button { text-decoration: none; flex: 0 0 34px; }
@@ -1368,4 +1430,76 @@ button:disabled { opacity: .5; cursor: default; }
 .preview-dialog { background: #f4f7fb; }
 @media (max-width: 600px), (max-height: 500px) and (pointer: coarse) {
  .preview-dialog[open] { height: 100vh; height: 100dvh; }
+}
+.preview-status.preview-status-error { flex: none; max-height: 6em; overflow: auto; color: #9c341b; }
+.preview-error-details { flex: none; min-width: 0; max-height: 25vh; overflow: auto; font-size: 12px; color: var(--muted); }
+.preview-error-details summary { cursor: pointer; padding: 4px 0; }
+.preview-error-details pre { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, monospace; }
+
+/* Desktop workspace: persistent resource tree beside the file list or preview. */
+.tree-toggle, .tree-close, .tree-backdrop { display: none; }
+.explorer-workspace { display: grid; grid-template-columns: 258px minmax(0, 1fr); padding: 0; overflow: hidden; }
+.explorer-sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); background: #f8fafd; }
+.explorer-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-height: 48px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: #4f5f78; font-size: 12px; letter-spacing: .02em; }
+.explorer-sidebar-head strong { font-weight: 650; }
+.explorer-tree { flex: 1; min-height: 0; overflow: auto; padding: 6px 6px 14px; overscroll-behavior: contain; }
+.tree-row { display: flex; align-items: center; gap: 2px; min-height: 30px; padding-right: 6px; border-radius: 7px; color: #4a5a73; }
+.tree-row:hover { background: #edf2fa; }
+.tree-row.active { color: var(--blue-dark); background: #e7f0ff; }
+.tree-twisty { flex: 0 0 18px; display: grid; place-items: center; width: 18px; height: 22px; padding: 0; border: 0; border-radius: 5px; color: #8b98ab; background: transparent; font-size: 11px; line-height: 1; cursor: pointer; }
+.tree-twisty:hover { color: var(--blue-dark); background: #dce9ff; }
+.tree-twisty-spacer { flex: 0 0 18px; width: 18px; }
+.tree-label { display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0; min-height: 28px; padding: 2px 6px 2px 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.tree-icon { flex: 0 0 22px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 5px; color: #6e83a2; background: #eef2f8; font-size: 8px; font-weight: 700; text-transform: uppercase; }
+.tree-folder { color: #b78624; background: #fff1ce; font-size: 17px; }
+.tree-row.active .tree-icon { background: #d7e6ff; }
+.tree-row.active .tree-folder { background: #ffe6aa; color: #9a6c0b; }
+.tree-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-status { padding-left: 4px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.tree-status-error { border: 0; background: transparent; color: #b42318; text-align: left; cursor: pointer; }
+.tree-status-error:hover { text-decoration: underline; }
+.explorer-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 14px 18px 8px; }
+.explorer-main > .explorer-navigation { flex: none; }
+.explorer-main > .file-list-header { flex: none; }
+.explorer-main > .file-list { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.explorer-main > .empty { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.explorer-main > .explorer-hint { flex: none; margin-top: auto; }
+.tree-backdrop { position: fixed; inset: 0; z-index: 18; border: 0; background: #14213d55; backdrop-filter: blur(2px); }
+
+/* Inline file preview occupies the full main pane instead of a modal. */
+.inline-preview { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 6px; }
+.preview-pane-toolbar { display: flex; align-items: center; gap: 10px; flex: none; min-height: 40px; }
+.preview-pane-toolbar h2 { flex: 1; min-width: 0; margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-pane-toolbar .secondary { min-height: 36px; }
+.preview-pane-toolbar .preview-close { display: none; width: 36px; padding: 0; font-size: 20px; line-height: 1; }
+.inline-preview > .preview-content { flex: 1; min-height: 0; max-height: none; }
+
+@media (min-width: 861px) {
+ .explorer-workspace { height: calc(100dvh - 148px); min-height: 480px; }
+ .explorer-workspace + footer { margin-top: 10px; }
+}
+
+@media (max-width: 860px) {
+ .explorer-workspace { display: block; padding: 12px 12px 6px; }
+ .explorer-sidebar { display: none; }
+ .tree-open .explorer-sidebar { display: flex; position: fixed; top: calc(58px + env(safe-area-inset-top)); bottom: 0; left: 0; z-index: 19; width: min(320px, 86vw); padding-bottom: env(safe-area-inset-bottom); border-right: 1px solid var(--line); border-radius: 0 14px 14px 0; box-shadow: 12px 0 36px #14213d2b; background: #fff; }
+ .tree-open .tree-backdrop { display: block; }
+ .tree-open .tree-close { display: inline-flex; min-height: 32px; width: 32px; padding: 0; font-size: 18px; }
+ .tree-toggle { display: inline-flex; }
+ .explorer-main { padding: 0; }
+ .tree-row { min-height: 38px; font-size: 13px; }
+ .tree-label { min-height: 36px; font-size: 13px; }
+ .tree-twisty { height: 32px; }
+ .preview-pane-toolbar { flex-wrap: wrap; gap: 6px; }
+ .preview-pane-toolbar h2 { order: 3; flex-basis: 100%; font-size: 14px; }
+ .preview-pane-toolbar #previewDownload { margin-left: auto; }
+ .preview-pane-toolbar .preview-close { display: inline-flex; }
+ .explorer-workspace.preview-active { height: calc(100dvh - 140px); min-height: 420px; }
+ .explorer-workspace.preview-active .explorer-main { height: 100%; }
+ .explorer-workspace.preview-active .inline-preview { height: 100%; min-height: 0; }
+ .explorer-workspace.preview-active .inline-preview > .preview-content { min-height: 0; }
+}
+
+@media (max-width: 639px) {
+ .tree-open .explorer-sidebar { top: calc(96px + env(safe-area-inset-top)); }
 }

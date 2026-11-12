@@ -289,9 +289,9 @@ try {
     await page.waitForURL('**/#path=print-folder')
     const sharedRow = page.locator(`.explorer-row[data-path="${sharedPrintPath}"]`)
     await sharedRow.getByRole('link', { name: sharedPrintName, exact: true }).click()
-    await page.waitForSelector('dialog[open]')
+    await page.waitForSelector('.inline-preview')
     assert.equal(new URL(page.url()).pathname, '/')
-    await page.locator('#previewClose').click()
+    await page.locator('#previewBack').click()
     await sharedRow.getByRole('button', { name: `更多操作：${sharedPrintName}`, exact: true }).click()
     await page.getByRole('menuitem', { name: '打印', exact: true }).click()
     await page.waitForURL(url => url.pathname === '/print-queue' && url.searchParams.get('file') === sharedPrintPath)
@@ -321,13 +321,13 @@ try {
     await page.getByRole('link', { name: '文本快传', exact: true }).click()
     await page.getByRole('link', { name: '共享空间', exact: true }).click()
     await page.locator('.explorer-row[data-path="sample.txt"]').dblclick()
-    await page.waitForSelector('dialog[open]')
-    await page.goBack()
+    await page.waitForSelector('.inline-preview .preview-text')
+    await page.getByRole('link', { name: '文本快传', exact: true }).click()
     await page.waitForSelector('#textInput')
-    assert.equal(await page.locator('#previewDialog').evaluate(dialog => dialog.open), false, 'preview remained modal after history navigation')
+    assert.equal(await page.locator('.inline-preview').count(), 0, 'preview survived route navigation')
     await page.goto(origin)
     // Both entry surfaces use the actual engine, local libraries and workers under Go CSP.
-    for (const surface of ['dialog', 'standalone']) {
+    for (const surface of ['inline', 'standalone']) {
       for (const [file, selector, expected] of [
         ['sample.txt', '.preview-text', 'preview text fixture'],
         ['sample.docx', '.preview-docx-container', 'DOCX browser fixture'],
@@ -368,21 +368,34 @@ try {
         }
         await page.setViewportSize({ width: 1280, height: 900 })
         violations.push(...await page.evaluate(() => window.__cspViolations))
-        if (surface === 'dialog') {
-          await page.locator('#previewClose').click()
-          assert.equal(await page.locator('#previewContent').textContent(), '')
+        if (surface === 'inline') {
+          await page.locator('#previewBack').click()
+          assert.equal(await page.locator('#previewContent').count(), 0)
           for (let attempt = 0; attempt < 50 && page.workers().length; attempt++) await delay(20)
           assert.equal(page.workers().length, 0, 'preview worker survived close')
         }
       }
     }
+    // Missing built-ins must be repaired in BOTH the window and real worker.
+    const compat = await context.newPage()
+    const disableBuiltins = `Promise.withResolvers = undefined; Array.prototype.at = undefined; Array.prototype.findLast = undefined; globalThis.structuredClone = undefined; Object.hasOwn = undefined;`
+    await compat.addInitScript(disableBuiltins)
+    await compat.route('**/vendor/pdfjs/legacy/build/pdf.worker.min.mjs', async route => {
+      const response = await route.fetch()
+      await route.fulfill({ response, body: disableBuiltins + await response.text() })
+    })
+    await compat.goto(`${origin}/preview.html?path=sample.pdf`)
+    await compat.waitForSelector('.preview-pdf-page canvas', {timeout: 20000})
+    assert.ok(await compat.locator('canvas').count() > 0, 'PDF compatibility build failed')
+    assert.ok(await compat.evaluate(() => typeof Promise.withResolvers === 'function'))
+    await compat.close()
     // Repeated close while the real vendor module request is delayed.
     await page.goto(origin)
     await page.route('**/vendor/pdfjs/legacy/build/pdf.min.mjs', async route => { await delay(300); await route.continue().catch(() => {}) })
     for (let index = 0; index < 3; index++) {
       await page.locator('.explorer-row[data-path="sample.pdf"]').dblclick()
-      await page.locator('#previewClose').click(); await delay(400)
-      assert.equal(await page.locator('#previewContent').textContent(), '')
+      await page.locator('#previewBack').click(); await delay(400)
+      assert.equal(await page.locator('#previewContent').count(), 0)
       assert.equal(await page.locator('.preview-pdf-tools').count(), 0)
     }
     await page.unroute('**/vendor/pdfjs/legacy/build/pdf.min.mjs')
@@ -390,7 +403,7 @@ try {
     await context.setOffline(true)
     await page.locator('.explorer-row[data-path="sample.txt"]').dblclick()
     await page.waitForFunction(() => document.querySelector('#previewStatus').textContent.includes('读取失败'))
-    await context.setOffline(false); await page.locator('#previewClose').click()
+    await context.setOffline(false); await page.locator('#previewBack').click()
     const legacy = await fetch(origin + '/transfer.html?from=bookmark', { redirect: 'manual' })
     assert.equal(legacy.status, 308)
     assert.equal(legacy.headers.get('location'), '/transfer-text?from=bookmark')

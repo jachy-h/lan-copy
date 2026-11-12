@@ -2,6 +2,7 @@ import { cp, lstat, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
 
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url))
 const projectRoot = path.resolve(frontendRoot, '..')
@@ -54,6 +55,23 @@ export async function generateVendor() {
   await mkdir(outputRoot, { recursive: true })
   try {
     for (const [root, source, target] of resources) await copyFile(path.join(root, source), target)
+    // The upstream legacy build still assumes modern built-ins and syntax.
+    // Apply identical compatibility support to the API and worker without
+    // changing their PDF.js version or using runtime CDN resources.
+    for (const name of ['pdf', 'pdf.worker']) {
+      await build({
+        stdin: {
+          contents: `import 'core-js/stable'; export * from 'pdfjs-dist/legacy/build/${name}.mjs';`,
+          resolveDir: frontendRoot, sourcefile: `${name}-compat.mjs`, loader: 'js',
+        },
+        outfile: path.join(outputRoot, `pdfjs/legacy/build/${name}.min.mjs`),
+        bundle: true, format: 'esm', platform: 'browser',
+        target: ['chrome90', 'safari15'], minify: true, keepNames: true,
+        supported: { 'template-literal': false },
+        legalComments: 'eof',
+      })
+    }
+    await copyFile(require.resolve('core-js/LICENSE'), 'pdfjs/LICENSE-core-js')
     for (const name of ['pdfjs', 'docx-preview', 'sheetjs']) {
       await copyFile(path.join(frontendRoot, 'vendor', name, 'README.md'), `${name}/README.md`)
     }
