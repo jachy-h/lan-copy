@@ -7,6 +7,8 @@ STAGE_DIR := $(DIST_DIR)/.stage
 VERSION_FILE ?= VERSION
 VERSION ?=
 PUBLISH_REMOTE ?= origin
+DEPLOY_URL ?= http://192.168.2.88:8080/
+DEPLOY_PACKAGE ?=
 # Builds and packaging use VERSION_FILE unless VERSION is explicitly supplied.
 BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
 UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
@@ -20,7 +22,7 @@ WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
 SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build publish artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
+.PHONY: all build publish deploy artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
 
 FORCE:
 
@@ -34,6 +36,12 @@ build:
 publish:
 	+@PYTHONDONTWRITEBYTECODE=1 python3 scripts/publish_release.py --version-file "$(VERSION_FILE)" --version "$(VERSION)" \
 		--remote "$(PUBLISH_REMOTE)" -- $(MAKE) --no-print-directory build
+
+deploy:
+	@node scripts/deploy-target.mjs --url "$(DEPLOY_URL)" \
+		$(if $(strip $(DEPLOY_PACKAGE)),--package "$(DEPLOY_PACKAGE)") \
+		$(if $(strip $(VERSION)),--version "$(VERSION)") \
+		$(if $(filter 1,$(DRY_RUN)),--dry-run)
 
 artifacts: checksums
 

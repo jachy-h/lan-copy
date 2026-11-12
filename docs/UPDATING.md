@@ -96,6 +96,8 @@ node scripts/release-local.mjs --package release/Lan-Copy-Windows-amd64.zip
 
 上传包必须匹配目标机器平台；macOS Apple Silicon 使用 `release/Lan-Copy-macOS-Apple-Silicon.tar.gz`。也可在 `make publish` 成功后调用该脚本上传本地产物，无需等待 GitHub Release。脚本不会递增版本、修改 Git 或自动重试部署；可以纳入自己的发布脚本。重启确认默认等待 90 秒，可用 `--timeout` 调整。退出码 0 表示观察到本次更新标识及目标版本，非 0 表示拒绝、回滚、连接失败或未确认成功；超时请检查日志。
 
+发布后可直接执行 `make deploy`：它会读取目标的 `/api/app` 自动选择 Windows amd64 或 macOS Apple Silicon 包，使用 `.config/deploy.token` 的令牌构建并部署。`DEPLOY_URL` 可覆盖目标地址，`DEPLOY_PACKAGE` 可覆盖发布包，`DRY_RUN=1` 只打印构建与部署命令。
+
 接口为 `POST /api/deploy`，请求头 `Authorization: Bearer <令牌>`，请求体直接发送 ZIP 或 tar.gz 字节（非 multipart）。令牌只负责部署访问认证，发布包仍须通过原有的签名、平台和程序身份校验，并受更新禁用开关、128 MiB 上限和并发更新限制约束。接口返回 202 和 `{ "status": "restarting", "version": "...", "updateID": "..." }` 仅表示开始更新；需轮询 `GET /api/app` 核对 `updateID` 和 `version`，`rollback-<updateID>` 表示恢复旧版。未配置令牌返回 503，认证失败返回 401，其他安装错误与页面上传接口一致。
 
 令牌不要提交到仓库；跨不可信网络请使用 HTTPS（例如通过现有反向代理），HTTP 会明文传输令牌。脚本支持 HTTPS 并验证证书，拒绝自动跟随重定向。
