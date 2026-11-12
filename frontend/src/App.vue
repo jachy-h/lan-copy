@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppHeader from './components/AppHeader.vue'
-import AppFooter from './components/AppFooter.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import TextTransfer from './components/TextTransfer.vue'
 import PrintQueue from './components/PrintQueue.vue'
@@ -56,11 +55,10 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
 <template>
   <AppHeader :page="page" :files-href="filesHref" @navigate="navigate" />
   <UploadProgress />
-  <main class="shell" :class="{ 'shell-transfer': page === 'transfer' }">
+  <main class="shell" :class="{ 'shell-transfer': page === 'transfer', 'shell-print': page === 'print' }">
     <FileExplorer v-if="page === 'files'" @print="printSharedFile" />
     <TextTransfer v-else-if="page === 'transfer'" v-model="draft" />
     <PrintQueue v-else :shared-path="sharedPrintPath" @local-file="clearSharedPrintFile" />
-    <AppFooter />
   </main>
   <div id="fileMenu" class="file-menu" role="menu" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" popover="manual"></div>
