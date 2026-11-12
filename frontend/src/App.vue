@@ -56,7 +56,7 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
 <template>
   <AppHeader :page="page" :files-href="filesHref" @navigate="navigate" />
   <UploadProgress />
-  <main class="shell">
+  <main class="shell" :class="{ 'shell-transfer': page === 'transfer' }">
     <FileExplorer v-if="page === 'files'" @print="printSharedFile" />
     <TextTransfer v-else-if="page === 'transfer'" v-model="draft" />
     <PrintQueue v-else :shared-path="sharedPrintPath" @local-file="clearSharedPrintFile" />

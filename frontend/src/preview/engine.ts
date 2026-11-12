@@ -41,6 +41,8 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
   };
   const content = $("#previewContent");
   const status = $("#previewStatus");
+  const toolsHost = root.querySelector<HTMLElement>("#previewTools");
+  const mountTools = (node: HTMLElement) => { if (toolsHost) toolsHost.append(node); else content.before(node); };
   const resource = `/preview-files/${encodeURIComponent(path)}`;
   const controller = new AbortController();
   const textLimit = 256 * 1024;
@@ -147,7 +149,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     tools.setAttribute("aria-label", "PDF 连续阅读与缩放");
     const hint = document.createElement("span"); hint.textContent = "连续阅读";
     tools.append(pageNumber, total, hint, zoom);
-    content.before(tools);
+    mountTools(tools);
     content.classList.add("pdf-canvas-container");
     let generation = 0, busy = false;
     const wanted = new Set<number>();
@@ -174,9 +176,10 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     }
     function currentPage() {
       const top = content.getBoundingClientRect().top;
-      // Ignore a thin tail of the previous page, especially when the last
-      // page is shorter than the reading viewport and cannot align at its top.
-      const focus = top + Math.min(200, content.clientHeight / 2);
+      // Pick the page that owns most of the reading viewport. A fixed 200px
+      // threshold misreports the last page when the viewport is taller than a
+      // scaled page and the container cannot scroll it all the way to the top.
+      const focus = top + Math.min(320, content.clientHeight * 0.4);
       const index = frames.findIndex(frame => frame.getBoundingClientRect().bottom > focus);
       return Math.max(0, index);
     }
@@ -264,6 +267,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       const value = Number(pageNumber.value);
       if (!Number.isInteger(value) || value < 1 || value > pdf.numPages) { updatePosition(); return; }
       content.scrollTop += frames[value - 1].getBoundingClientRect().top - content.getBoundingClientRect().top;
+      pageNumber.value = String(value);
     }, {signal: controller.signal});
     function relayout() {
       const index = currentPage();
@@ -376,7 +380,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       spreadsheetTabs = document.createElement("nav");
       spreadsheetTabs.className = "preview-sheet-tabs";
       spreadsheetTabs.setAttribute("aria-label", "工作表");
-      content.before(spreadsheetTabs);
+      mountTools(spreadsheetTabs);
       for (const name of result.names) {
         const button = document.createElement("button");
         button.type = "button";

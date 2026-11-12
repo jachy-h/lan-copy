@@ -55,9 +55,9 @@ select {
 	-webkit-tap-highlight-color: transparent;
 }
 .shell {
-	width: min(1120px, calc(100% - 32px));
+	width: 100%;
 	margin: 0 auto;
-	padding: 16px 0 20px;
+	padding: 16px max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
 }
 /* A fixed-height navigation bar keeps both pages aligned. */
 .topbar {
@@ -699,7 +699,7 @@ p {
 	font-size: 12px;
 }
 footer {
-	margin-top: 23px;
+	margin-top: 14px;
 	color: #8b97aa;
 	text-align: center;
 	font-size: 11px;
@@ -740,7 +740,7 @@ footer {
 	.shell {
 		width: min(100% - 22px, 860px);
 		padding-top: 12px;
-		padding-bottom: calc(28px + env(safe-area-inset-bottom));
+		padding-bottom: calc(10px + env(safe-area-inset-bottom));
 	}
 	.logo {
 		width: 30px;
@@ -1438,7 +1438,7 @@ button:disabled { opacity: .5; cursor: default; }
 
 /* Desktop workspace: persistent resource tree beside the file list or preview. */
 .tree-toggle, .tree-close, .tree-backdrop { display: none; }
-.explorer-workspace { display: grid; grid-template-columns: 258px minmax(0, 1fr); padding: 0; overflow: hidden; }
+.explorer-workspace { display: grid; grid-template-columns: clamp(240px, 17vw, 320px) minmax(0, 1fr); padding: 0; overflow: hidden; }
 .explorer-sidebar { display: flex; flex-direction: column; min-width: 0; min-height: 0; border-right: 1px solid var(--line); background: #f8fafd; }
 .explorer-sidebar-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex: none; min-height: 48px; padding: 10px 14px; border-bottom: 1px solid var(--line); color: #4f5f78; font-size: 12px; letter-spacing: .02em; }
 .explorer-sidebar-head strong { font-weight: 650; }
@@ -1475,8 +1475,8 @@ button:disabled { opacity: .5; cursor: default; }
 .inline-preview > .preview-content { flex: 1; min-height: 0; max-height: none; }
 
 @media (min-width: 861px) {
- .explorer-workspace { height: calc(100dvh - 148px); min-height: 480px; }
- .explorer-workspace + footer { margin-top: 10px; }
+ .explorer-workspace { height: calc(100dvh - 104px); min-height: 480px; }
+ .explorer-workspace + footer { margin-top: 6px; }
 }
 
 @media (max-width: 860px) {
@@ -1502,4 +1502,53 @@ button:disabled { opacity: .5; cursor: default; }
 
 @media (max-width: 639px) {
  .tree-open .explorer-sidebar { top: calc(96px + env(safe-area-inset-top)); }
+}
+
+@media (min-width: 1500px) {
+ .explorer-main { padding: 18px 24px 10px; }
+ .file-list-header, .explorer-row { grid-template-columns: minmax(360px, 3fr) minmax(160px, 1fr) minmax(120px, .75fr) minmax(90px, .55fr) 44px; column-gap: 18px; }
+}
+
+/* Wide screens use the free horizontal space for compose and history side by side. */
+@media (min-width: 1100px) {
+ .shell-transfer { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); align-items: start; gap: 20px; }
+ .shell-transfer > .text-card { position: sticky; top: 70px; min-height: 0; margin: 0; }
+ .shell-transfer > .files-section.text-section { min-height: 0; margin-top: 0; }
+ .shell-transfer > footer { grid-column: 1 / -1; margin-top: 0; }
+}
+
+/* Full-width preview with a compact, single-row toolbar. */
+.preview-shell { width: 100%; max-width: none; }
+.preview-toolbar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; }
+.preview-toolbar h1, .preview-pane-toolbar h2 { order: initial; flex: 1 1 auto; flex-basis: auto; min-width: 0; margin: 0; font-size: 16px; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-toolbar .preview-status { flex: 0 1 auto; min-width: 0; max-width: 38%; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.preview-toolbar .preview-status.preview-status-error { max-width: 42%; max-height: none; color: #9c341b; }
+.preview-toolbar-tools { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.preview-toolbar-tools:empty { display: none; }
+.preview-toolbar-tools .preview-pdf-tools, .preview-toolbar-tools .preview-sheet-tabs { flex: none; margin: 0; padding: 0; gap: 4px; }
+.preview-toolbar-tools .preview-sheet-tabs { overflow-x: auto; }
+.preview-toolbar-tools .preview-sheet-tabs button { min-height: 30px; padding: 3px 8px; font-size: 11px; }
+.preview-toolbar-tools .preview-pdf-tools input { width: 52px; }
+.preview-toolbar-tools .preview-pdf-tools select { flex: none; width: auto; }
+.preview-toolbar-tools .preview-pdf-tools span { white-space: nowrap; }
+.preview-toolbar .preview-text-tools { flex: none; margin: 0; gap: 6px; font-size: 11px; }
+.preview-toolbar .preview-text-tools label { white-space: nowrap; }
+.preview-toolbar .preview-text-tools select { min-height: 30px; height: 30px; padding: 2px 6px; border: 1px solid var(--line); border-radius: 7px; background: #fff; color: var(--ink); font-size: 12px; }
+.preview-toolbar .secondary { flex: none; min-height: 32px; height: 32px; padding: 4px 10px; font-size: 11px; }
+.preview-pane-toolbar .preview-close { display: none; }
+.preview-pane-toolbar #previewDownload { margin-left: 0; }
+
+@media (max-width: 600px) {
+ .preview-toolbar { gap: 4px; }
+ .preview-toolbar h1, .preview-pane-toolbar h2 { font-size: 13px; }
+ .preview-toolbar .preview-status { display: none; }
+ .preview-toolbar .preview-status.preview-status-error { display: block; max-width: 40%; }
+ .preview-toolbar .preview-text-tools label { display: none; }
+ .preview-toolbar .preview-text-tools select { max-width: 92px; font-size: 12px; }
+ .preview-toolbar #previewBack { width: 32px; padding: 0; font-size: 0; }
+ .preview-toolbar #previewBack::before { content: '←'; font-size: 16px; }
+ .preview-toolbar .secondary { padding: 4px 7px; min-height: 30px; height: 30px; }
+ .preview-toolbar-tools .preview-pdf-tools span { display: none; }
+ .preview-toolbar-tools .preview-pdf-tools input { width: 42px; }
+ .preview-toolbar-tools .preview-pdf-tools select { min-width: 66px; }
 }
