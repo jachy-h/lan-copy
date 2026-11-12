@@ -25,6 +25,10 @@ type Mutation = 'mkdir' | 'move' | 'rename' | 'delete'
 const currentPath = ref(new URLSearchParams(location.hash.slice(1)).get('path') || '')
 const previewPath = ref('')
 const treeOpen = ref(false)
+const SIDEBAR_MIN = 220
+const SIDEBAR_MAX = 480
+const sidebarWidth = ref(loadSidebarWidth())
+const resizingSidebar = ref(false)
 const treeEntries = ref(new Map<string, FileEntry[]>())
 const treeExpanded = ref(new Set<string>(['']))
 const treeLoading = ref(new Set<string>())
@@ -209,8 +213,74 @@ function activateTreeRow(row: TreeRow, trigger: HTMLElement | null) {
     else if (row.status === 'empty') toggleTree(row.path)
     return
   }
-  if (row.directory) navigate(row.path)
-  else openPreview(row.path, trigger)
+  if (row.directory) {
+    if (row.path === currentPath.value && !previewPath.value) {
+      const expanded = new Set(treeExpanded.value)
+      if (expanded.has(row.path)) expanded.delete(row.path)
+      else { expanded.add(row.path); void loadTreeDirectory(row.path) }
+      treeExpanded.value = expanded
+      return
+    }
+    navigate(row.path)
+  } else openPreview(row.path, trigger)
+}
+
+function clampSidebarWidth(width: number) {
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(width)))
+}
+function defaultSidebarWidth() {
+  return Math.min(320, Math.max(240, Math.round(window.innerWidth * 0.17)))
+}
+function loadSidebarWidth() {
+  try {
+    const saved = Number(localStorage.getItem('lan-copy.files.tree-width'))
+    if (Number.isFinite(saved) && saved > 0) return clampSidebarWidth(saved)
+  } catch {}
+  return defaultSidebarWidth()
+}
+function saveSidebarWidth() {
+  try { localStorage.setItem('lan-copy.files.tree-width', String(sidebarWidth.value)) } catch {}
+}
+let resizePointerId: number | null = null
+let resizeStartX = 0
+let resizeStartWidth = 0
+function startSidebarResize(event: PointerEvent) {
+  if (event.button !== 0) return
+  resizePointerId = event.pointerId
+  resizeStartX = event.clientX
+  resizeStartWidth = sidebarWidth.value
+  resizingSidebar.value = true
+  ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+  event.preventDefault()
+}
+function moveSidebarResize(event: PointerEvent) {
+  if (!resizingSidebar.value || event.pointerId !== resizePointerId) return
+  sidebarWidth.value = clampSidebarWidth(resizeStartWidth + event.clientX - resizeStartX)
+}
+function endSidebarResize(event: PointerEvent) {
+  if (event.pointerId !== resizePointerId) return
+  resizingSidebar.value = false
+  resizePointerId = null
+  try { (event.currentTarget as HTMLElement).releasePointerCapture(event.pointerId) } catch {}
+  saveSidebarWidth()
+}
+function resetSidebarWidth() {
+  sidebarWidth.value = defaultSidebarWidth()
+  saveSidebarWidth()
+}
+function resizeSidebarBy(delta: number) {
+  sidebarWidth.value = clampSidebarWidth(sidebarWidth.value + delta)
+  saveSidebarWidth()
+}
+function onSidebarResizeKey(event: KeyboardEvent) {
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+    event.preventDefault()
+    resizeSidebarBy(event.key === 'ArrowLeft' ? -16 : 16)
+  } else if (event.key === 'Home' || event.key === 'End') {
+    event.preventDefault()
+    sidebarWidth.value = event.key === 'Home' ? SIDEBAR_MIN : SIDEBAR_MAX
+    saveSidebarWidth()
+  }
 }
 
 async function loadDirectory() {
@@ -600,7 +670,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath) }" aria-label="共享空间文件列表">
+  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath), 'resizing-sidebar': resizingSidebar }" :style="{ '--sidebar-width': `${sidebarWidth}px` }" aria-label="共享空间文件列表">
     <aside class="explorer-sidebar" aria-label="共享资源目录">
       <div class="explorer-sidebar-head">
         <strong>共享资源</strong>
@@ -619,6 +689,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </aside>
+    <div class="explorer-resizer" role="separator" aria-orientation="vertical" aria-label="调整资源目录宽度" :aria-valuemin="SIDEBAR_MIN" :aria-valuemax="SIDEBAR_MAX" :aria-valuenow="sidebarWidth" tabindex="0" @pointerdown="startSidebarResize" @pointermove="moveSidebarResize" @pointerup="endSidebarResize" @pointercancel="endSidebarResize" @dblclick="resetSidebarWidth" @keydown="onSidebarResizeKey" />
     <div v-if="treeOpen" class="tree-backdrop" aria-hidden="true" @click="treeOpen = false" />
     <div class="explorer-main">
       <FilePreviewPane v-if="previewPath" :key="previewPath" :path="previewPath" @close="closePreview" />

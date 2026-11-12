@@ -109,6 +109,27 @@ describe('FileExplorer', () => {
     expect(wrapper.get('.tree-status').text()).toBe('空文件夹')
   })
 
+  it('collapses the current expanded folder when its tree label is clicked again', async () => {
+    const folder = () => wrapper.findAll('.tree-row .tree-label').find(label => label.text().includes('beta'))!
+    await folder().trigger('click')
+    await flushPromises()
+    expect(wrapper.get('.tree-status').text()).toBe('空文件夹')
+    await folder().trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.tree-status').exists()).toBe(false)
+  })
+
+  it('resizes the resource tree with the keyboard and saves the width', async () => {
+    const handle = wrapper.get('.explorer-resizer')
+    const initial = Number(handle.attributes('aria-valuenow'))
+    await handle.trigger('keydown', { key: 'ArrowRight' })
+    const width = Math.min(480, initial + 16)
+    expect(wrapper.get('.explorer-resizer').attributes('aria-valuenow')).toBe(String(width))
+    expect(localStorage.getItem('lan-copy.files.tree-width')).toBe(String(width))
+    await wrapper.get('.explorer-resizer').trigger('dblclick')
+    expect(wrapper.get('.explorer-resizer').attributes('aria-valuenow')).toBe(String(initial))
+  })
+
   it('opens file previews in the inline pane and returns to the list', async () => {
     await wrapper.get('.explorer-row[data-path="recent.pdf"] .file-name').trigger('click')
     await flushPromises()

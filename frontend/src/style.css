@@ -1621,3 +1621,13 @@ button:disabled { opacity: .5; cursor: default; }
  .explorer-hint { flex-direction: column; align-items: flex-start; gap: 4px; }
  .explorer-hint #entrySummary { margin-left: 0; text-align: left; }
 }
+
+/* Resizable resource tree. */
+.explorer-workspace { grid-template-columns: var(--sidebar-width, 280px) 6px minmax(0, 1fr); }
+.explorer-sidebar { border-right: 0; }
+.explorer-resizer { position: relative; z-index: 3; min-width: 6px; cursor: col-resize; touch-action: none; background: transparent; }
+.explorer-resizer::before { content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: var(--line); transition: background-color .16s ease, width .16s ease; }
+.explorer-resizer:hover::before, .explorer-resizer:focus-visible::before, .resizing-sidebar .explorer-resizer::before { width: 2px; background: #b8cff5; }
+.explorer-resizer:focus-visible { outline: 2px solid #75a2ff; outline-offset: -2px; }
+.resizing-sidebar, .resizing-sidebar * { cursor: col-resize !important; user-select: none !important; }
+@media (max-width: 860px) { .explorer-resizer { display: none; } }
