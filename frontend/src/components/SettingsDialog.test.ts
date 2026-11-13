@@ -19,6 +19,7 @@ beforeEach(async () => {
     if (url === '/api/update/check') return response(noUpdate)
     if (url === '/api/settings/autostart') return response({ enabled: false, available: false, reason: '本机不可用' })
     if (url === '/api/settings/upload-resources') return response({ config: { concurrentUploads: 3, stagingGiB: 20, idleTimeoutSeconds: 60 }, editable: true })
+    if (url === '/api/settings/fragments') return response({ expiryDays: init?.method === 'PUT' ? 14 : 7, defaultExpiryDays: 7, minExpiryDays: 1, maxExpiryDays: 365, editable: true })
     if (url === '/api/settings/deploy-token') {
       if (init?.method === 'PUT') return response({ configured: true, source: 'file' })
       if (init?.method === 'DELETE') return response({ configured: false, source: 'none' })
@@ -72,6 +73,20 @@ describe('SettingsDialog', () => {
     await flushPromises()
     const write = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/upload-resources' && init?.method === 'PUT')
     expect(new Headers(write?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('upload-resources')
+  })
+
+  it('saves the fragment expiry in days with the local action header', async () => {
+    ;(inDialog('[data-settings-tab="general"]') as HTMLButtonElement).click()
+    const input = inDialog('.fragment-expiry-days') as HTMLInputElement
+    expect(input.value).toBe('7')
+    input.value = '14'; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }))
+    ;(inDialog('.fragment-setting-save') as HTMLButtonElement).click()
+    await flushPromises()
+    const write = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/fragments' && init?.method === 'PUT')
+    expect(write).toBeTruthy()
+    expect(new Headers(write?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('fragments')
+    expect(JSON.parse(String(write?.[1]?.body))).toEqual({ expiryDays: 14 })
+    expect(inDialog('.fragment-status').textContent).toContain('已保存')
   })
 
   it('saves and deletes the deploy token from the settings page', async () => {

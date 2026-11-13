@@ -8,3 +8,15 @@
 - 平台实现使用文件名后缀和构建约束，放在所属功能包内；测试与实现相邻。保留跨平台编译与运行语义。
 - 保持包小而内聚，按实际需求定义接口；不机械引入 `pkg/`、`utils`、多 module、分层框架或一类型一接口。
 - 重构保持现有 API、参数、数据格式和恢复语义兼容。移动文件时同步检查资源嵌入、构建输入、链接变量、测试工作目录及更新身份校验，并运行受影响测试与构建检查。
+
+<!-- aspec:begin -->
+<!-- aspec 0.2.0 · auto-generated, do not edit · src ~/.aspec -->
+
+## Version Control
+For every versioned development task:
+
+1. Write the proposed implementation plan to `docs/vx.y.z-plan.md` and create or update the matching `docs/vx.y.z-progress.md`.
+2. Present the plan to the user and wait for their explicit approval before changing source code, tests, version metadata, generated artifacts, or release assets for that version.
+3. If review feedback changes the scope or approach, update the plan and present the revised plan again. Do not begin development until the revised plan is explicitly approved.
+4. After approval, continuously update `docs/vx.y.z-progress.md` while implementing and verifying the work. Keep unfinished, blocked, and verified items distinct.
+<!-- aspec:end -->

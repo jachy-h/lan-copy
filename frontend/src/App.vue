@@ -2,7 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import FileExplorer from './components/FileExplorer.vue'
-import TextTransfer from './components/TextTransfer.vue'
+import FragmentTransfer from './components/FragmentTransfer.vue'
 import PrintQueue from './components/PrintQueue.vue'
 import UploadProgress from './components/UploadProgress.vue'
 import { close as closeContextMenu } from './ui/contextMenu'
@@ -19,7 +19,7 @@ const sharedPrintPath = ref(new URLSearchParams(location.search).get('file') || 
 const draft = ref('')
 let shutdown = false
 function onShutdown() { shutdown = true }
-function updateTitle() { document.title = `${{files:'内网空间', transfer:'文本快传', print:'打印队列'}[page.value]} · Lan Copy` }
+function updateTitle() { document.title = `${{files:'内网空间', transfer:'碎片快传', print:'打印队列'}[page.value]} · Lan Copy` }
 async function syncRoute() {
   closeContextMenu(false)
   page.value = currentPage()
@@ -57,7 +57,7 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
   <UploadProgress />
   <main class="shell" :class="{ 'shell-transfer': page === 'transfer', 'shell-print': page === 'print' }">
     <FileExplorer v-if="page === 'files'" @print="printSharedFile" />
-    <TextTransfer v-else-if="page === 'transfer'" v-model="draft" />
+    <FragmentTransfer v-else-if="page === 'transfer'" v-model="draft" />
     <PrintQueue v-else :shared-path="sharedPrintPath" @local-file="clearSharedPrintFile" />
   </main>
   <div id="fileMenu" class="file-menu" role="menu" hidden></div>

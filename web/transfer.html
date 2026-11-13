@@ -4,27 +4,27 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#111827">
-    <title>Lan Copy · 局域网快传</title>
+    <title>碎片快传 · Lan Copy</title>
     <link rel="icon" href="/logo/favicon-32x32.svg">
-    <script type="module" crossorigin src="/_frontend/assets/engine-BIFpMt45.js"></script>
-    <script type="module" crossorigin src="/_frontend/assets/app-B3VohstT.js"></script>
-    <link rel="stylesheet" crossorigin href="/_frontend/assets/engine-B5_xBhnC.css">
+    <script type="module" crossorigin src="/_frontend/assets/engine-Cur6ulBB.js"></script>
+    <script type="module" crossorigin src="/_frontend/assets/app-CWzqLp4J.js"></script>
+    <link rel="stylesheet" crossorigin href="/_frontend/assets/engine-D_oviywy.css">
   </head>
   <body>
     <div id="app">
     <header class="topbar" data-initial-shell>
       <div class="brand"><img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt=""><div><h1>Lan Copy</h1></div></div>
-      <nav class="page-nav" aria-label="页面导航"><a href="/" >内网空间</a><a href="/transfer-text" aria-current="page">文本快传</a></nav>
+      <nav class="page-nav" aria-label="页面导航"><a href="/" >内网空间</a><a href="/transfer-text" aria-current="page">碎片快传</a></nav>
       <div class="hero-actions"></div>
     </header>
 <main class="shell shell-transfer" data-initial-shell aria-busy="true">
-      <section class="text-card" inert>
-        <textarea rows="12" placeholder="粘贴文字、链接、验证码或临时笔记…" aria-label="要保存的文本"></textarea>
-        <div class="text-compose-foot"><span>0 / 100,000 字</span><button class="primary" type="button">保存</button></div>
+      <section class="text-card fragment-compose inert">
+        <textarea rows="4" placeholder="写点文字，也可以粘贴图片…" aria-label="要保存的文本"></textarea>
+        <div class="fragment-compose-actions"><button class="secondary fragment-image-picker" type="button" aria-label="添加图片（单张最大 20 MiB）">＋ 图片</button><div class="fragment-compose-submit"><span>0 / 100,000 字</span><button class="primary fragment-save" type="button">保存</button></div></div>
       </section>
       <section class="files-section text-section">
-        <div class="section-head text-section-head"><p>正在读取…</p><button class="icon-btn" type="button" title="刷新" aria-label="刷新内容" inert><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"/></svg></button></div>
-        <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取内容</strong><p>请稍候</p></div>
+        <div class="section-head text-section-head"><p>正在读取…</p><button class="icon-btn" type="button" title="刷新" aria-label="刷新碎片" inert><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-3M4 4v4h4m-4 5a8.1 8.1 0 0 0 15.5 3M20 20v-4h-4"/></svg></button></div>
+        <div class="empty" role="status"><div aria-hidden="true">…</div><strong>正在读取碎片</strong><p>请稍候</p></div>
       </section>
     </main>
     </div>

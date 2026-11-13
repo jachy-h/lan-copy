@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"lan-copy/internal/filestore"
 
@@ -104,7 +105,8 @@ func TestTextChangesPublishUnifiedEvents(t *testing.T) {
 
 func TestTextStoreRecoversBackupAtStartup(t *testing.T) {
 	dir := t.TempDir()
-	want := []byte(`[{"id":"0011223344556677","content":"recover me","created":"2026-01-01T00:00:00Z"}]`)
+	created := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	want := []byte(`[{"id":"0011223344556677","content":"recover me","created":"` + created + `"}]`)
 	if err := os.WriteFile(filepath.Join(dir, textstore.BackupFileName), want, 0o600); err != nil {
 		t.Fatal(err)
 	}

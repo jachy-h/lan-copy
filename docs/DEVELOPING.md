@@ -59,9 +59,9 @@ make frontend-release # 发布构建使用：校验、构建并同步前端 / re
 make frontend-dev   # 启动 Vite 页面并代理到本机 Go 服务 / run Vite pages with a proxy to Go
 ```
 
-`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、文本快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
+`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、碎片快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
 
-内网空间 `/` 与文本快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。`preview.html` 继续作为独立预览入口。
+内网空间 `/` 与碎片快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。目录树由 `FileTree.vue` 共享给内网空间侧栏和碎片转存弹窗。碎片快传的 `FragmentTransfer.vue` 管理文字和图片的混合发布、纯文本编辑、到期显示、瀑布流卡片、长文展开、粘贴/拖拽上传及删除；已发布文字仍按轻量 Markdown 子集渲染；`FragmentSaveDialog.vue` 通过 `/api/filesystem` 选择目录并调用 `/api/texts/{id}/save` 转存。`preview.html` 继续作为独立预览入口。
 本地开发时先以 `go run . -listen :8080` 启动服务，再运行 `make frontend-dev`；Vite 默认代理到 `http://127.0.0.1:8080`，可用 `LAN_COPY_PROXY` 指定其他 Go 地址。开发代理会把同源动作请求的 Origin 规范到 Go 目标，不影响生产访问策略。
 Run `go run . -listen :8080` before `make frontend-dev`. Vite proxies to `http://127.0.0.1:8080` by default; set `LAN_COPY_PROXY` to use another Go instance. The dev proxy normalizes action request Origins to the Go target without changing production access policy.
 `frontend/` contains manually maintained Vue/TypeScript sources; `web/` contains the Vite-generated production assets committed with the source. Shared files, settings, text transfer, sharing/status controls, and standalone preview are managed by Vue pages. A standalone `go build .` uses the committed assets and does not need Node.js. The release command `make build` automatically installs frontend dependencies, runs type checks and tests, builds the frontend, syncs its embedded assets, and then packages the Go binaries; it requires Node.js/npm. Remaining manual checks are tracked in [the v0.5.0 progress record](v0.5.0-progress.md).
@@ -88,7 +88,7 @@ Windows 下也可使用 `build.bat` / On Windows you can also use `build.bat`：
 
 ## v0.5.5 打印队列首期
 
-顶栏分享按钮左侧的打印入口进入 `/print-queue`，与内网空间、文本快传共用 SPA。`frontend/print.html` 提供直接访问的加载骨架，由 Vite 构建并同步到 `web/print.html`。
+顶栏分享按钮左侧的打印入口进入 `/print-queue`，与内网空间、碎片快传共用 SPA。`frontend/print.html` 提供直接访问的加载骨架，由 Vite 构建并同步到 `web/print.html`。
 
 Windows 主机通过系统已安装的打印机和驱动提交一张 Lan Copy 测试页，不需要开启 Windows 打印机共享或安装额外打印工具。`internal/printing` 负责原生枚举、GDI 测试页及本次启动后的最近 50 条任务；HTTP 只负责动作来源校验和协议。其他平台展示不支持提示。任务“已提交”不代表已出纸，实际结果在设备或 Windows 队列中确认。本版不包含普通文件打印或完整系统队列管理。
 

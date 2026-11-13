@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"lan-copy/internal/filestore"
 	"lan-copy/internal/textstore"
@@ -26,7 +27,7 @@ func TestStartupMigratesLegacyInternalDataAndRecoversIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	legacyTexts := []byte(`[{"id":"0011223344556677","content":"migrated text","created":"2026-01-01T00:00:00Z"}]`)
+	legacyTexts := []byte(`[{"id":"0011223344556677","content":"migrated text","created":"` + time.Now().UTC().Add(-time.Hour).Format(time.RFC3339) + `"}]`)
 	if err := os.WriteFile(filepath.Join(sharedDir, textstore.BackupFileName), legacyTexts, 0o600); err != nil {
 		t.Fatal(err)
 	}

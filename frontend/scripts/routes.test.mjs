@@ -25,7 +25,8 @@ test('dev text route serves the shared app and redirects legacy GET/HEAD with qu
       if (method === 'GET') {
         const html = await page.text()
         assert.ok(html.includes('/src/pages/app.ts'))
-        assert.ok(html.includes('正在读取内容'))
+        assert.ok(html.includes('正在读取碎片'))
+        assert.ok(html.includes('添加图片'))
       }
     }
   } finally { await server.close() }

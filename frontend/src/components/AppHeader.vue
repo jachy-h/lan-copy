@@ -65,7 +65,7 @@ onBeforeUnmount(() => { usageController?.abort() })
     </div>
     <nav class="page-nav" aria-label="页面导航">
       <a :href="filesHref" :aria-current="page === 'files' ? 'page' : undefined" @click="emit('navigate', $event, 'files')">内网空间</a>
-      <a href="/transfer-text" :aria-current="page === 'transfer' ? 'page' : undefined" @click="emit('navigate', $event, 'transfer')">文本快传</a>
+      <a href="/transfer-text" :aria-current="page === 'transfer' ? 'page' : undefined" @click="emit('navigate', $event, 'transfer')">碎片快传</a>
     </nav>
     <div class="hero-actions">
       <button v-if="transferVisible" class="share-access-button transfer-access-button" :class="[uploadProgress.phase, { active: transferActive }]" type="button" :style="{ '--transfer-progress': `${uploadProgress.progress ?? 0}%` }" :aria-label="transferLabel" :title="transferLabel" @click="openUpload"><span class="transfer-button-ring" aria-hidden="true"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V5"/><path d="m7 10 5-5 5 5"/><path d="M6 19h12"/></svg><span v-if="uploadProgress.phase === 'complete'" class="transfer-button-dot" aria-hidden="true"></span><span v-else-if="uploadProgress.phase === 'error'" class="transfer-button-dot error" aria-hidden="true"></span></button>

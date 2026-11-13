@@ -1,0 +1,15 @@
+{
+  "lockfileVersion": 1,
+  "mode": "copy",
+  "source": "/Users/houjiaqi/.aspec",
+  "sourceVersion": "0.2.0",
+  "units": {
+    "rule:version-control": {
+      "id": "version-control",
+      "mode": "copy",
+      "sha256": "96aa863493d5340b2d131635b1283b2bcb9a30b230de727b1df58d3aeb909009",
+      "target": "AGENTS.md",
+      "type": "rules"
+    }
+  }
+}

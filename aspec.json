@@ -1,0 +1,18 @@
+{
+  "exclude": {
+    "rules": [],
+    "scripts": [],
+    "skills": []
+  },
+  "include": {
+    "rules": [],
+    "scripts": [],
+    "skills": []
+  },
+  "mode": "copy",
+  "presets": [
+    "base"
+  ],
+  "source": "/Users/houjiaqi/.aspec",
+  "version": 1
+}

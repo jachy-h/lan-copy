@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 	"sync/atomic"
 	"time"
 
@@ -41,19 +40,7 @@ func (b *idleTimeoutBody) Read(p []byte) (int, error) {
 func (b *idleTimeoutBody) Close() error { b.timer.Stop(); return b.body.Close() }
 
 func validUploadResourceRequest(r *http.Request) bool {
-	if !isLocalRequest(r) || r.Header.Get("X-Lan-Copy-Action") != "upload-resources" {
-		return false
-	}
-	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" {
-		return false
-	}
-	if origin := r.Header.Get("Origin"); origin != "" {
-		u, err := url.Parse(origin)
-		if err != nil || u.Host != r.Host || (u.Scheme != "http" && u.Scheme != "https") {
-			return false
-		}
-	}
-	return true
+	return validLocalActionRequest(r, "upload-resources")
 }
 
 func (s *Server) uploadResourceSettings(w http.ResponseWriter, r *http.Request) {

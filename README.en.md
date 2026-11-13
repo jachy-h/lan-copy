@@ -17,7 +17,7 @@ Run Lan Copy on one computer to share files and text with phones, tablets, and c
    - **Windows**: double-click `lan-copy.exe`. Your browser opens automatically.
    - **macOS**: in Terminal, change to the extracted folder and run `./lan-copy`. Then open <http://localhost:8080>.
 3. Click the **Share icon** at the top of the page. Other devices on the same Wi-Fi / LAN can scan the QR code or open the LAN address in their browser.
-4. Drop files or folders into **内网空间** (Shared Space). Publish and copy text in **文本快传** (Text Transfer).
+4. Drop files or folders into **内网空间** (Shared Space). In **碎片快传** (Fragment Transfer), publish text or paste, drag and drop images, and save a fragment into any folder in Shared Space. Fragments expire after 7 days by default; change this under **Settings → General**.
 
 When finished, click **关闭软件** (Shut Down) at the top right. On Windows, pressing any key closes the console while the service keeps running.
 

@@ -10,6 +10,7 @@ import { close as closeContextMenu, open as openContextMenu, register as registe
 import EmptyState from './EmptyState.vue'
 import FileBreadcrumbs from './FileBreadcrumbs.vue'
 import FileListHeader from './FileListHeader.vue'
+import FileTree from './FileTree.vue'
 import FileExplorerRow, { type FileEntry } from './FileExplorerRow.vue'
 import FilePreviewPane from './FilePreviewPane.vue'
 import FileEditDialog from './FileEditDialog.vue'
@@ -19,20 +20,16 @@ const emit = defineEmits<{ print: [path: string] }>()
 
 interface FilesystemResult { entries: FileEntry[] }
 interface MenuItem { label?: string; danger?: boolean; separator?: boolean; action?: () => void | Promise<void> }
-interface TreeRow { key: string; label: string; path: string; depth: number; directory: boolean; status?: 'loading' | 'error' | 'empty'; error?: string }
 type Mutation = 'mkdir' | 'move' | 'rename' | 'delete'
 
 const currentPath = ref(new URLSearchParams(location.hash.slice(1)).get('path') || '')
 const previewPath = ref('')
 const treeOpen = ref(false)
+const fileTree = ref<InstanceType<typeof FileTree> | null>(null)
 const SIDEBAR_MIN = 220
 const SIDEBAR_MAX = 480
 const sidebarWidth = ref(loadSidebarWidth())
 const resizingSidebar = ref(false)
-const treeEntries = ref(new Map<string, FileEntry[]>())
-const treeExpanded = ref(new Set<string>(['']))
-const treeLoading = ref(new Set<string>())
-const treeErrors = ref(new Map<string, string>())
 const search = ref('')
 const entries = ref<FileEntry[]>([])
 const selectedPaths = ref(new Set<string>())
@@ -77,27 +74,6 @@ const breadcrumbs = computed(() => {
   const parts = currentPath.value ? currentPath.value.split('/') : []
   return [{ name: '全部文件', path: '' }, ...parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join('/') }))]
 })
-const treeRows = computed<TreeRow[]>(() => {
-  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
-  const rows: TreeRow[] = [{ key: 'tree-root', label: '全部文件', path: '', depth: 0, directory: true }]
-  function append(path: string, depth: number) {
-    if (!treeExpanded.value.has(path)) return
-    if (treeLoading.value.has(path)) { rows.push({ key: `${path}::loading`, label: '正在读取…', path, depth, directory: true, status: 'loading' }); return }
-    const error = treeErrors.value.get(path)
-    if (error) { rows.push({ key: `${path}::error`, label: error, path, depth, directory: true, status: 'error', error }); return }
-    const items = [...(treeEntries.value.get(path) || [])].sort((a, b) => {
-      if (a.directory !== b.directory) return a.directory ? -1 : 1
-      return collator.compare(a.name, b.name)
-    })
-    if (!items.length) { rows.push({ key: `${path}::empty`, label: '空文件夹', path, depth, directory: true, status: 'empty' }); return }
-    for (const item of items) {
-      rows.push({ key: item.path, label: item.name, path: item.path, depth, directory: item.directory })
-      if (item.directory) append(item.path, depth + 1)
-    }
-  }
-  append('', 1)
-  return rows
-})
 const moveBreadcrumbs = computed(() => {
   const parts = movePath.value ? movePath.value.split('/') : []
   return [{ name: '全部文件', path: '' }, ...parts.map((name, index) => ({ name, path: parts.slice(0, index + 1).join('/') }))]
@@ -116,7 +92,6 @@ let events: EventSource | null = null
 let stopped = false
 let uploadActive = false
 let dragDepth = 0
-const treeVersions = new Map<string, number>()
 let previewReturnFocus: HTMLElement | null = null
 
 function formatBytes(bytes: number) {
@@ -156,75 +131,6 @@ async function copyShareLinks(items: FileEntry[]) {
 function thumbnailHref(item: FileEntry) { return `/thumbnails/${encodeURIComponent(item.path)}?${new URLSearchParams({ v: `${item.modified}-${item.size}` })}` }
 function requestPath(path: string) { return `/api/filesystem?${new URLSearchParams({ path, q: search.value.trim() })}` }
 function parentPath(path: string) { return path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '' }
-function treeFileIcon(label: string) { return label.split('.').pop()?.slice(0, 3) || '文件' }
-function isTreeActive(row: TreeRow) {
-  if (row.status || !row.path) return !row.status && !previewPath.value && currentPath.value === ''
-  if (!row.directory) return previewPath.value === row.path
-  return !previewPath.value && currentPath.value === row.path
-}
-function setTreeLoading(path: string, loading: boolean) {
-  const next = new Set(treeLoading.value)
-  if (loading) next.add(path); else next.delete(path)
-  treeLoading.value = next
-}
-function setTreeError(path: string, error = '') {
-  const next = new Map(treeErrors.value)
-  if (error) next.set(path, error); else next.delete(path)
-  treeErrors.value = next
-}
-async function loadTreeDirectory(path: string, force = false) {
-  if (stopped || (!force && treeEntries.value.has(path))) return
-  const version = (treeVersions.get(path) || 0) + 1
-  treeVersions.set(path, version)
-  setTreeLoading(path, true); setTreeError(path)
-  try {
-    const result = await requestJSON<FilesystemResult>(`/api/filesystem?${new URLSearchParams({ path })}`, { cache: 'no-store' })
-    if (stopped || version !== treeVersions.get(path)) return
-    treeEntries.value = new Map(treeEntries.value).set(path, result.entries)
-  } catch (error) {
-    if (stopped || version !== treeVersions.get(path)) return
-    setTreeError(path, message(error, '读取失败'))
-  } finally {
-    if (version === treeVersions.get(path)) setTreeLoading(path, false)
-  }
-}
-async function expandTreeDirectories(path: string) {
-  const parts = path ? path.split('/') : []
-  const directories = ['', ...parts.map((_, index) => parts.slice(0, index + 1).join('/'))]
-  const expanded = new Set(treeExpanded.value)
-  directories.forEach(directory => expanded.add(directory))
-  treeExpanded.value = expanded
-  await Promise.all(directories.filter(directory => !treeEntries.value.has(directory)).map(directory => loadTreeDirectory(directory)))
-}
-function toggleTree(path: string) {
-  const expanded = new Set(treeExpanded.value)
-  if (expanded.has(path)) expanded.delete(path)
-  else { expanded.add(path); void loadTreeDirectory(path) }
-  treeExpanded.value = expanded
-}
-async function refreshTree() {
-  const paths = new Set(['', ...[...treeExpanded.value].filter(path => treeEntries.value.has(path))])
-  await Promise.all([...paths].map(path => loadTreeDirectory(path, true)))
-}
-function activateTreeRow(row: TreeRow, trigger: HTMLElement | null) {
-  treeOpen.value = false
-  if (row.status) {
-    if (row.status === 'error') void loadTreeDirectory(row.path, true)
-    else if (row.status === 'empty') toggleTree(row.path)
-    return
-  }
-  if (row.directory) {
-    if (row.path === currentPath.value && !previewPath.value) {
-      const expanded = new Set(treeExpanded.value)
-      if (expanded.has(row.path)) expanded.delete(row.path)
-      else { expanded.add(row.path); void loadTreeDirectory(row.path) }
-      treeExpanded.value = expanded
-      return
-    }
-    navigate(row.path)
-  } else openPreview(row.path, trigger)
-}
-
 function clampSidebarWidth(width: number) {
   return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, Math.round(width)))
 }
@@ -299,10 +205,6 @@ async function loadDirectory() {
     if (signature === lastListing) { window.dispatchEvent(new Event('lan-copy:data-updated')); return }
     lastListing = signature
     entries.value = result.entries
-    if (!search.value.trim()) {
-      treeEntries.value = new Map(treeEntries.value).set(currentPath.value, result.entries)
-      setTreeError(currentPath.value)
-    }
     const valid = new Set(entries.value.map(item => item.path))
     selectedPaths.value = new Set([...selectedPaths.value].filter(path => valid.has(path)))
     summary.value = displaySummary.value
@@ -325,7 +227,7 @@ function navigate(path: string) {
   previewPath.value = ''
   currentPath.value = path; lastListing = ''; hasLoaded.value = false; entries.value = []; selectedPaths.value.clear(); selectionAnchor.value = null; focusedPath.value = null; summary.value = '正在读取…'
   history.pushState(null, '', `#${new URLSearchParams({ path })}`)
-  void expandTreeDirectories(path)
+  void fileTree.value?.reveal(path)
   void loadDirectory()
 }
 function goParent() { navigate(currentPath.value.includes('/') ? currentPath.value.slice(0, currentPath.value.lastIndexOf('/')) : '') }
@@ -379,7 +281,7 @@ function openPreview(path: string, trigger: HTMLElement | null = document.active
   treeOpen.value = false
   previewReturnFocus = trigger
   previewPath.value = path
-  void expandTreeDirectories(parent)
+  void fileTree.value?.reveal(parent)
   void nextTick(() => document.querySelector<HTMLElement>('#previewBack')?.focus())
 }
 function closePreview() {
@@ -426,7 +328,7 @@ async function mutate(action: Mutation, data: Record<string, unknown>) {
     await requestJSON(`/api/filesystem/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) })
     notify({ mkdir: '文件夹已创建', move: '已移动', rename: '已重命名', delete: '已删除' }[action])
     if (action === 'mkdir' && data.path !== currentPath.value) navigate(String(data.path)); else await loadDirectory()
-    void refreshTree()
+    void fileTree.value?.refresh()
     return true
   } catch (error) {
     if (editOpen.value) editError.value = message(error, '操作失败')
@@ -528,14 +430,14 @@ function onPopState() {
   if (location.pathname === '/transfer-text') return
   const path = new URLSearchParams(location.hash.slice(1)).get('path') || ''
   previewPath.value = ''; currentPath.value = path; clearSelection(); focusedPath.value = null; lastListing = ''; hasLoaded.value = false; entries.value = []; summary.value = '正在读取…'
-  void expandTreeDirectories(path)
+  void fileTree.value?.reveal(path)
   void loadDirectory()
 }
 function scheduleDirectoryRefresh() {
   if (stopped || document.hidden) return
   if (searchTimer) clearTimeout(searchTimer); searchTimer = undefined
   if (eventRefreshTimer) clearTimeout(eventRefreshTimer)
-  eventRefreshTimer = setTimeout(() => { eventRefreshTimer = undefined; void loadDirectory(); void refreshTree() }, 100)
+  eventRefreshTimer = setTimeout(() => { eventRefreshTimer = undefined; void loadDirectory(); void fileTree.value?.refresh() }, 100)
 }
 function startFallbackRefresh() { if (!stopped && !document.hidden && !fallbackRefreshTimer) fallbackRefreshTimer = setInterval(scheduleDirectoryRefresh, 60000) }
 function stopFallbackRefresh() { if (fallbackRefreshTimer) clearInterval(fallbackRefreshTimer); fallbackRefreshTimer = undefined }
@@ -623,7 +525,7 @@ async function uploadToFolder(collect: (progress: (count: number) => void) => Pr
         }
       }
     }
-    completeUpload(`${description}已上传到 ${uploadPath || '全部文件'}`); notify('上传完成'); await loadDirectory(); void refreshTree()
+    completeUpload(`${description}已上传到 ${uploadPath || '全部文件'}`); notify('上传完成'); await loadDirectory(); void fileTree.value?.refresh()
   } catch (error) {
     const failure = message(error, '无法读取文件夹，请检查权限后重试')
     failUpload(failure); notify(failure, true)
@@ -656,7 +558,6 @@ onMounted(() => {
     events.onopen = () => { stopFallbackRefresh(); scheduleDirectoryRefresh() }; events.onerror = startFallbackRefresh
   } else startFallbackRefresh()
   document.addEventListener('dragenter', onExternalDragEnter); document.addEventListener('dragover', onExternalDragOver); document.addEventListener('dragleave', onExternalDragLeave); document.addEventListener('drop', onExternalDrop)
-  void expandTreeDirectories(currentPath.value)
   void loadDirectory(); freshTagTimer = setInterval(() => { if (!document.hidden) now.value = Date.now() }, 60000)
 })
 onBeforeUnmount(() => {
@@ -676,18 +577,7 @@ onBeforeUnmount(() => {
         <strong>内网资源</strong>
         <button class="secondary tree-close" type="button" aria-label="关闭资源目录" @click="treeOpen = false">×</button>
       </div>
-      <div class="explorer-tree" role="tree" aria-label="内网空间目录树">
-        <div v-for="row in treeRows" :key="row.key" class="tree-row" :class="{ active: isTreeActive(row), 'tree-row-status': Boolean(row.status), 'tree-row-file': !row.directory, 'tree-row-error': row.status === 'error' }" role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.directory && !row.status ? treeExpanded.has(row.path) : undefined" :aria-selected="!row.status && isTreeActive(row)" :style="{ paddingLeft: `${8 + row.depth * 14}px` }">
-          <button v-if="row.directory && !row.status" class="tree-twisty" type="button" :aria-label="`${treeExpanded.has(row.path) ? '收起' : '展开'}目录：${row.label}`" @click.stop="toggleTree(row.path)">{{ treeExpanded.has(row.path) ? '▾' : '▸' }}</button>
-          <span v-else class="tree-twisty-spacer" aria-hidden="true" />
-          <button v-if="row.status === 'error'" class="tree-status tree-status-error" type="button" :title="row.error" @click="activateTreeRow(row, $event.currentTarget as HTMLElement)">{{ row.label }}</button>
-          <span v-else-if="row.status" class="tree-status">{{ row.label }}</span>
-          <button v-else class="tree-label" type="button" :title="row.path || '全部文件'" @click="activateTreeRow(row, $event.currentTarget as HTMLElement)">
-            <span class="tree-icon" :class="{ 'tree-folder': row.directory }" aria-hidden="true">{{ row.directory ? '▱' : treeFileIcon(row.label) }}</span>
-            <span class="tree-name">{{ row.label }}</span>
-          </button>
-        </div>
-      </div>
+      <FileTree ref="fileTree" :active-path="previewPath ? null : currentPath" label="内网空间目录树" @navigate="navigate" @open="(path, trigger) => openPreview(path, trigger)" />
     </aside>
     <div class="explorer-resizer" role="separator" aria-orientation="vertical" aria-label="调整资源目录宽度" :aria-valuemin="SIDEBAR_MIN" :aria-valuemax="SIDEBAR_MAX" :aria-valuenow="sidebarWidth" tabindex="0" @pointerdown="startSidebarResize" @pointermove="moveSidebarResize" @pointerup="endSidebarResize" @pointercancel="endSidebarResize" @dblclick="resetSidebarWidth" @keydown="onSidebarResizeKey" />
     <div v-if="treeOpen" class="tree-backdrop" aria-hidden="true" @click="treeOpen = false" />

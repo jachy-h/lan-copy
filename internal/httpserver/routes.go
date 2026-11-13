@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("GET /api/settings/upload-resources", s.uploadResourceSettings)
 	mux.HandleFunc("PUT /api/settings/upload-resources", s.uploadResourceSettings)
+	mux.HandleFunc("GET /api/settings/fragments", s.fragmentSettings)
+	mux.HandleFunc("PUT /api/settings/fragments", s.fragmentSettings)
 	mux.HandleFunc("GET /api/settings/deploy-token", s.deployTokenSettings)
 	mux.HandleFunc("PUT /api/settings/deploy-token", s.deployTokenSettings)
 	mux.HandleFunc("DELETE /api/settings/deploy-token", s.deployTokenSettings)
@@ -44,6 +47,18 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /thumbnails/{name}", s.thumbnailFile)
 	mux.HandleFunc("GET /api/texts", s.listTexts)
 	mux.HandleFunc("POST /api/texts", s.createText)
+	mux.HandleFunc("POST /api/texts/fragments", s.createFragment)
+	mux.HandleFunc("POST /api/texts/images", s.uploadFragmentImage)
+	mux.HandleFunc("GET /api/texts/{id}/image", s.serveFragmentImage)
+	mux.HandleFunc("GET /api/texts/{id}/images/{index}", func(w http.ResponseWriter, r *http.Request) {
+		index, err := strconv.Atoi(r.PathValue("index"))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "图片编号无效")
+			return
+		}
+		s.serveFragmentImageAt(w, r, index)
+	})
+	mux.HandleFunc("POST /api/texts/{id}/save", s.saveFragment)
 	mux.HandleFunc("DELETE /api/texts/{id}", s.deleteText)
 	mux.HandleFunc("GET /api/shutdown/status", s.shutdownStatus)
 	mux.HandleFunc("GET /api/shutdown", s.handleShutdown)
@@ -82,7 +97,7 @@ func (s *Server) routes() http.Handler {
 		s.web.ServeHTTP(w, page)
 	})
 	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data:; frame-ancestors 'none'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
 	})
 	if s.airDev {
@@ -128,7 +143,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data:; font-src 'self' blob: data:; worker-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; font-src 'self' blob: data:; worker-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

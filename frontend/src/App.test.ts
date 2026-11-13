@@ -10,7 +10,7 @@ const Texts = defineComponent({ props: ['modelValue'], emits: ['update:modelValu
 let wrapper: ReturnType<typeof mount>
 function render() {
   wrapper = mount(App, { attachTo: document.body, global: { stubs: {
-    FileExplorer: Files, TextTransfer: Texts, PrintQueue: { props: ['sharedPath'], emits: ['localFile'], template: '<section id="print-view">{{ sharedPath }}<button id="local-file" @click="$emit(\'localFile\')">选择本地文件</button></section>' },
+    FileExplorer: Files, FragmentTransfer: Texts, PrintQueue: { props: ['sharedPath'], emits: ['localFile'], template: '<section id="print-view">{{ sharedPath }}<button id="local-file" @click="$emit(\'localFile\')">选择本地文件</button></section>' },
     SharePopover: { template: '<button>分享</button>' }, SettingsDialog: { template: '<button>设置</button>' },
     ServiceStatus: { template: '<button>局域网在线</button>' },
   } } })
@@ -47,7 +47,7 @@ describe('shared SPA', () => {
     history.replaceState(null, '', '/transfer-text')
     render()
     expect(wrapper.find('#draft').exists()).toBe(true)
-    expect(document.title).toBe('文本快传 · Lan Copy')
+    expect(document.title).toBe('碎片快传 · Lan Copy')
     const event = new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true })
     const link = wrapper.get('a[href="/"]').element
     let preventedByApp = true

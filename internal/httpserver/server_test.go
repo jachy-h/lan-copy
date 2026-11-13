@@ -62,13 +62,17 @@ func newServer(dir string, maxUpload int64) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	fragmentSettings, err := textstore.LoadSettings(dataDir)
+	if err != nil {
+		return nil, err
+	}
 	webRoot, err := fs.Sub(os.DirFS(testModuleRoot()), "web")
 	if err != nil {
 		return nil, err
 	}
 	return New(Config{
 		Dir: absDir, DataDir: dataDir, MaxUpload: maxUpload,
-		Files: filestore.New(absDir, dataDir), Texts: textstore.New(dataDir),
+		Files: filestore.New(absDir, dataDir), Texts: textstore.NewWithSettings(dataDir, fragmentSettings),
 		UploadResources: filestore.NewResources(uploadConfig), UploadPreflight: filestore.NewPreflightManager(),
 		Releases: updater.NewReleaseService(), Web: webRoot,
 		Version: version, UpdatePublicKey: updatePublicKey,
