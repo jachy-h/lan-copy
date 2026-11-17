@@ -9,9 +9,11 @@ tmp/
 .DS_Store
 .pi-lens/
 frontend/node_modules/
+scripts/plugin-example/plugin-server
 
 共享文件夹-lancopy/
 shared-folder-lancopy/
+.lan-copy-app-data-*/
 
 # Accidental Hugo output; this repository is not a Hugo site
 /public/

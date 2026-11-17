@@ -413,6 +413,12 @@ try {
     await page.goto(origin + '/transfer.html?from=bookmark')
     await page.waitForSelector('#shareTextBtn')
     assert.equal(new URL(page.url()).pathname, '/transfer.html')
+    await page.goto(origin + '/plugins')
+    await page.waitForSelector('.plugins-heading h2')
+    assert.equal(new URL(page.url()).pathname, '/plugins')
+    assert.ok((await page.locator('.plugins-heading h2').textContent())?.includes('插件服务'))
+    await page.goto(origin + '/transfer.html?from=bookmark')
+    await page.waitForSelector('#shareTextBtn')
     const expectedShortcut = process.platform === 'darwin' ? '⌘ + Enter' : 'Ctrl + Enter'
     assert.ok((await page.locator('.fragment-save-shortcut').textContent())?.includes(expectedShortcut), 'missing platform save shortcut')
     assert.equal(await page.locator('.fragment-compose-actions .fragment-image-picker').count(), 1)

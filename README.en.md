@@ -25,6 +25,8 @@ Files and text stay on the computer running Lan Copy. The default shared folder 
 
 **Printing (Windows host)**: click the printer icon immediately left of Share, choose a printer installed on the host, then select a local PDF, JPG/JPEG, or PNG. Review pages and zoom the preview before confirming, or choose **⋯ → 打印** (Print) on a supported file in Shared Space to open its print preview directly. Clicking the filename still opens the regular preview. You can also send a test page first. Printing uses the host printer’s default paper and orientation, one copy, single-sided. Files are limited to 50 MiB and PDFs to 50 pages. “Submitted” means handed to the Windows queue; check the device for actual output.
 
+**Plugin services (local only)**: the **插件服务** page can import `docker save` archives, install, start, stop, and inspect local plugins through Docker. Plugins run in restricted containers and are not exposed to the LAN; Docker must be installed on the Lan Copy host. See the [plugin protocol](docs/PLUGIN-PROTOCOL.md) for the manifest, image build rules, and security boundaries.
+
 **Other devices cannot connect?** Check that they are on the same LAN and allow Lan Copy through the system firewall. Guest Wi-Fi may isolate devices.
 
 **Update the app**: click the gear → **更新** (Update) to check the latest stable GitHub Release. The host user or a guest on the local network can choose **下载并更新** (Download and update) to update the computer running Lan Copy, or **前往查看** (View release). You can also download the package for the host system manually and drop in the complete archive. After signature verification, the app installs the update, restarts, and reloads the page, preserving shared content. Finish other file transfers first.

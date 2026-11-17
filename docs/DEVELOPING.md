@@ -29,6 +29,8 @@ lan-copy/
 │   ├── textstore/        # 文本持久化 / shared-text persistence
 │   ├── printing/         # Windows 打印版面、测试页与文件任务 / layout, test pages and document jobs
 │   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
+│   ├── plugin/           # 插件注册、生命周期、协议与 HTTP Client / plugin registry, lifecycle, protocol and client
+│   │   └── dockerruntime/ # Docker Engine SDK 适配 / Docker Engine SDK adapter
 │   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
 ├── frontend/             # Vue/TypeScript 源工程 / Vue and TypeScript sources
@@ -41,8 +43,8 @@ lan-copy/
 
 ## 环境要求 / Requirements
 
-Go 1.22 或更新版本。运行程序只依赖 Go 标准库；发布打包还需要 Python 3，并会用固定 Node/npm 校验和构建前端产物。
-Go 1.22+. Running the app only needs Go; Release packaging also needs Python 3 and uses the pinned Node/npm toolchain to check and build frontend assets.
+Go 1.24 或更新版本。运行程序除 Docker 插件管理所需的官方 Engine SDK 外只依赖标准库；发布打包还需要 Python 3，并会用固定 Node/npm 校验和构建前端产物。
+Go 1.24+. The runtime only needs the Go standard library plus the official Docker Engine SDK used by the plugin manager; release packaging also needs Python 3 and uses the pinned Node/npm toolchain to check and build frontend assets.
 
 前端迁移工程固定使用 Node.js 24.18.0 与 npm 11.16.0；安装依赖需联网，运行已构建的 Go 程序不需要 Node.js。
 The frontend migration source pins Node.js 24.18.0 and npm 11.16.0. Dependency installation needs network access; running a built Go app does not need Node.js.
@@ -59,7 +61,7 @@ make frontend-release # 发布构建使用：校验、构建并同步前端 / re
 make frontend-dev   # 启动 Vite 页面并代理到本机 Go 服务 / run Vite pages with a proxy to Go
 ```
 
-`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、碎片快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
+`frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、碎片快传、打印队列、插件服务、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
 
 内网空间 `/` 与碎片快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 是碎片快传的静态页面入口，直接返回同一页面骨架，不再做 HTTP 跳转；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。目录树由 `FileTree.vue` 共享给内网空间侧栏和碎片转存弹窗。碎片快传的 `FragmentTransfer.vue` 管理文字和图片的混合发布、纯文本编辑、到期显示、瀑布流卡片、长文展开、粘贴/拖拽上传及删除；已发布文字仍按轻量 Markdown 子集渲染；`FragmentSaveDialog.vue` 通过 `/api/filesystem` 选择目录并调用 `/api/texts/{id}/save` 转存。`preview.html` 继续作为独立预览入口。
 本地开发时先以 `go run . -listen :8080` 启动服务，再运行 `make frontend-dev`；Vite 默认代理到 `http://127.0.0.1:8080`，可用 `LAN_COPY_PROXY` 指定其他 Go 地址。开发代理会把同源动作请求的 Origin 规范到 Go 目标，不影响生产访问策略。
@@ -96,7 +98,7 @@ Windows 主机通过系统已安装的打印机和驱动提交一张 Lan Copy �
 
 ## v0.5.1 前端产物与验证 / Frontend artifacts and validation
 
-- `frontend/index.html`、`transfer.html`、`print.html`、`preview.html` 是页面唯一来源，公共样式源为 `frontend/src/style.css`。Vite 生成的 HTML 同步到 `web/`，完整资源树同步到 `web/_frontend/`，禁止手改这些产物。`web/logo/` 与 `web/vendor/` 保持独立维护，不由同步脚本覆盖。
+- `frontend/index.html`、`transfer.html`、`print.html`、`plugins.html`、`preview.html` 是页面唯一来源，公共样式源为 `frontend/src/style.css`。Vite 生成的 HTML 同步到 `web/`，完整资源树同步到 `web/_frontend/`，禁止手改这些产物。`web/logo/` 与 `web/vendor/` 保持独立维护，不由同步脚本覆盖。
 - `frontend/scripts/sync-assets.mjs` 校验静态/动态依赖、CSS、字体/图片和 HTML 引用，检查新增、删除及内容变化。替换失败回滚已有资源；临时副本位于不参与内嵌的 `tmp/`。
 - HTML 与固定路径资源使用 `Cache-Control: no-cache`；存在的 hash 资源使用长期 immutable 缓存。旧标签页升级后请求已删除的懒加载 chunk 时自动刷新一次，连续失败显示手动重试，避免刷新循环。
 - Go 直接构建仍使用仓库中的已提交产物；开发完成需运行 `make frontend-sync` 并一起提交 HTML 和资源。`make frontend-check` 与发布构建执行完整产物及离线 vendor 校验。
@@ -173,12 +175,26 @@ docker build -t lan-copy .
 docker run --rm -p 8080:8080 -v "$PWD/lan-copy-data:/data" lan-copy
 ```
 
+插件管理需要访问 Docker Engine。宿主机直接运行二进制时默认使用 `loopback` 模式；将 Lan Copy 本身放入容器时，必须加入插件专用网络并把 Docker Socket 交给主服务（不要交给插件）：
+
+```bash
+docker network create plugin-network
+docker run -d --name lan-copy --network plugin-network -p 8080:8080 \
+  -v "$PWD/lan-copy-data:/data" \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  lan-copy -plugin-network-mode=container
+```
+
+协议、镜像构建、安全边界与 API 见 [插件服务协议](PLUGIN-PROTOCOL.md)。
+
 ## 命令行参数 / Command-line Flags
 
 ```text
 -listen string   监听地址 / listen address（默认 / default ":8080"）
 -dir string      文件存储目录 / storage directory（中文系统 / Chinese OS "共享文件夹-lancopy"，其他 / other "shared-folder-lancopy"）
 -max-gb int      单次上传总大小上限 GiB / max upload size per batch in GiB（默认 / default 10）
+-plugin-network-mode string  插件网络模式 loopback|container / plugin network mode（默认 / default "loopback"）
+-plugin-network string      插件专用 Docker 网络名称 / plugin Docker network（默认 / default "plugin-network"）
 ```
 
 示例 / Example：
@@ -201,7 +217,7 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
 
 ## 架构说明 / Architecture
 
-- 单二进制：根目录将 `web/` 通过 `go:embed` 内嵌并传给 `internal/app`；`app` 组装组件和 `internal/httpserver`，后者在 `net/http.ServeMux` 注册路由。`filestore`、`textstore`、`updater` 和 `desktop` 不依赖 HTTP 层。
+- 单二进制：根目录将 `web/` 通过 `go:embed` 内嵌并传给 `internal/app`；`app` 组装组件和 `internal/httpserver`，后者在 `net/http.ServeMux` 注册路由。`filestore`、`textstore`、`updater`、`desktop`、`plugin` 不依赖 HTTP 层。`plugin` 通过 `Runtime` 接口隔离运行时，只有 `plugin/dockerruntime` 导入 Docker SDK。
 - API 一览：
   - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。目录上传先用 `POST /api/upload-tree/preflight?path=...` 提交 JSON 清单（`entries: [{path, directory}]`），响应包含一次性会话和冲突列表；确认后使用 `POST /api/upload-tree?path=...&session=...` 以 multipart 提交，首项为 `manifest` JSON（`entries`、`replace`），文件体字段为对应下标的 `file-N`。会话 15 分钟过期，取消时可调用 `DELETE /api/upload-tree/session/{id}`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；并发上传、全部暂存文件字节和请求体空闲时间分别受设置页配置约束。完成后在锁内以同文件系统改名提交，并重新校验目标。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
   - `GET/PUT /api/settings/upload-resources` 读取或修改上传全局资源限制；访客只读，PUT 仅接受本机同源请求并要求 `X-Lan-Copy-Action: upload-resources`。配置含 `concurrentUploads`、`stagingGiB`、`idleTimeoutSeconds`。
@@ -212,6 +228,7 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
   - `/` 内网空间首页，`/transfer-text` 碎片快传页面（文字、图片碎片的发布、复制、转存和删除；文件上传与浏览统一在内网空间），`/transfer.html` 直接返回同一碎片快传页面；旧地址 `/filesystem.html` 已移除；文件夹对应存储目录中的真实目录，无额外索引数据库
+  - `/plugins` 插件服务页面：本机管理 Docker 插件镜像、安装与生命周期、配置、健康记录和日志。API 位于 `/api/plugins*`，仅本机可访问，写操作要求 `X-Lan-Copy-Action: plugins`（镜像上传为 `plugins-image`）。详见 [插件服务协议](PLUGIN-PROTOCOL.md)
   - `GET/POST /api/texts`、`POST /api/texts/fragments`、`DELETE /api/texts/{id}` 共享碎片保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中；图片通过 `GET /api/texts/{id}/images/{index}` 读取。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查

@@ -20,7 +20,7 @@ LDFLAGS := -s -w -X main.version=$(BUILD_VERSION) -X main.updatePublicKey=$(UPDA
 WINDOWS_ARCHES ?= amd64
 WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,$(WINDOWS_ARCHES)))
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
-SOURCES := Makefile go.mod $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
+SOURCES := Makefile go.mod go.sum $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
 .PHONY: all build publish deploy artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
 

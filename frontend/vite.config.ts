@@ -42,6 +42,7 @@ export default defineConfig(({ command }) => ({
         const query = (request.url || '').slice(pathname.length)
         if (pathname === '/transfer-text') request.url = `/transfer.html${query}`
         if (pathname === '/print-queue') request.url = `/print.html${query}`
+        if (pathname === '/plugins') request.url = `/plugins.html${query}`
         next()
       })
     },
@@ -61,6 +62,7 @@ export default defineConfig(({ command }) => ({
         transfer: resolve(root, 'transfer.html'),
         preview: resolve(root, 'preview.html'),
         print: resolve(root, 'print.html'),
+        plugins: resolve(root, 'plugins.html'),
 
       },
       output: {

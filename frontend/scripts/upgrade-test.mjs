@@ -14,7 +14,7 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms))
 export async function testUpgrade(root, temporary, chromium) {
   const snapshot = path.join(temporary, 'upgrade-source')
   await mkdir(snapshot)
-  for (const file of await readdir(root)) if (file.endsWith('.go') || file === 'go.mod') await cp(path.join(root, file), path.join(snapshot, file))
+  for (const file of await readdir(root)) if (file.endsWith('.go') || file === 'go.mod' || file === 'go.sum') await cp(path.join(root, file), path.join(snapshot, file))
   await cp(path.join(root, 'internal'), path.join(snapshot, 'internal'), { recursive: true })
   await cp(path.join(root, 'web'), path.join(snapshot, 'web'), { recursive: true })
   // The synchronizer validates generated vendor assets as well as Vite output.

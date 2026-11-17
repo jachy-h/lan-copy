@@ -13,6 +13,10 @@ import (
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/app", s.appInfo)
+	mux.HandleFunc("GET /api/plugins", s.listPlugins)
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
+		mux.Handle(method+" /api/plugins/", s.pluginDispatch())
+	}
 	mux.HandleFunc("GET /api/printing", s.printingInfo)
 	mux.HandleFunc("GET /api/printing/jobs", s.printJobs)
 	mux.HandleFunc("POST /api/printing/test", s.printTestPage)
@@ -79,6 +83,12 @@ func (s *Server) routes() http.Handler {
 		page.URL.RawPath = ""
 		s.web.ServeHTTP(w, page)
 	})
+	mux.HandleFunc("GET /plugins", func(w http.ResponseWriter, r *http.Request) {
+		page := r.Clone(r.Context())
+		page.URL.Path = "/plugins.html"
+		page.URL.RawPath = ""
+		s.web.ServeHTTP(w, page)
+	})
 	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
@@ -103,12 +113,13 @@ func StaticFiles(root fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Fixed URLs must revalidate after a binary upgrade. Only existing content-
 		// addressed assets may be cached permanently; never cache missing old chunks.
-		w.Header().Set("Cache-Control", "no-cache")
+		cache := "no-cache"
 		if hashedFrontendAsset.MatchString(r.URL.Path) {
 			if info, err := fs.Stat(root, strings.TrimPrefix(path.Clean(r.URL.Path), "/")); err == nil && !info.IsDir() {
-				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				cache = "public, max-age=31536000, immutable"
 			}
 		}
+		w.Header().Set("Cache-Control", cache)
 		switch strings.ToLower(path.Ext(r.URL.Path)) {
 		case ".js", ".mjs":
 			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
@@ -117,8 +128,22 @@ func StaticFiles(root fs.FS) http.Handler {
 		case ".wasm":
 			w.Header().Set("Content-Type", "application/wasm")
 		}
-		files.ServeHTTP(w, r)
+		// Go 1.27 strips Cache-Control in ServeContent's error path. Keep the
+		// requested policy on 404 responses for missing hashed chunks.
+		files.ServeHTTP(&cacheHeaderWriter{ResponseWriter: w, cache: cache}, r)
 	})
+}
+
+type cacheHeaderWriter struct {
+	http.ResponseWriter
+	cache string
+}
+
+func (w *cacheHeaderWriter) WriteHeader(status int) {
+	if w.Header().Get("Cache-Control") == "" {
+		w.Header().Set("Cache-Control", w.cache)
+	}
+	w.ResponseWriter.WriteHeader(status)
 }
 
 func SecurityHeaders(next http.Handler) http.Handler {

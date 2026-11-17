@@ -3,12 +3,18 @@ import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import FileExplorer from './components/FileExplorer.vue'
 import FragmentTransfer from './components/FragmentTransfer.vue'
+import PluginManager from './components/PluginManager.vue'
 import PrintQueue from './components/PrintQueue.vue'
 import UploadProgress from './components/UploadProgress.vue'
 import { close as closeContextMenu } from './ui/contextMenu'
 
-type Page = 'files' | 'transfer' | 'print'
-function currentPage(): Page { return location.pathname === '/print-queue' || location.pathname === '/print.html' ? 'print' : location.pathname === '/transfer-text' || location.pathname === '/transfer.html' ? 'transfer' : 'files' }
+type Page = 'files' | 'transfer' | 'print' | 'plugins'
+function currentPage(): Page {
+  if (location.pathname === '/print-queue' || location.pathname === '/print.html') return 'print'
+  if (location.pathname === '/transfer-text' || location.pathname === '/transfer.html') return 'transfer'
+  if (location.pathname === '/plugins' || location.pathname === '/plugins.html') return 'plugins'
+  return 'files'
+}
 const page = ref<Page>(currentPage())
 function returnFilesHref() {
   const from = new URLSearchParams(location.search).get('from') || ''
@@ -19,7 +25,7 @@ const sharedPrintPath = ref(new URLSearchParams(location.search).get('file') || 
 const draft = ref('')
 let shutdown = false
 function onShutdown() { shutdown = true }
-function updateTitle() { document.title = `${{files:'内网空间', transfer:'碎片快传', print:'打印队列'}[page.value]} · Lan Copy` }
+function updateTitle() { document.title = `${{files:'内网空间', transfer:'碎片快传', print:'打印队列', plugins:'插件服务'}[page.value]} · Lan Copy` }
 async function syncRoute() {
   closeContextMenu(false)
   page.value = currentPage()
@@ -34,7 +40,7 @@ function navigate(event: MouseEvent, target: Page) {
   event.preventDefault()
   if (page.value === target) return
   if (page.value === 'files') filesHref.value = location.pathname + location.search + location.hash
-  history.pushState(null, '', target === 'files' ? filesHref.value : target === 'print' ? '/print-queue' : '/transfer-text')
+  history.pushState(null, '', target === 'files' ? filesHref.value : target === 'print' ? '/print-queue' : target === 'plugins' ? '/plugins' : '/transfer-text')
   void syncRoute()
 }
 function printSharedFile(path: string) {
@@ -55,10 +61,11 @@ onBeforeUnmount(() => { window.removeEventListener('popstate', syncRoute); windo
 <template>
   <AppHeader :page="page" :files-href="filesHref" @navigate="navigate" />
   <UploadProgress />
-  <main class="shell" :class="{ 'shell-transfer': page === 'transfer', 'shell-print': page === 'print' }">
+  <main class="shell" :class="{ 'shell-transfer': page === 'transfer', 'shell-print': page === 'print', 'shell-plugins': page === 'plugins' }">
     <FileExplorer v-if="page === 'files'" @print="printSharedFile" />
     <FragmentTransfer v-else-if="page === 'transfer'" v-model="draft" />
-    <PrintQueue v-else :shared-path="sharedPrintPath" @local-file="clearSharedPrintFile" />
+    <PrintQueue v-else-if="page === 'print'" :shared-path="sharedPrintPath" @local-file="clearSharedPrintFile" />
+    <PluginManager v-else />
   </main>
   <div id="fileMenu" class="file-menu" role="menu" hidden></div>
   <div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true" popover="manual"></div>

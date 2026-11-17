@@ -17,7 +17,7 @@ async function fixture(t) {
   await writeFile(path.join(root, 'tmp/frontend-vendor/example/library.js'), 'generated vendor')
   await writeFile(path.join(root, 'web/vendor/obsolete.js'), 'old vendor')
   const manifest = {}
-  for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html']) {
+  for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html', 'plugins.html']) {
     manifest[page] = { file: page, isEntry: true, imports: ['main'] }
     await writeFile(path.join(build, page), '<script type="module" src="/_frontend/assets/main-hash.js"></script><link rel="stylesheet" href="/_frontend/assets/style-hash.css">')
     await writeFile(path.join(root, 'web', page), 'old HTML')
@@ -69,13 +69,13 @@ test('real Vite compilation keeps scoped CSS, lazy chunks and imported nested as
   t.after(() => rm(root, { recursive: true, force: true }))
   await mkdir(path.join(root, 'web')); await mkdir(path.join(root, 'nested'))
   await mkdir(path.join(root, 'tmp/frontend-vendor'), { recursive: true })
-  for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html']) await writeFile(path.join(root, page), '<div id="app"></div><script type="module" src="/main.ts"></script>')
+  for (const page of ['index.html', 'transfer.html', 'preview.html', 'print.html', 'plugins.html']) await writeFile(path.join(root, page), '<div id="app"></div><script type="module" src="/main.ts"></script>')
   await writeFile(path.join(root, 'main.ts'), 'import {createApp} from "vue"; window.openLazy = async () => createApp((await import("./Lazy.vue")).default).mount("#app")')
   await writeFile(path.join(root, 'Lazy.vue'), '<template><div class="probe">lazy</div></template><style scoped>.probe { background: url("./nested/marker.svg") }</style>')
   await writeFile(path.join(root, 'nested/marker.svg'), '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>')
   await build({ configFile: false, root, base: '/_frontend/', plugins: [vue()], logLevel: 'silent', build: {
     outDir: path.join(root, 'tmp/frontend-dist'), manifest: true, assetsInlineLimit: 0,
-    rollupOptions: { input: ['index.html', 'transfer.html', 'preview.html', 'print.html'].map(page => path.join(root, page)) },
+    rollupOptions: { input: ['index.html', 'transfer.html', 'preview.html', 'print.html', 'plugins.html'].map(page => path.join(root, page)) },
   } })
   await syncAssets(root); await syncAssets(root, { check: true })
   const manifest = JSON.parse(await readFile(path.join(root, 'tmp/frontend-dist/.vite/manifest.json')))

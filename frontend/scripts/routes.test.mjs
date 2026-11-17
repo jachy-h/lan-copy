@@ -29,6 +29,9 @@ test('dev text route serves the shared app directly without legacy redirects', a
         assert.ok(html.includes('正在读取碎片'))
         assert.ok(html.includes('添加图片'))
       }
+      const plugins = await fetch(origin + '/plugins', { method })
+      assert.equal(plugins.status, 200)
+      if (method === 'GET') assert.ok((await plugins.text()).includes('正在检测 Docker'))
     }
   } finally { await server.close() }
 })

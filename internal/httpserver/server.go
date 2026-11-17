@@ -10,6 +10,7 @@ import (
 	"lan-copy/internal/deploytoken"
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/filestore"
+	"lan-copy/internal/plugin"
 	"lan-copy/internal/printing"
 	"lan-copy/internal/textstore"
 	"lan-copy/internal/updater"
@@ -39,12 +40,14 @@ type Config struct {
 	Updater                                *updater.Service
 	Autostart                              *desktop.Autostart
 	Printing                               *printing.Service
+	Plugins                                *plugin.Manager
 }
 
 // Server owns HTTP state; persistent state and its locks live in components.
 type Server struct {
 	airDev            bool
 	printing          *printing.Service
+	plugins           *plugin.Manager
 	updater           *updater.Service
 	releases          *updater.ReleaseService
 	autostart         *desktop.Autostart
@@ -78,6 +81,7 @@ func New(config Config) *Server {
 		airDev:     config.AirDev,
 		deployAuth: config.DeployAuth,
 		printing:   config.Printing,
+		plugins:    config.Plugins,
 		updater:    config.Updater, autostart: config.Autostart,
 		version: config.Version, updatePublicKey: config.UpdatePublicKey,
 		releases:          config.Releases,

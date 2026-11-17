@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>插件服务 · Lan Copy</title>
+    <link rel="icon" href="/logo/favicon-32x32.svg">
+    <link rel="stylesheet" href="/src/style.css">
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar" data-initial-shell>
+        <div class="brand"><img class="logo" src="/logo/lan-copy-logo.svg" width="30" height="30" alt=""><div><h1>Lan Copy</h1></div></div>
+        <nav class="page-nav" aria-label="页面导航"><a href="/">内网空间</a><a href="/transfer-text">碎片快传</a><a href="/plugins" aria-current="page">插件服务</a></nav>
+        <div class="hero-actions"></div>
+      </header>
+      <main class="shell shell-plugins" aria-busy="true">
+        <section class="plugins-page" data-initial-shell>
+          <div class="plugins-heading">
+            <div><span class="plugins-eyebrow">本地服务 · Docker</span><h2>插件服务</h2><p>正在检测 Docker 并读取插件状态…</p></div>
+          </div>
+          <div class="plugin-runtime"><span class="plugin-runtime-dot" aria-hidden="true"></span><div class="plugin-runtime-text"><strong>正在检测 Docker…</strong><span>插件管理仅限本机使用。</span></div></div>
+          <div class="plugin-empty"><strong>正在读取插件</strong><p>请稍候</p></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/pages/app.ts"></script>
+  </body>
+</html>

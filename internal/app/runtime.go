@@ -41,6 +41,8 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	listen := flag.String("listen", ":8080", "监听地址")
 	dir := flag.String("dir", DefaultStorageName(desktop.SystemLanguage()), "文件存储目录")
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
+	pluginNetworkMode := flag.String("plugin-network-mode", "loopback", "插件网络模式（loopback 或 container）")
+	pluginNetwork := flag.String("plugin-network", "plugin-network", "插件专用 Docker 网络名称")
 	autostart := flag.Bool("autostart", false, "登录后静默启动（供系统启动项使用）")
 	workingDir := flag.String("working-dir", "", "启动工作目录（供系统启动项使用）")
 	flag.Parse()
@@ -96,6 +98,10 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	if err != nil {
 		log.Fatal("无法读取自动部署令牌: ", err)
 	}
+	pluginManager, err := preparePlugins(components.DataDir, *pluginNetworkMode, *pluginNetwork)
+	if err != nil {
+		log.Printf("插件管理不可用: %v", err)
+	}
 	service := httpserver.New(httpserver.Config{
 		Dir: components.Dir, DataDir: components.DataDir,
 		Files: components.Files, Texts: components.Texts,
@@ -105,6 +111,7 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		DeployAuth: deployAuth,
 		Updater:    updateService,
 		Printing:   printService,
+		Plugins:    pluginManager,
 		Autostart:  desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
 	})
 	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
@@ -125,6 +132,9 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	go func() {
 		serveErrors <- httpServer.Serve(listener)
 	}()
+	if pluginManager != nil {
+		pluginManager.StartBackground()
+	}
 	if !*autostart && os.Getenv("LAN_COPY_UPDATE_ID") == "" && desktop.OpenBrowserOnLaunch() {
 		if err := desktop.OpenBrowser(fmt.Sprintf("http://localhost:%s", port)); err != nil {
 			log.Printf("无法自动打开浏览器，请手动访问 http://localhost:%s（%v）", port, err)
@@ -157,5 +167,10 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	}
 	if err := <-serveErrors; !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
+	}
+	if pluginManager != nil {
+		pluginContext, pluginCancel := context.WithTimeout(context.Background(), 15*time.Second)
+		pluginManager.Shutdown(pluginContext)
+		pluginCancel()
 	}
 }

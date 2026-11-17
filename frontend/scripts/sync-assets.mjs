@@ -27,7 +27,7 @@ export async function syncAssets(projectRoot, { check = false, move = rename } =
     }
     return
   }
-  const pages = ['index.html', 'transfer.html', 'preview.html', 'print.html']
+  const pages = ['index.html', 'transfer.html', 'preview.html', 'print.html', 'plugins.html']
   const manifest = JSON.parse(await readFile(path.join(buildRoot, '.vite/manifest.json'), 'utf8'))
   const built = (await listFiles(buildRoot)).filter(file => !file.startsWith('.vite/'))
   function requireFile(file) {
@@ -49,7 +49,7 @@ export async function syncAssets(projectRoot, { check = false, move = rename } =
     for (const match of html.matchAll(/(?:src|href)="([^"#]+)"/g)) {
       const url = match[1].split(/[?#]/)[0]
       if (url.startsWith('/_frontend/')) requireFile(url.slice('/_frontend/'.length))
-      else if (url.startsWith('/') && !['/', '/transfer-text', '/print-queue', '/preview.html'].includes(url)) {
+      else if (url.startsWith('/') && !['/', '/transfer-text', '/print-queue', '/plugins', '/preview.html'].includes(url)) {
         await readFile(path.join(webRoot, url.slice(1)))
       }
     }
