@@ -419,7 +419,7 @@ try {
     assert.ok((await page.locator('.plugins-heading h2').textContent())?.includes('插件服务'))
     await page.goto(origin + '/transfer.html?from=bookmark')
     await page.waitForSelector('#shareTextBtn')
-    const expectedShortcut = process.platform === 'darwin' ? '⌘ + Enter' : 'Ctrl + Enter'
+    const expectedShortcut = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform || '') || /Mac OS X/.test(navigator.userAgent || '') ? '⌘ + Enter' : 'Ctrl + Enter')
     assert.ok((await page.locator('.fragment-save-shortcut').textContent())?.includes(expectedShortcut), 'missing platform save shortcut')
     assert.equal(await page.locator('.fragment-compose-actions .fragment-image-picker').count(), 1)
     await page.locator('#textInput').fill(`browser integration ${name}`)
