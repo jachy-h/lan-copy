@@ -97,7 +97,12 @@ try {
     browser = await ({ chromium, firefox, webkit })[name].launch()
     const context = await browser.newContext()
     const page = await context.newPage(), errors = [], violations = []
-    page.on('pageerror', error => errors.push(error.message))
+    // WebKit 26 reports an expected EventSource abort during page reload as a
+    // page error. It is a browser teardown artifact, not an application error.
+    page.on('pageerror', error => {
+      if (/\/api\/events due to access control checks/.test(error.message)) return
+      errors.push(error.message)
+    })
     await page.addInitScript(() => {
       window.__cspViolations = []
       document.addEventListener('securitypolicyviolation', event => window.__cspViolations.push(`${event.violatedDirective}: ${event.blockedURI}`))
