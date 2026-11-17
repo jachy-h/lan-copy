@@ -22,7 +22,7 @@ func TestFragmentImageLifecycleAndSaveToSharedSpace(t *testing.T) {
 	}
 	handler := app.routes()
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, imageUploadRequest(t, "截图.png", onePixelPNG))
+	handler.ServeHTTP(recorder, fragmentUploadRequest(t, "", map[string][]byte{"截图.png": onePixelPNG}))
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("upload status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
@@ -35,7 +35,7 @@ func TestFragmentImageLifecycleAndSaveToSharedSpace(t *testing.T) {
 	}
 
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/"+created.ID+"/image", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/"+created.ID+"/images/0", nil))
 	if recorder.Code != http.StatusOK || !bytes.Equal(recorder.Body.Bytes(), onePixelPNG) {
 		t.Fatalf("image response = %d, %d bytes", recorder.Code, recorder.Body.Len())
 	}
@@ -74,13 +74,12 @@ func TestFragmentImageLifecycleAndSaveToSharedSpace(t *testing.T) {
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts", nil))
 	var listed struct {
-		Texts     []textstore.Fragment `json:"texts"`
-		Fragments []textstore.Fragment `json:"fragments"`
+		Texts []textstore.Fragment `json:"texts"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Texts) != 1 || len(listed.Fragments) != 1 {
+	if len(listed.Texts) != 1 {
 		t.Fatalf("listed fragments = %+v", listed)
 	}
 
@@ -90,7 +89,7 @@ func TestFragmentImageLifecycleAndSaveToSharedSpace(t *testing.T) {
 		t.Fatalf("delete status = %d", recorder.Code)
 	}
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/"+created.ID+"/image", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/"+created.ID+"/images/0", nil))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("deleted image status = %d", recorder.Code)
 	}
@@ -185,12 +184,12 @@ func TestFragmentImageValidation(t *testing.T) {
 	}
 	handler := app.routes()
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, imageUploadRequest(t, "notes.txt", []byte("not an image")))
+	handler.ServeHTTP(recorder, fragmentUploadRequest(t, "", map[string][]byte{"notes.txt": []byte("not an image")}))
 	if recorder.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("unsupported image status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 	recorder = httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/not-valid/image", nil))
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/texts/not-valid/images/0", nil))
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("invalid id status = %d", recorder.Code)
 	}
@@ -198,6 +197,28 @@ func TestFragmentImageValidation(t *testing.T) {
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/texts/0011223344556677/save", strings.NewReader(`{"path":"../"}`)))
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("missing fragment save status = %d", recorder.Code)
+	}
+}
+
+func TestRemovedCompatibilityRoutes(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := app.routes()
+	for _, tc := range []struct {
+		name, method, path string
+		want               int
+	}{
+		{"image upload", http.MethodPost, "/api/texts/images", http.StatusMethodNotAllowed},
+		{"first image alias", http.MethodGet, "/api/texts/0011223344556677/image", http.StatusNotFound},
+		{"filesystem page", http.MethodGet, "/filesystem.html", http.StatusNotFound},
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
+		if recorder.Code != tc.want {
+			t.Fatalf("%s: status = %d, want %d", tc.name, recorder.Code, tc.want)
+		}
 	}
 }
 
@@ -284,25 +305,6 @@ func fragmentUploadRequest(t *testing.T, content string, images map[string][]byt
 		t.Fatal(err)
 	}
 	request := httptest.NewRequest(http.MethodPost, "/api/texts/fragments", &body)
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	return request
-}
-
-func imageUploadRequest(t *testing.T, name string, data []byte) *http.Request {
-	t.Helper()
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("image", name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := part.Write(data); err != nil {
-		t.Fatal(err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	request := httptest.NewRequest(http.MethodPost, "/api/texts/images", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
 }

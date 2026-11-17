@@ -234,18 +234,22 @@ func TestSharedSpacePages(t *testing.T) {
 		}
 	}
 	for _, method := range []string{http.MethodGet, http.MethodHead} {
-		for _, query := range []string{"", "?from=bookmark&value=%E4%B8%AD%E6%96%87"} {
-			redirect := httptest.NewRecorder()
-			handler.ServeHTTP(redirect, httptest.NewRequest(method, "/transfer.html"+query, nil))
-			if redirect.Code != http.StatusPermanentRedirect || redirect.Header().Get("Location") != "/transfer-text"+query {
-				t.Fatalf("legacy text link: status %d, location %q", redirect.Code, redirect.Header().Get("Location"))
-			}
+		result := httptest.NewRecorder()
+		handler.ServeHTTP(result, httptest.NewRequest(method, "/transfer.html?from=bookmark&value=%E4%B8%AD%E6%96%87", nil))
+		if result.Code != http.StatusOK {
+			t.Fatalf("transfer page: status %d", result.Code)
+		}
+		if location := result.Header().Get("Location"); location != "" {
+			t.Fatalf("transfer page must not redirect, got %q", location)
+		}
+		if method == http.MethodGet && !strings.Contains(result.Body.String(), "正在读取碎片") {
+			t.Fatal("transfer page content mismatch")
 		}
 	}
 	result := httptest.NewRecorder()
 	handler.ServeHTTP(result, httptest.NewRequest(http.MethodGet, "/filesystem.html?from=bookmark", nil))
-	if result.Code != http.StatusTemporaryRedirect || result.Header().Get("Location") != "/?from=bookmark" {
-		t.Fatalf("legacy link: status %d, location %q", result.Code, result.Header().Get("Location"))
+	if result.Code != http.StatusNotFound {
+		t.Fatalf("removed legacy link: status %d", result.Code)
 	}
 }
 

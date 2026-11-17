@@ -23,7 +23,7 @@ func (s *Server) listTexts(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, "无法读取内容")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"texts": texts, "fragments": texts})
+	writeJSON(w, http.StatusOK, map[string]any{"texts": texts})
 }
 
 func (s *Server) createText(w http.ResponseWriter, r *http.Request) {
@@ -68,41 +68,6 @@ func (s *Server) createText(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("异常: 保存共享文本失败: %v", err)
 		writeError(w, http.StatusInternalServerError, "保存内容失败")
-		return
-	}
-	s.notifyTextsChanged()
-	writeJSON(w, http.StatusCreated, item)
-}
-
-func (s *Server) uploadFragmentImage(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, textstore.MaxImageBytes+1<<20)
-	if err := r.ParseMultipartForm(textstore.MaxImageBytes); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			writeError(w, http.StatusRequestEntityTooLarge, "图片超过 20 MiB 限制")
-		} else {
-			writeError(w, http.StatusBadRequest, "图片数据格式无效")
-		}
-		return
-	}
-	defer r.MultipartForm.RemoveAll()
-	file, header, err := r.FormFile("image")
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "请选择要上传的图片")
-		return
-	}
-	defer file.Close()
-	data, err := io.ReadAll(io.LimitReader(file, textstore.MaxImageBytes+1))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "无法读取上传的图片")
-		return
-	}
-	if len(data) > textstore.MaxImageBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "图片超过 20 MiB 限制")
-		return
-	}
-	item, err := s.texts.CreateImage(header.Filename, data)
-	if writeFragmentError(w, err) {
 		return
 	}
 	s.notifyTextsChanged()
@@ -177,10 +142,6 @@ func writeFragmentError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusInternalServerError, "保存内容失败")
 	}
 	return true
-}
-
-func (s *Server) serveFragmentImage(w http.ResponseWriter, r *http.Request) {
-	s.serveFragmentImageAt(w, r, 0)
 }
 
 func (s *Server) serveFragmentImageAt(w http.ResponseWriter, r *http.Request, index int) {

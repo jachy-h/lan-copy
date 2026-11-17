@@ -107,7 +107,7 @@ func TestMixedFragmentCreationAndDeletion(t *testing.T) {
 func TestFragmentImageLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	store := NewWithSettings(dir, Settings{ExpiryDays: 7})
-	item, err := store.CreateImage("截图.PNG", onePixelPNG)
+	item, err := store.CreateFragment("", []ImageUpload{{Name: "截图.PNG", Data: onePixelPNG}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestFragmentImageLifecycle(t *testing.T) {
 func TestExpiredFragmentsArePrunedWithTheirImages(t *testing.T) {
 	dir := t.TempDir()
 	store := NewWithSettings(dir, Settings{ExpiryDays: 7})
-	item, err := store.CreateImage("photo.png", onePixelPNG)
+	item, err := store.CreateFragment("", []ImageUpload{{Name: "photo.png", Data: onePixelPNG}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestExpiredFragmentsArePrunedWithTheirImages(t *testing.T) {
 
 func TestUnsupportedImageIsRejected(t *testing.T) {
 	store := New(t.TempDir())
-	if _, err := store.CreateImage("notes.txt", []byte("not an image")); err != ErrUnsupportedImage {
+	if _, err := store.CreateFragment("", []ImageUpload{{Name: "notes.txt", Data: []byte("not an image")}}); err != ErrUnsupportedImage {
 		t.Fatalf("error = %v, want %v", err, ErrUnsupportedImage)
 	}
 }

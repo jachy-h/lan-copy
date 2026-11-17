@@ -357,10 +357,6 @@ func (s *Store) CreateFragment(content string, uploads []ImageUpload) (Fragment,
 	return item, nil
 }
 
-func (s *Store) CreateImage(name string, data []byte) (Fragment, error) {
-	return s.CreateFragment("", []ImageUpload{{Name: name, Data: data}})
-}
-
 func (s *Store) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

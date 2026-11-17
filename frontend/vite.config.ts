@@ -40,18 +40,13 @@ export default defineConfig(({ command }) => ({
       server.middlewares.use((request, response, next) => {
         const [pathname] = (request.url || '').split('?')
         const query = (request.url || '').slice(pathname.length)
-        if (pathname === '/transfer.html') {
-          response.writeHead(308, { Location: `/transfer-text${query}`, 'Cache-Control': 'no-cache' })
-          response.end()
-          return
-        }
         if (pathname === '/transfer-text') request.url = `/transfer.html${query}`
         if (pathname === '/print-queue') request.url = `/print.html${query}`
         next()
       })
     },
   }],
-  server: { proxy: Object.fromEntries(['/api', '/files', '/preview-files', '/thumbnails', '/logo', '/filesystem.html'].map(prefix => [prefix, proxyOptions])) },
+  server: { proxy: Object.fromEntries(['/api', '/files', '/preview-files', '/thumbnails', '/logo'].map(prefix => [prefix, proxyOptions])) },
   publicDir: resolve(root, 'public'),
   base: command === 'serve' ? '/' : '/_frontend/',
   build: {

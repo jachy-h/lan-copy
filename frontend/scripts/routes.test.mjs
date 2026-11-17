@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'
 import { generateVendor } from './vendor-assets.mjs'
 
-test('dev text route serves the shared app and redirects legacy GET/HEAD with query intact', async () => {
+test('dev text route serves the shared app directly without legacy redirects', async () => {
   const server = await createServer({
     configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
     logLevel: 'silent',
@@ -14,9 +14,10 @@ test('dev text route serves the shared app and redirects legacy GET/HEAD with qu
     await server.listen()
     const origin = `http://127.0.0.1:${server.httpServer.address().port}`
     for (const method of ['GET', 'HEAD']) {
-      const response = await fetch(origin + '/transfer.html?from=bookmark&value=%E4%B8%AD', { method, redirect: 'manual' })
-      assert.equal(response.status, 308)
-      assert.equal(response.headers.get('location'), '/transfer-text?from=bookmark&value=%E4%B8%AD')
+      const direct = await fetch(origin + '/transfer.html?from=bookmark&value=%E4%B8%AD', { method, redirect: 'manual' })
+      assert.equal(direct.status, 200)
+      assert.equal(direct.headers.get('location'), null)
+      if (method === 'GET') assert.ok((await direct.text()).includes('正在读取碎片'))
       const print = await fetch(origin + '/print-queue?from=bookmark', { method })
       assert.equal(print.status, 200)
       if (method === 'GET') assert.ok((await print.text()).includes('正在读取打印机'))

@@ -61,7 +61,7 @@ make frontend-dev   # 启动 Vite 页面并代理到本机 Go 服务 / run Vite 
 
 `frontend/` 是人工维护的 Vue/TypeScript 源码，`web/` 保存由 Vite 生成并提交的生产资源。内网空间、设置、碎片快传、分享/状态与独立预览入口均由 Vue 管理。日常单独构建 Go 的 `go build .` 使用已提交的静态资源，不要求 Node.js；发布构建 `make build` 会自动安装前端依赖、运行类型检查和测试、构建前端并同步嵌入资源，再打包 Go 制品，因此需要 Node.js/npm。剩余人工验收见 [v0.5.0 实施进度](v0.5.0-progress.md)。
 
-内网空间 `/` 与碎片快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 以 HTTP 308 重定向到 `/transfer-text` 并保留查询参数；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。目录树由 `FileTree.vue` 共享给内网空间侧栏和碎片转存弹窗。碎片快传的 `FragmentTransfer.vue` 管理文字和图片的混合发布、纯文本编辑、到期显示、瀑布流卡片、长文展开、粘贴/拖拽上传及删除；已发布文字仍按轻量 Markdown 子集渲染；`FragmentSaveDialog.vue` 通过 `/api/filesystem` 选择目录并调用 `/api/texts/{id}/save` 转存。`preview.html` 继续作为独立预览入口。
+内网空间 `/` 与碎片快传 `/transfer-text` 共用 `src/pages/app.ts` 和 `App.vue`，以 History API 在同一 SPA 中切换；`/transfer.html` 是碎片快传的静态页面入口，直接返回同一页面骨架，不再做 HTTP 跳转；两个 HTML 构建入口保留初始加载骨架。公共顶栏、页脚和预览弹窗位于 `src/components/`，分享/状态浮层共用 `src/composables/usePopover.ts`。导航保留文本草稿及文件夹地址；页面卸载清理 SSE、请求、定时器和右键菜单注册。目录树由 `FileTree.vue` 共享给内网空间侧栏和碎片转存弹窗。碎片快传的 `FragmentTransfer.vue` 管理文字和图片的混合发布、纯文本编辑、到期显示、瀑布流卡片、长文展开、粘贴/拖拽上传及删除；已发布文字仍按轻量 Markdown 子集渲染；`FragmentSaveDialog.vue` 通过 `/api/filesystem` 选择目录并调用 `/api/texts/{id}/save` 转存。`preview.html` 继续作为独立预览入口。
 本地开发时先以 `go run . -listen :8080` 启动服务，再运行 `make frontend-dev`；Vite 默认代理到 `http://127.0.0.1:8080`，可用 `LAN_COPY_PROXY` 指定其他 Go 地址。开发代理会把同源动作请求的 Origin 规范到 Go 目标，不影响生产访问策略。
 Run `go run . -listen :8080` before `make frontend-dev`. Vite proxies to `http://127.0.0.1:8080` by default; set `LAN_COPY_PROXY` to use another Go instance. The dev proxy normalizes action request Origins to the Go target without changing production access policy.
 `frontend/` contains manually maintained Vue/TypeScript sources; `web/` contains the Vite-generated production assets committed with the source. Shared files, settings, text transfer, sharing/status controls, and standalone preview are managed by Vue pages. A standalone `go build .` uses the committed assets and does not need Node.js. The release command `make build` automatically installs frontend dependencies, runs type checks and tests, builds the frontend, syncs its embedded assets, and then packages the Go binaries; it requires Node.js/npm. Remaining manual checks are tracked in [the v0.5.0 progress record](v0.5.0-progress.md).
@@ -211,8 +211,8 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `GET /api/filesystem?path=...&q=...` 读取目录（空路径为共享根目录）；指定 q 时递归搜索当前目录和子目录中的文件、文件夹名称，单次最多遍历 10000 项；客户端取消请求会中止后续遍历
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
-  - `/` 内网空间首页，`/transfer.html` 文本共享页面（文本发布、复制和删除；文件上传与浏览统一在内网空间），旧地址 `/filesystem.html` 重定向到首页；文件夹对应存储目录中的真实目录，无额外索引数据库
-  - `GET/POST /api/texts`、`DELETE /api/texts/{id}` 共享文本保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
+  - `/` 内网空间首页，`/transfer-text` 碎片快传页面（文字、图片碎片的发布、复制、转存和删除；文件上传与浏览统一在内网空间），`/transfer.html` 直接返回同一碎片快传页面；旧地址 `/filesystem.html` 已移除；文件夹对应存储目录中的真实目录，无额外索引数据库
+  - `GET/POST /api/texts`、`POST /api/texts/fragments`、`DELETE /api/texts/{id}` 共享碎片保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中；图片通过 `GET /api/texts/{id}/images/{index}` 读取。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查
 

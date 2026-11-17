@@ -52,6 +52,13 @@ func TestTextLifecycleAndPersistence(t *testing.T) {
 	if len(listed.Texts) != 1 || listed.Texts[0].ID != created.ID {
 		t.Fatalf("unexpected texts after restart: %+v", listed.Texts)
 	}
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := payload["fragments"]; ok {
+		t.Fatal("response must not include the removed fragments alias")
+	}
 
 	recorder = httptest.NewRecorder()
 	restarted.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/files", nil))

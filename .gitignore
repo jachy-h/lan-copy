@@ -13,6 +13,10 @@ frontend/node_modules/
 共享文件夹-lancopy/
 shared-folder-lancopy/
 
+# Accidental Hugo output; this repository is not a Hugo site
+/public/
+/.hugo_build.lock
+
 # Local signing keys and configuration
 /.config/
 __pycache__/

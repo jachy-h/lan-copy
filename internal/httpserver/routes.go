@@ -48,8 +48,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/texts", s.listTexts)
 	mux.HandleFunc("POST /api/texts", s.createText)
 	mux.HandleFunc("POST /api/texts/fragments", s.createFragment)
-	mux.HandleFunc("POST /api/texts/images", s.uploadFragmentImage)
-	mux.HandleFunc("GET /api/texts/{id}/image", s.serveFragmentImage)
 	mux.HandleFunc("GET /api/texts/{id}/images/{index}", func(w http.ResponseWriter, r *http.Request) {
 		index, err := strconv.Atoi(r.PathValue("index"))
 		if err != nil {
@@ -68,21 +66,6 @@ func (s *Server) routes() http.Handler {
 		w.Header().Set("X-Lan-Copy-Service", "lan-copy")
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "ok\n")
-	})
-	mux.HandleFunc("GET /filesystem.html", func(w http.ResponseWriter, r *http.Request) {
-		target := "/"
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
-	})
-	mux.HandleFunc("GET /transfer.html", func(w http.ResponseWriter, r *http.Request) {
-		target := "/transfer-text"
-		if r.URL.RawQuery != "" {
-			target += "?" + r.URL.RawQuery
-		}
-		w.Header().Set("Cache-Control", "no-cache")
-		http.Redirect(w, r, target, http.StatusPermanentRedirect)
 	})
 	mux.HandleFunc("GET /transfer-text", func(w http.ResponseWriter, r *http.Request) {
 		page := r.Clone(r.Context())

@@ -8,7 +8,7 @@ import UploadProgress from './components/UploadProgress.vue'
 import { close as closeContextMenu } from './ui/contextMenu'
 
 type Page = 'files' | 'transfer' | 'print'
-function currentPage(): Page { return location.pathname === '/print-queue' || location.pathname === '/print.html' ? 'print' : location.pathname === '/transfer-text' ? 'transfer' : 'files' }
+function currentPage(): Page { return location.pathname === '/print-queue' || location.pathname === '/print.html' ? 'print' : location.pathname === '/transfer-text' || location.pathname === '/transfer.html' ? 'transfer' : 'files' }
 const page = ref<Page>(currentPage())
 function returnFilesHref() {
   const from = new URLSearchParams(location.search).get('from') || ''

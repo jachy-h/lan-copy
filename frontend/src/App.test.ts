@@ -56,6 +56,12 @@ describe('shared SPA', () => {
     expect(preventedByApp).toBe(false)
     expect(location.pathname).toBe('/transfer-text')
   })
+  it('renders the transfer page when opened through the static transfer.html entry', () => {
+    history.replaceState(null, '', '/transfer.html?from=bookmark')
+    render()
+    expect(wrapper.find('#draft').exists()).toBe(true)
+    expect(document.title).toBe('碎片快传 · Lan Copy')
+  })
   it('routes a shared print selection with its folder and clears the source on local replacement', async () => {
     history.replaceState(null, '', '/#path=资料')
     render()
