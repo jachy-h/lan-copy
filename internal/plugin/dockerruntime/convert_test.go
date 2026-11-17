@@ -1,17 +1,23 @@
 package dockerruntime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"lan-copy/internal/plugin"
 )
+
+func testMountHostPath() string {
+	return filepath.Join(os.TempDir(), "lan-copy-plugin-test-data")
+}
 
 func validCreateRequest() plugin.CreateInstanceRequest {
 	return plugin.CreateInstanceRequest{
 		Name: "lan-copy-plugin-demo-12345678", ImageRef: "sha256:image",
 		Env: []string{"A=1"}, ContainerPort: 8080, NetworkName: "plugin-network",
 		PublishLoopback: true,
-		Mounts:          []plugin.Mount{{HostPath: "/tmp/plugin-data", ContainerPath: "/data", ReadOnly: true}},
+		Mounts:          []plugin.Mount{{HostPath: testMountHostPath(), ContainerPath: "/data", ReadOnly: true}},
 		CPULimit:        0.5, MemoryMB: 512, PIDsLimit: 128,
 		RestartPolicy: "on-failure:2", LogMaxSizeMB: 10, LogMaxFiles: 2,
 		Labels: map[string]string{plugin.LabelPluginID: "demo"},
@@ -66,7 +72,7 @@ func TestBuildCreateConfigsSecurityInvariants(t *testing.T) {
 	if host.Tmpfs["/tmp"] == "" {
 		t.Fatal("tmpfs not configured")
 	}
-	if len(host.Binds) != 1 || host.Binds[0] != "/tmp/plugin-data:/data:ro" {
+	if len(host.Binds) != 1 || host.Binds[0] != testMountHostPath()+":/data:ro" {
 		t.Fatalf("binds = %+v", host.Binds)
 	}
 	if len(host.PortBindings) != 1 {

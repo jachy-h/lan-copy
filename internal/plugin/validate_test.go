@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -75,12 +76,14 @@ func TestPrepareHostMount(t *testing.T) {
 		t.Fatal("docker socket accepted")
 	}
 	linkRoot := t.TempDir()
-	link := filepath.Join(linkRoot, "link")
-	if err := os.Symlink(outside, link); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := PrepareHostMount(filepath.Join(link, "nested"), []string{root}); err == nil {
-		t.Fatal("symlink escape accepted")
+	if runtime.GOOS != "windows" {
+		link := filepath.Join(linkRoot, "link")
+		if err := os.Symlink(outside, link); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := PrepareHostMount(filepath.Join(link, "nested"), []string{root}); err == nil {
+			t.Fatal("symlink escape accepted")
+		}
 	}
 }
 
