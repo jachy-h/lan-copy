@@ -42,6 +42,11 @@ func (s *Store) TmpDir() string    { return filepath.Join(s.dir, "tmp") }
 func (s *Store) DataDir() string   { return filepath.Join(s.dir, "data") }
 func (s *Store) StatePath() string { return filepath.Join(s.dir, stateFileName) }
 
+// EventToken derives the lifecycle signing token for one instance.
+func (s *Store) EventToken(instanceID string) (string, error) {
+	return s.box.EventToken(instanceID)
+}
+
 func (s *Store) Load() (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

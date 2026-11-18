@@ -19,6 +19,10 @@ describe('buildAgentPrompt', () => {
       'X-Lan-Copy-Action: plugins',
       '/api/plugins/install',
       '原地升级',
+      'LAN_COPY_EVENT_TOKEN',
+      'POST /events',
+      'folder.*',
+      '/api/plugins/<plugin-id>/events/test',
     ]) {
       expect(prompt).toContain(expected)
     }

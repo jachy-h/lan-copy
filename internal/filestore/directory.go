@@ -36,6 +36,19 @@ type Mutation struct {
 	Recursive   bool   `json:"recursive"`
 }
 
+// MutationResult describes a completed directory mutation for lifecycle events.
+// It intentionally contains only shared-root relative paths.
+type MutationResult struct {
+	Action       string
+	Path         string
+	Name         string
+	PreviousPath string
+	PreviousName string
+	Size         int64
+	Directory    bool
+	Recursive    bool
+}
+
 func (s *Store) ListDirectory(ctx context.Context, name, query string, limit int) ([]Entry, error) {
 	query = strings.ToLower(strings.TrimSpace(query))
 	dir, err := s.Path(name)
@@ -103,37 +116,37 @@ func (s *Store) ListDirectory(ctx context.Context, name, query string, limit int
 	return result, nil
 }
 
-func (s *Store) MutateDirectory(action string, input Mutation, onPartial func()) error {
+func (s *Store) MutateDirectory(action string, input Mutation, onPartial func()) (MutationResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	source, err := s.Path(input.Path)
 	if err != nil {
-		return err
+		return MutationResult{}, err
 	}
 	switch action {
 	case "mkdir", "move", "rename":
 		parent, name := source, input.Name
 		if action != "mkdir" {
 			if input.Path == "" {
-				return ErrRootMutation
+				return MutationResult{}, ErrRootMutation
 			}
 			parent, err = s.Path(input.Destination)
 			if err != nil {
-				return err
+				return MutationResult{}, err
 			}
 			if action == "move" {
 				name = path.Base(input.Path)
 			}
 		}
 		if err := ValidateComponent(name); err != nil {
-			return fs.ErrInvalid
+			return MutationResult{}, fs.ErrInvalid
 		}
 		info, err := os.Stat(parent)
 		if err != nil {
-			return err
+			return MutationResult{}, err
 		}
 		if !info.IsDir() {
-			return ErrTargetNotDirectory
+			return MutationResult{}, ErrTargetNotDirectory
 		}
 		target := filepath.Join(parent, name)
 		relative := path.Join(input.Destination, name)
@@ -141,38 +154,65 @@ func (s *Store) MutateDirectory(action string, input Mutation, onPartial func())
 			relative = path.Join(input.Path, name)
 		}
 		if action != "mkdir" && (relative == input.Path || strings.HasPrefix(relative, input.Path+"/")) {
-			return ErrSelfMove
+			return MutationResult{}, ErrSelfMove
 		}
 		if _, err := os.Lstat(target); err == nil {
-			return fs.ErrExist
+			return MutationResult{}, fs.ErrExist
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			return MutationResult{}, err
+		}
+		result := MutationResult{
+			Action: action, Path: relative, Name: name,
 		}
 		if action == "mkdir" {
-			return os.Mkdir(target, 0755)
+			if err := os.Mkdir(target, 0755); err != nil {
+				return MutationResult{}, err
+			}
+			result.Directory = true
+			return result, nil
 		}
-		return os.Rename(source, target)
+		previous, err := os.Lstat(source)
+		if err != nil {
+			return MutationResult{}, err
+		}
+		result.Directory = previous.IsDir()
+		if !result.Directory {
+			result.Size = previous.Size()
+		}
+		result.PreviousPath = input.Path
+		result.PreviousName = path.Base(input.Path)
+		if err := os.Rename(source, target); err != nil {
+			return MutationResult{}, err
+		}
+		return result, nil
 	case "delete":
 		if input.Path == "" {
-			return ErrRootMutation
+			return MutationResult{}, ErrRootMutation
 		}
 		info, err := os.Lstat(source)
 		if err != nil {
-			return err
+			return MutationResult{}, err
 		}
 		if info.IsDir() && !input.Recursive {
 			directory, err := os.Open(source)
 			if err != nil {
-				return err
+				return MutationResult{}, err
 			}
 			_, readErr := directory.Readdirnames(1)
 			_ = directory.Close()
 			if readErr == nil {
-				return ErrNonEmpty
+				return MutationResult{}, ErrNonEmpty
 			}
 			if !errors.Is(readErr, io.EOF) {
-				return readErr
+				return MutationResult{}, readErr
 			}
+		}
+		result := MutationResult{
+			Action: action, Path: input.Path, Name: path.Base(input.Path),
+			Directory: info.IsDir(), Recursive: input.Recursive,
+		}
+		if !info.IsDir() {
+			result.Size = info.Size()
 		}
 		if info.IsDir() && input.Recursive {
 			// RemoveAll removes descendant symlinks without following them.
@@ -183,8 +223,11 @@ func (s *Store) MutateDirectory(action string, input Mutation, onPartial func())
 		} else {
 			err = os.Remove(source)
 		}
-		return err
+		if err != nil {
+			return MutationResult{}, err
+		}
+		return result, nil
 	default:
-		return ErrUnknownAction
+		return MutationResult{}, ErrUnknownAction
 	}
 }

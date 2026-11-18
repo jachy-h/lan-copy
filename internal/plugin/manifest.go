@@ -13,11 +13,13 @@ import (
 )
 
 var (
-	pluginIDPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
-	versionPattern    = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
-	capabilityPattern = regexp.MustCompile(`^[a-z0-9]+(\.[a-z0-9-]+)+$`)
-	protocolPattern   = regexp.MustCompile(`^([0-9]+)\.([0-9]+)$`)
-	envNamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
+	pluginIDPattern    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
+	versionPattern     = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$`)
+	capabilityPattern  = regexp.MustCompile(`^[a-z0-9]+(\.[a-z0-9-]+)+$`)
+	eventTypePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*(\.[a-z0-9-]+)+$`)
+	eventDomainPattern = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	protocolPattern    = regexp.MustCompile(`^([0-9]+)\.([0-9]+)$`)
+	envNamePattern     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`)
 )
 
 // Manifest is the frozen plugin manifest carried by an image label. Unknown
@@ -34,6 +36,7 @@ type Manifest struct {
 	ContainerPort   int               `json:"containerPort"`
 	Endpoints       ManifestEndpoints `json:"endpoints"`
 	Capabilities    []string          `json:"capabilities"`
+	Events          []string          `json:"events,omitempty"`
 	Defaults        ManifestDefaults  `json:"defaults,omitempty"`
 }
 
@@ -42,6 +45,7 @@ type ManifestEndpoints struct {
 	Manifest     string `json:"manifest"`
 	Version      string `json:"version"`
 	Capabilities string `json:"capabilities"`
+	Events       string `json:"events,omitempty"`
 }
 
 type ManifestDefaults struct {
@@ -120,6 +124,24 @@ func ValidateManifest(m Manifest) error {
 			return err
 		}
 	}
+	if m.Endpoints.Events != "" {
+		if err := validateEndpoint("events", m.Endpoints.Events); err != nil {
+			return err
+		}
+	}
+	if len(m.Events) > MaxEventSubscriptions {
+		return fmt.Errorf("%w: too many event subscriptions", ErrInvalidManifest)
+	}
+	seenEvents := make(map[string]struct{}, len(m.Events))
+	for _, subscription := range m.Events {
+		if !validEventSubscription(subscription) {
+			return fmt.Errorf("%w: invalid event subscription %q", ErrInvalidManifest, subscription)
+		}
+		if _, exists := seenEvents[subscription]; exists {
+			return fmt.Errorf("%w: duplicate event subscription %q", ErrInvalidManifest, subscription)
+		}
+		seenEvents[subscription] = struct{}{}
+	}
 	if len(m.Capabilities) > 64 {
 		return fmt.Errorf("%w: too many capabilities", ErrInvalidManifest)
 	}
@@ -158,6 +180,12 @@ func validateManifestDefaults(d ManifestDefaults) error {
 func NormalizeManifest(m Manifest) Manifest {
 	if m.Capabilities == nil {
 		m.Capabilities = []string{}
+	}
+	if m.Events == nil {
+		m.Events = []string{}
+	}
+	if len(m.Events) > 0 && m.Endpoints.Events == "" {
+		m.Endpoints.Events = DefaultEventsEndpoint
 	}
 	if m.Defaults.CPULimit == 0 {
 		m.Defaults.CPULimit = 0.5

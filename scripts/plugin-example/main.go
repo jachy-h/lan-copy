@@ -3,6 +3,9 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log"
@@ -27,9 +30,11 @@ const manifest = `{
     "health": "/health",
     "manifest": "/manifest",
     "version": "/version",
-    "capabilities": "/capabilities"
+    "capabilities": "/capabilities",
+    "events": "/events"
   },
   "capabilities": ["demo.echo", "demo.files"],
+  "events": ["file.uploaded", "folder.*", "text.*"],
   "defaults": {
     "cpuLimit": 0.2,
     "memoryMB": 64,
@@ -72,6 +77,35 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"message": "pong", "received": input, "secret": os.Getenv("DEMO_SECRET") != "",
 		})
+	})
+	mux.HandleFunc("POST /events", func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		token := os.Getenv("LAN_COPY_EVENT_TOKEN")
+		timestamp := r.Header.Get("X-Lan-Copy-Timestamp")
+		mac := hmac.New(sha256.New, []byte(token))
+		_, _ = mac.Write([]byte(timestamp))
+		_, _ = mac.Write([]byte("."))
+		_, _ = mac.Write(body)
+		expected := "v1=" + hex.EncodeToString(mac.Sum(nil))
+		if token == "" || !hmac.Equal([]byte(expected), []byte(r.Header.Get("X-Lan-Copy-Signature"))) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid signature"})
+			return
+		}
+		var event struct {
+			ID   string          `json:"id"`
+			Type string          `json:"type"`
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(body, &event); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid event"})
+			return
+		}
+		log.Printf("lifecycle event received: id=%s type=%s data=%s", event.ID, event.Type, event.Data)
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "id": event.ID})
 	})
 	mux.HandleFunc("GET /download", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")

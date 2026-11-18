@@ -102,7 +102,7 @@ docker inspect <image-name>:<version> --format '{{.Config.User}} {{index .Config
 
 ## 通过 API 导入与安装
 
-所有接口仅本机可访问。导入：
+所有接口对能访问 Lan Copy 的设备开放；写操作需要 X-Lan-Copy-Action 动作头且浏览器调用必须同源。导入：
 
 curl -X POST \\
   -H 'X-Lan-Copy-Action: plugins-image' \\
@@ -130,6 +130,29 @@ curl -X POST -H 'X-Lan-Copy-Action: plugins' ${origin}/api/plugins/<plugin-id>/s
 curl -s ${origin}/api/plugins/<plugin-id>
 curl -s ${origin}/api/plugins/<plugin-id>/status
 curl -s "${origin}/api/plugins/<plugin-id>/logs?tail=200"
+
+## 生命周期事件（可选）
+
+如果目标服务需要在上传、文件夹/文件变化或文本变化时收到通知，请同时完成以下改造：
+
+1. Manifest 增加订阅与端点，例如：
+   "events": ["file.uploaded", "folder.*", "text.*"],
+   "endpoints": { ..., "events": "/events" }
+   省略 events 表示不订阅，旧插件无需改动。
+
+2. 实现 POST /events，读取 application/json 请求体。事件信封包含 schemaVersion、id、type、occurredAt 和 data；路径都是共享根目录内的相对路径。
+
+3. 从环境变量 LAN_COPY_EVENT_TOKEN 读取事件密钥，校验请求头：
+   X-Lan-Copy-Timestamp 与 X-Lan-Copy-Signature: v1=<hex>
+   签名 = HMAC-SHA256(timestamp + "." + 原始请求体)，建议校验 5 分钟时间窗并用常量时间比较。
+
+4. 事件类型：file.uploaded、file.deleted、file.renamed、file.moved；folder.created、folder.deleted、folder.renamed、folder.moved；text.created、text.deleted、text.saved。所有事件均在操作成功后异步推送。
+
+5. 返回 2xx 表示成功；网络错误、超时、429 和 5xx 最多重试 3 次，其余 4xx 立即丢弃。请按事件 id 幂等处理，不要依赖固定顺序之外的假设。
+
+安装并启动后，用以下接口验证：
+curl -X POST -H 'X-Lan-Copy-Action: plugins' ${origin}/api/plugins/<plugin-id>/events/test
+curl -s ${origin}/api/plugins/<plugin-id>/events
 
 ## 重要边界
 

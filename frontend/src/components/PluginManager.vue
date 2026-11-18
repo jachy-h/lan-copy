@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
-  deletePluginImage, getPluginRuntime, healthLabel, listPluginImages, listPlugins,
-  pluginAction, statusLabel, uninstallPlugin, uploadPluginImage, waitForTask,
+  deletePluginImage, getPluginEventCatalog, getPluginEvents, getPluginRuntime,
+  healthLabel, listPluginImages, listPlugins, pluginAction, sendPluginTestEvent,
+  statusLabel, uninstallPlugin, uploadPluginImage, waitForTask,
+  type PluginEventCatalogEntry, type PluginEventEndpoint,
   type PluginImage, type PluginRuntime, type PluginTask, type PluginView,
 } from '../api/plugins'
-import { ApiError } from '../api/client'
 import { notify, copyText } from '../ui/fileUi'
 import { confirm, confirmText } from '../ui/dialog'
 import { buildAgentPrompt } from '../pluginPrompt'
@@ -17,7 +18,7 @@ const plugins = ref<PluginView[]>([])
 const images = ref<PluginImage[]>([])
 const loading = ref(true)
 const loadError = ref('')
-const tab = ref<'plugins' | 'images'>('plugins')
+const tab = ref<'plugins' | 'images' | 'events'>('plugins')
 const activeTask = ref<PluginTask | null>(null)
 const taskError = ref('')
 const installOpen = ref(false)
@@ -26,8 +27,17 @@ const uploading = ref(false)
 const uploadPercent = ref(0)
 const uploadError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const eventCatalog = ref<PluginEventCatalogEntry[]>([])
+const eventEndpointMap = ref<Record<string, PluginEventEndpoint>>({})
+const eventCatalogError = ref('')
+const eventStatusError = ref('')
+const eventNotice = ref('')
+const eventsLoading = ref(false)
+const testingEvent = ref('')
 let refreshController: AbortController | null = null
 let taskController: AbortController | null = null
+let eventController: AbortController | null = null
+let eventNoticeTimer: ReturnType<typeof setTimeout> | undefined
 let refreshTimer: ReturnType<typeof setInterval> | undefined
 let refreshAgain = false
 
@@ -83,17 +93,7 @@ async function refresh() {
     loadError.value = ''
   } catch (error) {
     if (!controller.signal.aborted) {
-      if (error instanceof ApiError && error.status === 403) {
-        runtime.value = {
-          type: 'docker', available: false, networkMode: 'loopback', network: '',
-          error: '插件管理仅限运行 Lan Copy 的本机使用',
-        }
-        plugins.value = []
-        images.value = []
-        loadError.value = ''
-      } else {
-        loadError.value = message(error, '无法读取插件状态')
-      }
+      loadError.value = message(error, '无法读取插件状态')
     }
   } finally {
     if (refreshController === controller) {
@@ -234,6 +234,132 @@ async function copyAgentPrompt() {
   notify(copied ? 'Agent Prompt 已复制，可直接粘贴给编码 Agent' : '复制失败，请检查浏览器权限', !copied)
 }
 
+const manifestSnippet = `"endpoints": {
+  "health": "/health",
+  "manifest": "/manifest",
+  "version": "/version",
+  "capabilities": "/capabilities",
+  "events": "/events"
+},
+"events": ["file.uploaded", "folder.*", "text.*"]`
+
+const envelopeSnippet = `POST /events
+Content-Type: application/json
+X-Lan-Copy-Event: folder.created
+X-Lan-Copy-Event-Id: evt-...
+X-Lan-Copy-Timestamp: 1763435045
+X-Lan-Copy-Signature: v1=<hmac-sha256>
+
+{
+  "schemaVersion": 1,
+  "id": "evt-...",
+  "type": "folder.created",
+  "occurredAt": "2026-11-18T03:04:05Z",
+  "data": { "path": "docs/2026", "name": "2026" }
+}`
+
+const verifySnippet = `token := os.Getenv("LAN_COPY_EVENT_TOKEN")
+body, _ := io.ReadAll(io.LimitReader(r.Body, 64<<10))
+timestamp := r.Header.Get("X-Lan-Copy-Timestamp")
+mac := hmac.New(sha256.New, []byte(token))
+mac.Write([]byte(timestamp))
+mac.Write([]byte("."))
+mac.Write(body)
+expected := "v1=" + hex.EncodeToString(mac.Sum(nil))
+if !hmac.Equal([]byte(expected), []byte(r.Header.Get("X-Lan-Copy-Signature"))) {
+    http.Error(w, "invalid signature", http.StatusUnauthorized)
+    return
+}
+// 再按 body 中的 id 做幂等处理，成功后返回 2xx。`
+
+async function loadEventCatalog() {
+  try {
+    const result = await getPluginEventCatalog()
+    eventCatalog.value = result.events
+    eventCatalogError.value = ''
+  } catch (error) {
+    eventCatalogError.value = message(error, '无法读取事件目录')
+  }
+}
+
+async function loadPluginEvents() {
+  if (eventsLoading.value || plugins.value.length === 0) {
+    if (plugins.value.length === 0) eventEndpointMap.value = {}
+    return
+  }
+  eventController?.abort()
+  const controller = new AbortController()
+  eventController = controller
+  eventsLoading.value = true
+  try {
+    const ids = plugins.value.map(view => view.plugin.id)
+    const results = await Promise.allSettled(ids.map(id => getPluginEvents(id, controller.signal)))
+    if (controller.signal.aborted) return
+    const next: Record<string, PluginEventEndpoint> = {}
+    let failures = 0
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') next[ids[index]] = result.value
+      else failures++
+    })
+    eventEndpointMap.value = next
+    eventStatusError.value = failures === ids.length ? '无法读取事件投递状态，请刷新重试' : ''
+  } finally {
+    if (eventController === controller) {
+      eventController = null
+      eventsLoading.value = false
+    }
+  }
+}
+
+function selectTab(next: 'plugins' | 'images' | 'events') {
+  tab.value = next
+  if (next !== 'events') return
+  if (eventCatalog.value.length === 0) void loadEventCatalog()
+  if (plugins.value.length === 0) void refresh().then(() => { if (tab.value === 'events') void loadPluginEvents() })
+  else void loadPluginEvents()
+}
+
+function endpointFor(view: PluginView) {
+  return eventEndpointMap.value[view.plugin.id]
+}
+
+function subscriptionsFor(view: PluginView) {
+  const endpoint = endpointFor(view)
+  if (endpoint && endpoint.subscriptions.length > 0) return endpoint.subscriptions
+  return view.image?.manifest?.events || []
+}
+
+function canTestEvent(view: PluginView) {
+  return Boolean(runtime.value?.available && view.instance?.status === 'running' &&
+    view.instance?.healthStatus === 'healthy' && !testingEvent.value)
+}
+
+async function testEvent(view: PluginView) {
+  if (testingEvent.value) return
+  testingEvent.value = view.plugin.id
+  eventNotice.value = ''
+  eventStatusError.value = ''
+  try {
+    const { eventId } = await sendPluginTestEvent(view.plugin.id)
+    eventNotice.value = `测试事件已入队（${eventId}），正在等待插件响应`
+    if (eventNoticeTimer) clearTimeout(eventNoticeTimer)
+    eventNoticeTimer = setTimeout(() => { void loadPluginEvents() }, 700)
+  } catch (error) {
+    eventStatusError.value = message(error, '发送测试事件失败')
+  } finally {
+    testingEvent.value = ''
+  }
+}
+
+function compactData(value: unknown) {
+  try { return JSON.stringify(value) } catch { return '' }
+}
+
+async function copySnippet(text: string, label: string) {
+  const copied = await copyText(text)
+  notify(copied ? `${label}已复制` : '复制失败，请检查浏览器权限', !copied)
+}
+
 function installed() {
   installOpen.value = false
   tab.value = 'plugins'
@@ -242,12 +368,19 @@ function installed() {
 
 onMounted(() => {
   void refresh()
-  refreshTimer = setInterval(() => { if (!document.hidden) void refresh() }, 5000)
+  refreshTimer = setInterval(() => {
+    if (document.hidden) return
+    void refresh().then(() => {
+      if (tab.value === 'events') void loadPluginEvents()
+    })
+  }, 5000)
 })
 onBeforeUnmount(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   refreshController?.abort()
   taskController?.abort()
+  eventController?.abort()
+  if (eventNoticeTimer) clearTimeout(eventNoticeTimer)
 })
 </script>
 
@@ -255,9 +388,9 @@ onBeforeUnmount(() => {
   <section class="plugins-page">
     <div class="plugins-heading">
       <div>
-        <span class="plugins-eyebrow">本地服务 · Docker</span>
+        <span class="plugins-eyebrow">局域网服务 · Docker</span>
         <h2>插件服务</h2>
-        <p>安装、运行并调用独立的本地插件。插件以受限容器运行，仅本机可管理。</p>
+        <p>安装、运行并调用独立的本地插件。插件以受限容器运行，局域网内可管理。</p>
       </div>
       <div class="plugins-heading-actions">
         <button class="secondary" type="button" title="复制一段可直接交给编码 Agent 的插件改造说明" @click="copyAgentPrompt">复制 Agent Prompt</button>
@@ -279,6 +412,10 @@ onBeforeUnmount(() => {
       <a v-if="runtime?.available && tab === 'images'" class="plugin-runtime-link" href="#plugin-images">上传镜像</a>
     </div>
 
+    <p class="plugin-lan-warning" role="note">
+      插件管理对能访问本服务的局域网设备开放。写操作仍要求同源与动作头，但这不是身份认证；请只安装可信镜像，并在需要时通过防火墙或反向代理限制访问。
+    </p>
+
     <div v-if="activeTask" class="plugin-task" aria-live="polite">
       <div class="plugin-task-head">
         <strong>{{ activeTask.message || '正在执行' }}</strong>
@@ -289,9 +426,10 @@ onBeforeUnmount(() => {
     <p v-if="taskError" class="plugin-inline-error" role="alert">{{ taskError }}</p>
     <p v-if="loadError" class="plugin-inline-error" role="alert">{{ loadError }}</p>
 
-    <div class="plugin-tabs" role="tablist" aria-label="插件与镜像">
-      <button type="button" role="tab" :aria-selected="tab === 'plugins'" @click="tab = 'plugins'">插件<span>{{ plugins.length }}</span></button>
-      <button type="button" role="tab" :aria-selected="tab === 'images'" @click="tab = 'images'">镜像<span>{{ images.length }}</span></button>
+    <div class="plugin-tabs" role="tablist" aria-label="插件、镜像与生命周期">
+      <button type="button" role="tab" :aria-selected="tab === 'plugins'" @click="selectTab('plugins')">插件<span>{{ plugins.length }}</span></button>
+      <button type="button" role="tab" :aria-selected="tab === 'images'" @click="selectTab('images')">镜像<span>{{ images.length }}</span></button>
+      <button type="button" role="tab" :aria-selected="tab === 'events'" @click="selectTab('events')">生命周期<span>{{ eventCatalog.length || '说明' }}</span></button>
     </div>
 
     <section v-if="tab === 'plugins'" class="plugin-panel" aria-label="插件列表">
@@ -344,7 +482,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-else id="plugin-images" class="plugin-panel" aria-label="镜像管理">
+    <section v-else-if="tab === 'images'" id="plugin-images" class="plugin-panel" aria-label="镜像管理">
       <div class="plugin-upload" :class="{ disabled: !canManage }">
         <div>
           <strong>上传离线镜像</strong>
@@ -393,6 +531,154 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+    </section>
+
+    <section v-else class="plugin-panel plugin-events-panel" aria-label="生命周期事件">
+      <div class="plugin-events-intro">
+        <div>
+          <span class="plugins-eyebrow">生命周期事件</span>
+          <h3>让插件在文件变化时被通知</h3>
+          <p>上传、文件夹与文件操作、文本操作成功后，Lan Copy 会异步推送到已订阅插件的 <code>/events</code>。推送不阻塞文件操作，失败只记录投递状态。</p>
+        </div>
+        <button class="secondary" type="button" @click="copyAgentPrompt">复制对接说明</button>
+      </div>
+
+      <p v-if="eventCatalogError" class="plugin-inline-error" role="alert">{{ eventCatalogError }}</p>
+      <p v-if="eventStatusError" class="plugin-inline-error" role="alert">{{ eventStatusError }}</p>
+      <p v-if="eventNotice" class="plugin-event-notice" role="status">{{ eventNotice }}</p>
+
+      <section class="plugin-event-card" aria-labelledby="plugin-event-catalog">
+        <div class="plugin-event-card-head">
+          <div>
+            <h3 id="plugin-event-catalog">事件目录</h3>
+            <p>路径均为共享根目录内的相对路径。失败、取消和回滚的操作不会产生事件。</p>
+          </div>
+          <span>{{ eventCatalog.length }} 个事件</span>
+        </div>
+        <div class="plugin-event-table" role="table" aria-label="生命周期事件目录">
+          <div class="plugin-event-row plugin-event-row-head" role="row">
+            <span role="columnheader">事件</span>
+            <span role="columnheader">分类</span>
+            <span role="columnheader">触发时机</span>
+            <span role="columnheader">示例 data</span>
+          </div>
+          <div v-for="entry in eventCatalog" :key="entry.type" class="plugin-event-row" role="row">
+            <code role="cell">{{ entry.type }}</code>
+            <span role="cell" class="plugin-event-category">{{ entry.category }}</span>
+            <span role="cell">{{ entry.description }}</span>
+            <code role="cell" class="plugin-event-data">{{ compactData(entry.data) }}</code>
+          </div>
+          <div v-if="eventCatalog.length === 0" class="plugin-event-row">
+            <span>正在读取事件目录…</span>
+          </div>
+        </div>
+      </section>
+
+      <div class="plugin-event-grid">
+        <section class="plugin-event-card" aria-labelledby="plugin-event-declare">
+          <div class="plugin-event-card-head">
+            <h3 id="plugin-event-declare">1. 声明订阅</h3>
+            <button class="secondary" type="button" @click="copySnippet(manifestSnippet, 'Manifest 片段')">复制</button>
+          </div>
+          <p>在镜像 Manifest 中声明要接收的事件和端点。省略 <code>events</code> 表示不接收任何推送，旧插件无需改动。</p>
+          <pre class="plugin-code">{{ manifestSnippet }}</pre>
+          <p class="plugin-step-hint">订阅支持精确类型（<code>file.uploaded</code>）、单层通配（<code>file.*</code>、<code>folder.*</code>、<code>text.*</code>）和全局通配 <code>*</code>，最多 32 项。</p>
+        </section>
+
+        <section class="plugin-event-card" aria-labelledby="plugin-event-receive">
+          <div class="plugin-event-card-head">
+            <h3 id="plugin-event-receive">2. 接收事件</h3>
+            <button class="secondary" type="button" @click="copySnippet(envelopeSnippet, '事件格式')">复制</button>
+          </div>
+          <p>实现 <code>POST /events</code>，读取请求体并以 2xx 响应。Lan Copy 会带上事件类型、事件 ID、时间戳和签名头。</p>
+          <pre class="plugin-code">{{ envelopeSnippet }}</pre>
+          <p class="plugin-step-hint">默认超时 5 秒，最多尝试 3 次；网络错误、超时、<code>429</code> 和 <code>5xx</code> 会重试，其余 <code>4xx</code> 立即丢弃。请按 <code>id</code> 做幂等处理。</p>
+        </section>
+      </div>
+
+      <section class="plugin-event-card" aria-labelledby="plugin-event-signature">
+        <div class="plugin-event-card-head">
+          <div>
+            <h3 id="plugin-event-signature">3. 校验签名</h3>
+            <p>事件密钥由 Lan Copy 在安装时生成，并通过保留环境变量 <code>LAN_COPY_EVENT_TOKEN</code> 注入容器；配置中不能覆盖。</p>
+          </div>
+          <button class="secondary" type="button" @click="copySnippet(verifySnippet, '签名校验示例')">复制</button>
+        </div>
+        <pre class="plugin-code">{{ verifySnippet }}</pre>
+        <ul class="plugin-event-notes">
+          <li>签名是 <code>HMAC-SHA256(timestamp + "." + 原始请求体)</code>，请求头格式为 <code>v1=&lt;hex&gt;</code>。</li>
+          <li>建议校验时间戳在 5 分钟内，并使用常量时间比较。</li>
+          <li>插件停止、启动中、健康异常或队列满时，事件会被丢弃且不会拖慢文件操作。</li>
+        </ul>
+      </section>
+
+      <section class="plugin-event-card" aria-labelledby="plugin-event-status">
+        <div class="plugin-event-card-head">
+          <div>
+            <h3 id="plugin-event-status">交付状态</h3>
+            <p>记录只保留在内存中，最近 50 条；Lan Copy 重启后清空。连续失败 5 次会暂停投递 60 秒。</p>
+          </div>
+          <span v-if="eventsLoading">正在刷新…</span>
+        </div>
+
+        <div v-if="plugins.length === 0" class="plugin-empty compact">
+          <strong>还没有可接收事件的插件</strong>
+          <p>先安装并启动插件，再在 Manifest 中声明 <code>events</code>。</p>
+        </div>
+        <div v-else class="plugin-event-plugin-list">
+          <article v-for="view in plugins" :key="view.plugin.id" class="plugin-event-plugin">
+            <div class="plugin-event-plugin-head">
+              <div class="plugin-identity">
+                <strong>{{ view.plugin.name }}</strong>
+                <code>{{ view.plugin.id }}</code>
+              </div>
+              <div class="plugin-event-plugin-actions">
+                <span class="plugin-badge" :class="`status-${view.instance?.status || view.plugin.status}`">
+                  {{ statusLabel(view.instance?.status || view.plugin.status) }}
+                </span>
+                <span class="plugin-badge" :class="`health-${view.instance?.healthStatus || 'unknown'}`">
+                  {{ healthLabel(view.instance?.healthStatus || 'unknown') }}
+                </span>
+                <button class="secondary" type="button" :disabled="!canTestEvent(view)" @click="testEvent(view)">
+                  {{ testingEvent === view.plugin.id ? '发送中…' : '发送测试事件' }}
+                </button>
+              </div>
+            </div>
+
+            <div class="plugin-event-subscriptions">
+              <span>端点</span>
+              <code>{{ endpointFor(view)?.endpoint || view.image?.manifest?.endpoints?.events || '/events' }}</code>
+              <span>订阅</span>
+              <template v-if="subscriptionsFor(view).length > 0">
+                <code v-for="subscription in subscriptionsFor(view)" :key="subscription">{{ subscription }}</code>
+              </template>
+              <em v-else>未声明 events，不会收到推送</em>
+            </div>
+
+            <div v-if="endpointFor(view)" class="plugin-event-stats">
+              <span><strong>{{ endpointFor(view)!.stats.queued }}</strong> 已入队</span>
+              <span><strong>{{ endpointFor(view)!.stats.delivered }}</strong> 已投递</span>
+              <span><strong>{{ endpointFor(view)!.stats.failed }}</strong> 失败</span>
+              <span><strong>{{ endpointFor(view)!.stats.dropped }}</strong> 丢弃</span>
+              <span>最近投递 {{ formatDate(endpointFor(view)!.stats.lastDeliveredAt) }}</span>
+            </div>
+
+            <div v-if="endpointFor(view)?.deliveries.length" class="plugin-event-deliveries">
+              <div class="plugin-event-delivery-row plugin-event-delivery-head">
+                <span>事件</span><span>结果</span><span>尝试</span><span>时间</span><span>说明</span>
+              </div>
+              <div v-for="delivery in endpointFor(view)!.deliveries.slice(-5).reverse()" :key="delivery.at + delivery.eventId" class="plugin-event-delivery-row">
+                <code>{{ delivery.type }}</code>
+                <span class="plugin-event-delivery-status" :class="`delivery-${delivery.status}`">{{ delivery.status === 'delivered' ? '成功' : delivery.status === 'failed' ? '失败' : '丢弃' }}</span>
+                <span>{{ delivery.attempts || '—' }}</span>
+                <span>{{ formatDate(delivery.at) }}</span>
+                <span class="plugin-event-delivery-error" :title="delivery.error">{{ delivery.error || `HTTP ${delivery.statusCode || 200}` }}</span>
+              </div>
+            </div>
+            <p v-else class="plugin-step-hint">还没有投递记录。启动插件后点击“发送测试事件”，可验证端点、签名和幂等处理。</p>
+          </article>
+        </div>
+      </section>
     </section>
   </section>
 

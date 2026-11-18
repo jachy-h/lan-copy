@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"lan-copy/internal/plugin"
 	"lan-copy/internal/textstore"
 )
 
@@ -71,6 +72,7 @@ func (s *Server) createText(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyTextsChanged()
+	s.publishTextEvent("text.created", item)
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -116,6 +118,7 @@ func (s *Server) createFragment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyTextsChanged()
+	s.publishTextEvent("text.created", item)
 	writeJSON(w, http.StatusCreated, item)
 }
 
@@ -253,6 +256,11 @@ func (s *Server) saveFragment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyFilesChanged()
+	eventFiles := make([]plugin.SavedTextFile, 0, len(files))
+	for _, saved := range files {
+		eventFiles = append(eventFiles, plugin.SavedTextFile{Path: saved.Path, Name: saved.Name})
+	}
+	s.publishTextSaved(id, eventFiles)
 	response := map[string]any{"files": files}
 	response["path"] = files[0].Path
 	response["name"] = files[0].Name
@@ -275,6 +283,7 @@ func (s *Server) deleteText(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "文本编号无效")
 		return
 	}
+	item, itemErr := s.texts.Get(id)
 	if err := s.texts.Delete(id); err != nil {
 		if errors.Is(err, textstore.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "内容不存在")
@@ -285,6 +294,9 @@ func (s *Server) deleteText(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyTextsChanged()
+	if itemErr == nil {
+		s.publishTextEvent("text.deleted", item)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

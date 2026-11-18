@@ -17,7 +17,7 @@ Lan Copy 通过 Docker Engine API 在本机运行插件容器，并提供：
 
 ```text
 Vue /plugins
-   │ 仅本机 + 动作头 + 同源
+   │ 局域网可访问 + 写操作动作头 + 同源
    ▼
 internal/httpserver
    │
@@ -47,6 +47,7 @@ Docker Engine API（unix socket / Windows named pipe / DOCKER_HOST）
 | GET | `/manifest` | 与镜像标签中的 Manifest 完全一致 |
 | GET | `/version` | 版本、构建版本、运行时信息 |
 | GET | `/capabilities` | 能力列表及描述 |
+| POST | `/events` | 接收生命周期事件；未声明 `events` 时不会收到请求 |
 
 业务接口由插件自行定义，Lan Copy 不做协议限制。
 
@@ -67,9 +68,11 @@ Docker Engine API（unix socket / Windows named pipe / DOCKER_HOST）
     "health": "/health",
     "manifest": "/manifest",
     "version": "/version",
-    "capabilities": "/capabilities"
+    "capabilities": "/capabilities",
+    "events": "/events"
   },
   "capabilities": ["invoice.recognize"],
+  "events": ["file.uploaded", "folder.*", "text.*"],
   "defaults": {
     "cpuLimit": 0.5,
     "memoryMB": 512,
@@ -88,6 +91,7 @@ Docker Engine API（unix socket / Windows named pipe / DOCKER_HOST）
 4. 启动后 Lan Copy 会再次读取 `/manifest`，插件 ID 必须与镜像标签、安装记录一致；版本不一致会记录警告。
 5. Manifest 只能描述能力，不能声明宿主机路径、Docker 参数、命令、设备或网络权限。
 6. 镜像必须声明非 root `USER`，否则拒绝导入。
+7. `events` 与 `endpoints.events` 可选；声明后按第 6 节推送生命周期事件，旧镜像无需修改。
 
 ## 4. 镜像构建规范
 
@@ -167,7 +171,103 @@ docker save registry.example/plugin/invoice-ocr:1.0.0 | gzip > invoice-ocr-1.0.0
 - `deleteImages`：同时删除镜像记录和 Docker 镜像；没有剩余镜像时删除插件记录。
 - `deleteData`：删除插件挂载的宿主机持久化目录，必须额外传 `confirmDataDeletion: true`，界面要求输入确认文本。
 
-## 6. 安全边界
+## 6. 生命周期事件
+
+Lan Copy 在文件、文件夹和文本操作**成功提交后**，向声明了订阅的插件异步推送事件。推送不阻塞上传、删除等响应；失败只记录状态，不回滚业务操作。
+
+### 6.1 订阅声明
+
+Manifest 增加可选字段：
+
+```json
+{
+  "endpoints": {
+    "health": "/health",
+    "manifest": "/manifest",
+    "version": "/version",
+    "capabilities": "/capabilities",
+    "events": "/events"
+  },
+  "events": ["file.uploaded", "folder.*", "text.*"]
+}
+```
+
+- `events` 最多 32 项，支持精确类型（`file.uploaded`）、单层通配（`file.*`、`folder.*`、`text.*`）和全局通配 `*`。
+- `endpoints.events` 缺省为 `/events`，必须是以 `/` 开头的绝对路径。
+- 省略 `events` 或使用空数组表示不订阅；旧插件不会收到任何事件。
+- 插件启动时 `/manifest` 需返回相同订阅和端点，便于复核身份。
+
+### 6.2 请求格式与签名
+
+```http
+POST /events
+Content-Type: application/json
+X-Lan-Copy-Event: folder.created
+X-Lan-Copy-Event-Id: evt-01J...
+X-Lan-Copy-Timestamp: 1763435045
+X-Lan-Copy-Signature: v1=<hex>
+```
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "evt-01J...",
+  "type": "folder.created",
+  "occurredAt": "2026-11-18T03:04:05Z",
+  "data": { "path": "docs/2026", "name": "2026" }
+}
+```
+
+签名：
+
+```text
+HMAC-SHA256(key = LAN_COPY_EVENT_TOKEN, message = timestamp + "." + 原始请求体)
+```
+
+- 事件密钥由 Lan Copy 的插件密钥和实例 ID 派生，不写入 `state.json`，通过保留环境变量 `LAN_COPY_EVENT_TOKEN` 注入容器；配置中不能覆盖，实例重装后密钥轮换。
+- 建议校验时间戳在 5 分钟内，并使用常量时间比较。
+- 插件应返回 2xx。事件 ID 全局唯一，请按 `id` 幂等处理，重试可能产生重复投递。
+
+### 6.3 事件目录
+
+| 事件 | 触发时机 | 主要字段 |
+| --- | --- | --- |
+| `file.uploaded` | 上传事务提交成功 | `destination`、`files[{path,size}]`、`directories[]`、`counts`、`truncated` |
+| `file.deleted` | 删除共享文件成功 | `path`、`name`、`size` |
+| `file.renamed` | 文件原地重命名成功 | `path`、`name`、`previousPath`、`previousName` |
+| `file.moved` | 文件移动成功 | `path`、`name`、`previousPath`、`previousName` |
+| `folder.created` | 新建文件夹成功 | `path`、`name` |
+| `folder.deleted` | 删除文件夹成功 | `path`、`name`、`recursive` |
+| `folder.renamed` | 文件夹原地重命名成功 | `path`、`name`、`previousPath`、`previousName` |
+| `folder.moved` | 文件夹移动成功 | `path`、`name`、`previousPath`、`previousName` |
+| `text.created` | 新建文本或图文碎片成功 | `id`、`kind`、`title`、`size`、`expiresAt` |
+| `text.deleted` | 删除碎片成功 | `id`、`kind`、`title`、`size` |
+| `text.saved` | 碎片转存为共享文件成功 | `id`、`files[{path,name}]` |
+| `system.ping` | 仅由“发送测试事件”触发 | `requestedBy`、`at` |
+
+路径均为共享根目录内的相对路径。`file.uploaded` 的列表最多 100 项，超出时 `truncated=true`，`counts` 始终是实际数量。
+
+### 6.4 投递语义
+
+- 每插件一个 FIFO 队列，容量 128；队列满时丢弃最旧事件。
+- 单次超时 5 秒，最多 3 次尝试（1 秒、2 秒退避）；网络错误、超时、`429`、`408` 和 `5xx` 重试，其余 `4xx` 立即丢弃。
+- 连续失败 5 次后暂停投递 60 秒。
+- 只有状态 `running` 且健康 `healthy` 的实例会收到事件；停止、启动中或不健康时事件被丢弃。
+- 事件和投递记录只驻留内存，Lan Copy 重启后清空；不提供补发或重放。
+- 升级后已有实例如果是在旧版本创建的，需要重启一次以获得 `LAN_COPY_EVENT_TOKEN`。
+
+### 6.5 调试
+
+在 **插件服务 → 生命周期** 查看事件目录、订阅、已投递/失败/丢弃计数和最近 50 条投递记录。运行中且健康的插件可点击 **发送测试事件**：
+
+```bash
+curl -X POST -H 'X-Lan-Copy-Action: plugins' \
+  http://127.0.0.1:8080/api/plugins/demo-plugin/events/test
+
+curl -s http://127.0.0.1:8080/api/plugins/demo-plugin/events
+```
+
+## 7. 安全边界
 
 | 项 | 固定行为 |
 | --- | --- |
@@ -185,6 +285,8 @@ docker save registry.example/plugin/invoice-ocr:1.0.0 | gzip > invoice-ocr-1.0.0
 | 内存交换 | `MemorySwap = Memory` |
 | 日志 | json-file，大小和数量受限 |
 | 重启策略 | 默认 `no`，可选 `on-failure[:N]` |
+| 生命周期事件 | 每实例独立派生密钥，不落盘，仅注入插件容器；请求带 HMAC-SHA256 签名 |
+| 管理接口访问范围 | 局域网可达；写操作要求动作头与同源，但无账号认证。需要限制时让服务仅监听 `127.0.0.1`、使用防火墙或反向代理认证 |
 
 持久化目录：
 
@@ -194,7 +296,7 @@ docker save registry.example/plugin/invoice-ocr:1.0.0 | gzip > invoice-ocr-1.0.0
 - 拒绝 `docker.sock`、`/var/run`、`/proc`、`/sys`、`/dev` 等位置。
 - 容器路径不能是 `/`、系统目录或 `/tmp`。
 
-## 7. 网络模式
+## 8. 网络模式
 
 | 模式 | 使用场景 | 行为 |
 | --- | --- | --- |
@@ -221,9 +323,9 @@ docker run -d --name lan-copy \
 
 注意：容器内的 Lan Copy 必须安装/挂载 Docker Socket 才能管理插件；插件容器不会获得该 Socket。
 
-## 8. API
+## 9. API
 
-所有 `/api/plugins*` 接口仅本机可访问。写操作还要求：
+所有 `/api/plugins*` 接口对能访问 Lan Copy 的设备开放。写操作要求：
 
 ```http
 X-Lan-Copy-Action: plugins
@@ -254,6 +356,9 @@ X-Lan-Copy-Action: plugins
 | DELETE | `/api/plugins/images/{id}` | 删除镜像（使用中返回 409） |
 | GET | `/api/plugins/tasks` | 最近任务 |
 | GET | `/api/plugins/tasks/{id}` | 任务状态 |
+| GET | `/api/plugins/event-catalog` | 生命周期事件目录及示例数据 |
+| GET | `/api/plugins/{id}/events` | 订阅、事件端点、投递统计和最近 50 条记录 |
+| POST | `/api/plugins/{id}/events/test` | 发送 `system.ping` 测试事件，返回 `202` 与事件 ID |
 
 示例：
 
@@ -269,7 +374,7 @@ curl -X POST -H 'X-Lan-Copy-Action: plugins' -H 'Content-Type: application/json'
 
 异步任务返回 `202` 与 `{"taskId":"..."}`，轮询任务接口直到 `succeeded` 或 `failed`。参数校验在请求阶段返回 4xx；已安装冲突、Docker 不可用、启动失败等异步错误在任务的 `error` 字段返回。
 
-## 9. 配置字段
+## 10. 配置字段
 
 | 字段 | 范围 |
 | --- | --- |
@@ -287,7 +392,7 @@ curl -X POST -H 'X-Lan-Copy-Action: plugins' -H 'Content-Type: application/json'
 | `requestTimeoutSeconds` | 1–300 |
 | `logMaxSizeMB` / `logMaxFiles` | 1–50 / 1–5 |
 
-服务端会拒绝保留变量名 `DOCKER_HOST`、`LD_PRELOAD`、`LD_LIBRARY_PATH`。
+服务端会拒绝保留变量名 `DOCKER_HOST`、`LD_PRELOAD`、`LD_LIBRARY_PATH`、`LAN_COPY_EVENT_TOKEN`。
 
 ### 敏感环境变量
 
@@ -297,7 +402,7 @@ curl -X POST -H 'X-Lan-Copy-Action: plugins' -H 'Content-Type: application/json'
 - 密钥丢失时相关插件拒绝启动，不会以空值继续。
 - 同用户权限的本地进程仍可读取密钥，该加密用于避免明文落盘和备份泄露，不等同于系统密钥链。
 
-## 10. Go Plugin Client
+## 11. Go Plugin Client
 
 业务代码通过插件 ID 调用，不构造容器地址：
 
@@ -333,7 +438,7 @@ case errors.Is(err, plugin.ErrPluginRequestFailed):
 - 默认不自动重试
 - 所有错误可 `errors.Is` 分类
 
-## 11. 持久化与恢复
+## 12. 持久化与恢复
 
 ```text
 <应用数据目录>/plugins/
@@ -349,7 +454,7 @@ case errors.Is(err, plugin.ErrPluginRequestFailed):
 - 中断任务在重启后标记失败。
 - 容器状态以 Docker 为准；DB 与容器不一致时启动同步会修复。
 
-## 12. 测试
+## 13. 测试
 
 ```bash
 go test ./...
@@ -374,7 +479,7 @@ npm run check
 npm run check-assets
 ```
 
-## 13. 排错
+## 14. 排错
 
 | 现象 | 检查 |
 | --- | --- |
@@ -388,8 +493,11 @@ npm run check-assets
 | 调用超时 | 调整 `requestTimeoutSeconds`，检查插件负载 |
 | 日志为空 | 容器是否启动过；插件是否输出到 stdout/stderr |
 | 容器运行但 Lan Copy 无法访问 | 网络模式是否与部署方式匹配（宿主机用 `loopback`，容器内用 `container`） |
+| 收不到生命周期事件 | Manifest 是否声明 `events`；实例是否 `running` 且 `healthy`；页面“生命周期”近期记录是否显示丢弃 |
+| 事件签名校验失败 | 是否读取 `LAN_COPY_EVENT_TOKEN`；是否对原始请求体计算 HMAC；时间戳是否在 5 分钟内 |
+| 升级后原有插件收不到事件 | 重启一次插件，让容器获得 `LAN_COPY_EVENT_TOKEN` |
 
-## 14. Agent 集成与当前 API 能力
+## 15. Agent 集成与当前 API 能力
 
 插件服务页右上角的 **复制 Agent Prompt** 会生成一段可直接交给编码 Agent 的说明，包含协议端点、Manifest 模板、镜像标签、非 root/只读根等安全要求、构建与 API 导入步骤。Prompt 使用当前页面地址作为示例 API 根地址。
 
@@ -405,5 +513,6 @@ npm run check-assets
 | 原地切换运行实例的镜像 | 暂不支持 | 先卸载（默认保留镜像和数据），再从新镜像安装并启动 |
 | 修改已有镜像记录 | 不支持（设计如此） | 镜像记录不可变；上传新版本生成新记录 |
 | 删除镜像 | 支持 | `DELETE /api/plugins/images/{id}`，使用中返回 409 |
+| 生命周期事件 | 支持 | Manifest `events` + `POST /events`；页面“生命周期”可查看投递状态并发送测试事件 |
 
-所有接口仅本机可访问；导入使用 `X-Lan-Copy-Action: plugins-image`，其余写操作使用 `plugins`。异步操作返回 `202` 和 `taskId`。
+所有接口对能访问 Lan Copy 的设备开放；导入使用 `X-Lan-Copy-Action: plugins-image`，其余写操作使用 `plugins`，浏览器调用还必须同源。动作头用于 CSRF 防护，不是身份认证；任何能访问服务的设备都可以管理插件，请只安装可信镜像。异步操作返回 `202` 和 `taskId`。

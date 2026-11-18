@@ -25,7 +25,9 @@ export interface Plugin {
   status: PluginStatus; createdAt: string; updatedAt: string
 }
 
-export interface ManifestEndpoints { health: string; manifest: string; version: string; capabilities: string }
+export interface ManifestEndpoints {
+  health: string; manifest: string; version: string; capabilities: string; events?: string
+}
 export interface ManifestDefaults {
   cpuLimit?: number; memoryMB?: number; pidsLimit?: number
   requestTimeoutSeconds?: number; startupTimeoutSeconds?: number
@@ -34,6 +36,7 @@ export interface PluginManifest {
   schemaVersion: number; id: string; name: string; version: string
   description?: string; protocolVersion: string; runtime: string; category?: string
   containerPort: number; endpoints: ManifestEndpoints; capabilities: string[]
+  events?: string[]
   defaults?: ManifestDefaults
 }
 
@@ -104,6 +107,23 @@ export interface PluginStatusView {
   stats?: PluginStats; metrics: CallMetrics
 }
 
+export interface PluginEventCatalogEntry {
+  type: string; category: string; description: string; data: unknown
+}
+export interface PluginEventStats {
+  queued: number; delivered: number; failed: number; dropped: number
+  lastDeliveredAt?: string; lastErrorAt?: string; lastError?: string
+}
+export interface PluginEventDelivery {
+  eventId: string; type: string; at: string
+  status: 'delivered' | 'failed' | 'dropped'
+  attempts: number; statusCode?: number; durationMs: number; error?: string
+}
+export interface PluginEventEndpoint {
+  endpoint: string; subscriptions: string[]
+  stats: PluginEventStats; deliveries: PluginEventDelivery[]
+}
+
 export type TaskStatus = 'pending' | 'running' | 'succeeded' | 'failed'
 export interface PluginTask {
   id: string; kind: string; pluginId?: string; status: TaskStatus
@@ -151,6 +171,17 @@ export function uninstallPlugin(id: string, options: { deleteImages: boolean; de
 }
 export function getPluginStatus(id: string, signal?: AbortSignal) {
   return requestJSON<PluginStatusView>(`/api/plugins/${encodeURIComponent(id)}/status`, { cache: 'no-store', signal })
+}
+export function getPluginEventCatalog(signal?: AbortSignal) {
+  return requestJSON<{ events: PluginEventCatalogEntry[] }>('/api/plugins/event-catalog', { cache: 'no-store', signal })
+}
+export function getPluginEvents(id: string, signal?: AbortSignal) {
+  return requestJSON<PluginEventEndpoint>(`/api/plugins/${encodeURIComponent(id)}/events`, { cache: 'no-store', signal })
+}
+export function sendPluginTestEvent(id: string) {
+  return requestJSON<{ eventId: string }>(`/api/plugins/${encodeURIComponent(id)}/events/test`, {
+    method: 'POST', headers: actionHeaders,
+  })
 }
 export function getPluginConfig(id: string, signal?: AbortSignal) {
   return requestJSON<PluginConfig>(`/api/plugins/${encodeURIComponent(id)}/config`, { cache: 'no-store', signal })

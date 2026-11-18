@@ -29,7 +29,7 @@ lan-copy/
 │   ├── textstore/        # 文本持久化 / shared-text persistence
 │   ├── printing/         # Windows 打印版面、测试页与文件任务 / layout, test pages and document jobs
 │   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
-│   ├── plugin/           # 插件注册、生命周期、协议与 HTTP Client / plugin registry, lifecycle, protocol and client
+│   ├── plugin/           # 插件注册、生命周期、事件推送、协议与 HTTP Client / registry, lifecycle, events, protocol and client
 │   │   └── dockerruntime/ # Docker Engine SDK 适配 / Docker Engine SDK adapter
 │   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
@@ -228,7 +228,8 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
   - `/` 内网空间首页，`/transfer-text` 碎片快传页面（文字、图片碎片的发布、复制、转存和删除；文件上传与浏览统一在内网空间），`/transfer.html` 直接返回同一碎片快传页面；旧地址 `/filesystem.html` 已移除；文件夹对应存储目录中的真实目录，无额外索引数据库
-  - `/plugins` 插件服务页面：本机管理 Docker 插件镜像、安装与生命周期、配置、健康记录和日志。API 位于 `/api/plugins*`，仅本机可访问，写操作要求 `X-Lan-Copy-Action: plugins`（镜像上传为 `plugins-image`）。详见 [插件服务协议](PLUGIN-PROTOCOL.md)
+  - `/plugins` 插件服务页面：管理 Docker 插件镜像、安装与生命周期、配置、健康记录和日志，并在“生命周期”菜单查看事件目录、投递状态和发送测试事件。API 位于 `/api/plugins*`，局域网可访问；写操作要求 `X-Lan-Copy-Action: plugins`（镜像上传为 `plugins-image`）且浏览器调用必须同源。详见 [插件服务协议](PLUGIN-PROTOCOL.md)
+  - `GET /api/plugins/event-catalog`、`GET /api/plugins/{id}/events`、`POST /api/plugins/{id}/events/test`：插件生命周期事件目录、每插件投递状态与最近记录、测试事件。上传、文件夹/文件操作和文本操作成功后异步推送；事件队列、重试和签名均不阻塞 HTTP 响应。
   - `GET/POST /api/texts`、`POST /api/texts/fragments`、`DELETE /api/texts/{id}` 共享碎片保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中；图片通过 `GET /api/texts/{id}/images/{index}` 读取。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查

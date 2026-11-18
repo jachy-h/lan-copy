@@ -57,7 +57,7 @@ func (s *Server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	action := r.PathValue("action")
-	err := s.files.MutateDirectory(action, input, s.notifyFilesChanged)
+	result, err := s.files.MutateDirectory(action, input, s.notifyFilesChanged)
 	if err != nil {
 		switch {
 		case errors.Is(err, filestore.ErrRootMutation):
@@ -80,6 +80,7 @@ func (s *Server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyFilesChanged()
+	s.publishMutation(result)
 	w.WriteHeader(http.StatusNoContent)
 }
 

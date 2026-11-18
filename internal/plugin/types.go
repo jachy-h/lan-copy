@@ -366,6 +366,14 @@ func MaskConfig(config Config) Config {
 	return out
 }
 
+// MaskInstance removes secret values from an instance before it is returned
+// by the HTTP layer.
+func MaskInstance(instance Instance) Instance {
+	out := instance.Clone()
+	out.Config = MaskConfig(out.Config)
+	return out
+}
+
 // Views returned by the manager and encoded by the HTTP layer.
 
 type PluginView struct {

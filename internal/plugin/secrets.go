@@ -3,7 +3,9 @@ package plugin
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ const (
 // 0600 key file in the private application data directory.
 type SecretBox struct {
 	aead cipher.AEAD
+	key  []byte
 }
 
 func LoadSecretBox(dir, environmentKey string) (*SecretBox, error) {
@@ -65,7 +68,23 @@ func LoadSecretBox(dir, environmentKey string) (*SecretBox, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSecretKeyUnavailable, err)
 	}
-	return &SecretBox{aead: aead}, nil
+	return &SecretBox{aead: aead, key: append([]byte(nil), key...)}, nil
+}
+
+// EventToken derives a stable per-instance signing token from the secret key.
+// It is never persisted, so the plugin state format stays unchanged and a
+// downgrade cannot be blocked by an unknown field.
+func (b *SecretBox) EventToken(instanceID string) (string, error) {
+	if b == nil || len(b.key) == 0 || instanceID == "" {
+		return "", ErrSecretKeyUnavailable
+	}
+	// Derive a dedicated signing subkey so the AES key is not reused directly.
+	subkey := hmac.New(sha256.New, b.key)
+	_, _ = subkey.Write([]byte("lan-copy-plugin-event-signing-key"))
+	mac := hmac.New(sha256.New, subkey.Sum(nil))
+	_, _ = mac.Write([]byte("lan-copy-plugin-event-token:"))
+	_, _ = mac.Write([]byte(instanceID))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
 }
 
 func createSecretKey(path string, key []byte) error {

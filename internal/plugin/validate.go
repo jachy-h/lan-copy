@@ -31,6 +31,7 @@ var rejectedEnvNames = map[string]struct{}{
 	"DOCKER_HOST":     {},
 	"LD_PRELOAD":      {},
 	"LD_LIBRARY_PATH": {},
+	EventTokenEnv:     {},
 }
 
 var rejectedContainerPaths = []string{

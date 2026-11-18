@@ -23,6 +23,12 @@ plugin manifest in the `io.lan-copy.plugin.manifest` OCI label. Endpoints:
 - `POST /echo`
 - `GET /download`
 - `POST /upload` (multipart field `file`)
+- `POST /events` (signed lifecycle events)
+
+The manifest subscribes to `file.uploaded`, `folder.*` and `text.*`. After
+installing and starting the plugin, open **插件服务 → 生命周期** and use
+**发送测试事件** to verify the signature check; the received event is printed to
+the container log (`GET /api/plugins/demo-plugin/logs`).
 
 After importing the archive in **插件服务 → 镜像**, install it from the same
 page and start it. The default loopback mode publishes a random

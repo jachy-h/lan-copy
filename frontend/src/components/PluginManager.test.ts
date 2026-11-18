@@ -15,6 +15,9 @@ vi.mock('../api/plugins', async importOriginal => {
     uninstallPlugin: vi.fn(),
     deletePluginImage: vi.fn(),
     uploadPluginImage: vi.fn(),
+    getPluginEventCatalog: vi.fn(),
+    getPluginEvents: vi.fn(),
+    sendPluginTestEvent: vi.fn(),
   }
 })
 
@@ -117,5 +120,54 @@ describe('PluginManager', () => {
     expect(writeText).toHaveBeenCalledTimes(1)
     expect(writeText.mock.calls[0][0]).toContain('io.lan-copy.plugin.manifest')
     expect(writeText.mock.calls[0][0]).toContain('/api/plugins/install')
+    expect(writeText.mock.calls[0][0]).toContain('POST /events')
+    expect(writeText.mock.calls[0][0]).toContain('LAN_COPY_EVENT_TOKEN')
+  })
+
+  it('states that LAN devices can manage plugins', async () => {
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(wrapper.text()).toContain('局域网内可管理')
+    expect(wrapper.text()).toContain('请只安装可信镜像')
+    expect(wrapper.text()).not.toContain('仅限本机')
+  })
+
+  it('documents lifecycle events and sends a test event', async () => {
+    vi.mocked(api.listPlugins).mockResolvedValue({
+      plugins: [{
+        ...pluginView,
+        instance: { ...pluginView.instance, status: 'running' as const, healthStatus: 'healthy' as const },
+      }],
+    })
+    vi.mocked(api.getPluginEventCatalog).mockResolvedValue({
+      events: [{
+        type: 'file.uploaded', category: '文件',
+        description: '上传事务提交成功后发送。',
+        data: { destination: 'docs' },
+      }],
+    })
+    vi.mocked(api.getPluginEvents).mockResolvedValue({
+      endpoint: '/events', subscriptions: ['file.*'],
+      stats: { queued: 2, delivered: 1, failed: 0, dropped: 0 },
+      deliveries: [],
+    })
+    vi.mocked(api.sendPluginTestEvent).mockResolvedValue({ eventId: 'evt-1' })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    const eventsTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('生命周期'))!
+    await eventsTab.trigger('click')
+    await flushPromises()
+    expect(api.getPluginEventCatalog).toHaveBeenCalledTimes(1)
+    expect(api.getPluginEvents).toHaveBeenCalledWith('demo', expect.anything())
+    expect(wrapper.text()).toContain('事件目录')
+    expect(wrapper.text()).toContain('file.uploaded')
+    expect(wrapper.text()).toContain('LAN_COPY_EVENT_TOKEN')
+    expect(wrapper.text()).toContain('file.*')
+    expect(wrapper.text()).toContain('已投递')
+    const testButton = wrapper.findAll('button').find(button => button.text() === '发送测试事件')!
+    expect(testButton.attributes('disabled')).toBeUndefined()
+    await testButton.trigger('click')
+    await flushPromises()
+    expect(api.sendPluginTestEvent).toHaveBeenCalledWith('demo')
   })
 })

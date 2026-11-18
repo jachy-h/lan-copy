@@ -207,6 +207,13 @@ onBeforeUnmount(() => { taskController?.abort() })
           <span v-for="capability in manifest.capabilities" :key="capability" class="plugin-capability">{{ capability }}</span>
           <span v-if="manifest.capabilities.length === 0" class="plugin-capability muted">未声明能力</span>
         </div>
+        <p class="plugin-step-hint">
+          生命周期事件：
+          <template v-if="manifest.events?.length">
+            <code v-for="event in manifest.events" :key="event">{{ event }}</code>
+          </template>
+          <template v-else>不订阅（不会收到文件或文本变化推送）</template>
+        </p>
         <div class="plugin-security-note">
           <strong>安全边界</strong>
           <p>容器将以非 root、只读根文件系统、cap-drop ALL、no-new-privileges 运行，不挂载 Docker Socket，不使用 host 网络。资源限制和挂载在下一步配置。</p>

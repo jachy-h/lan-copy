@@ -20,36 +20,55 @@ func TestPluginRoutesRequireManager(t *testing.T) {
 	}
 }
 
-func TestPluginRoutesAreLocalOnly(t *testing.T) {
+func TestPluginReadsAllowLAN(t *testing.T) {
 	server := &Server{plugins: &plugin.Manager{}}
-	for _, test := range []struct {
-		method string
-		path   string
-		header string
-		body   string
-	}{
-		{http.MethodGet, "/api/plugins", "", ""},
-		{http.MethodGet, "/api/plugins/images", "", ""},
-		{http.MethodPost, "/api/plugins/install", "", `{}`},
-		{http.MethodPost, "/api/plugins/install", pluginAction, `{}`},
-		{http.MethodDelete, "/api/plugins/demo", pluginAction, ``},
-	} {
-		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(test.method, test.path, strings.NewReader(test.body))
-		request.RemoteAddr = "192.168.1.20:5555"
-		if test.header != "" {
-			request.Header.Set("X-Lan-Copy-Action", test.header)
-		}
-		handler := map[string]http.HandlerFunc{
-			"/api/plugins":         server.listPlugins,
-			"/api/plugins/images":  server.listPluginImages,
-			"/api/plugins/install": server.installPlugin,
-			"/api/plugins/demo":    server.uninstallPlugin,
-		}[test.path]
-		handler(recorder, request)
-		if recorder.Code != http.StatusForbidden {
-			t.Fatalf("%s %s status = %d", test.method, test.path, recorder.Code)
-		}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/plugins", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	server.listPlugins(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("LAN list status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/plugins/event-catalog", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	server.pluginEventCatalog(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "file.uploaded") {
+		t.Fatalf("LAN catalog status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPluginWritesAllowLANWithActionHeader(t *testing.T) {
+	server := &Server{plugins: &plugin.Manager{}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/plugins/demo/events/test", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	request.SetPathValue("id", "demo")
+	server.pluginTestEvent(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("LAN write without action status = %d", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/plugins/demo/events/test", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	request.SetPathValue("id", "demo")
+	request.Header.Set("X-Lan-Copy-Action", pluginAction)
+	server.pluginTestEvent(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("LAN write with action should reach the handler, status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/plugins/demo/events/test", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	request.SetPathValue("id", "demo")
+	request.Header.Set("X-Lan-Copy-Action", pluginAction)
+	request.Header.Set("Origin", "http://evil.example")
+	server.pluginTestEvent(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("LAN cross-origin write status = %d", recorder.Code)
 	}
 }
 
@@ -95,5 +114,34 @@ func TestPluginUninstallRequiresDataConfirmation(t *testing.T) {
 	server.uninstallPlugin(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPluginEventRoutes(t *testing.T) {
+	server := &Server{plugins: &plugin.Manager{}}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/plugins/event-catalog", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	server.pluginEventCatalog(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "file.uploaded") {
+		t.Fatalf("catalog status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/plugins/demo/events", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.SetPathValue("id", "demo")
+	server.pluginEvents(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unknown plugin events status = %d", recorder.Code)
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/plugins/demo/events/test", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
+	request.SetPathValue("id", "demo")
+	server.pluginTestEvent(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("missing action status = %d", recorder.Code)
 	}
 }

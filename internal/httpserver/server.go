@@ -73,6 +73,10 @@ type Server struct {
 	appContext        context.Context
 	cancelApp         context.CancelFunc
 	transfers         transferTracker
+
+	// publishPluginEvent overrides lifecycle publishing in tests. Production
+	// leaves it nil and goes through the plugin manager.
+	publishPluginEvent func(string, any)
 }
 
 func New(config Config) *Server {

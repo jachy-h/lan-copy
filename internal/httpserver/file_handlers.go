@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"lan-copy/internal/desktop"
+	"lan-copy/internal/plugin"
 )
 
 func (s *Server) listFiles(w http.ResponseWriter, _ *http.Request) {
@@ -175,6 +176,10 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		filesystemError(w, errOrInvalid(err))
 		return
 	}
+	var size int64
+	if _, info, statErr := s.files.RegularPath(name); statErr == nil {
+		size = info.Size()
+	}
 	err = s.files.DeleteFile(name)
 	if err != nil {
 		if errors.Is(err, fs.ErrInvalid) || errors.Is(err, fs.ErrPermission) {
@@ -187,5 +192,6 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.notifyFilesChanged()
+	s.publishEvent("file.deleted", plugin.EntryEventData{Path: name, Name: path.Base(name), Size: size})
 	w.WriteHeader(http.StatusNoContent)
 }

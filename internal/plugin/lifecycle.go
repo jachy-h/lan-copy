@@ -107,9 +107,7 @@ func (m *Manager) installResult(pluginID string) (InstallResult, error) {
 	if !ok {
 		return InstallResult{}, fmt.Errorf("%w: plugin %s instance", ErrNotFound, pluginID)
 	}
-	copy := instance.Clone()
-	copy.Config = MaskConfig(copy.Config)
-	return InstallResult{Plugin: pluginEntry, Instance: copy}, nil
+	return InstallResult{Plugin: pluginEntry, Instance: MaskInstance(instance)}, nil
 }
 
 func (m *Manager) rollbackInstall(pluginID, instanceID string, previousStatus Status) {
@@ -137,9 +135,13 @@ func (m *Manager) createContainer(ctx context.Context, instance Instance, image 
 	if err := m.runtime.EnsureNetwork(ctx, m.settings.Network); err != nil {
 		return nil, err
 	}
+	env := envList(instance.Config.Env)
+	if token, err := m.store.EventToken(instance.ID); err == nil && token != "" {
+		env = append(env, EventTokenEnv+"="+token)
+	}
 	return m.runtime.Create(ctx, CreateInstanceRequest{
 		Name: instance.ContainerName, ImageRef: image.RuntimeImageID,
-		Env: envList(instance.Config.Env), ContainerPort: image.Manifest.ContainerPort,
+		Env: env, ContainerPort: image.Manifest.ContainerPort,
 		NetworkName: m.settings.Network, PublishLoopback: m.settings.NetworkMode == "loopback",
 		Mounts: instance.Config.Mounts, CPULimit: instance.Config.CPULimit,
 		MemoryMB: instance.Config.MemoryMB, PIDsLimit: instance.Config.PIDsLimit,
@@ -522,6 +524,13 @@ func (m *Manager) Uninstall(ctx context.Context, pluginID string, req UninstallR
 		delete(m.state.HealthRecords, current.ID)
 	}
 	m.state.Instances = instances
+	if queue, ok := m.eventQueues[pluginID]; ok {
+		close(queue)
+		delete(m.eventQueues, pluginID)
+	}
+	delete(m.eventRecords, pluginID)
+	delete(m.eventStats, pluginID)
+	delete(m.eventCircuit, pluginID)
 	if req.DeleteImages {
 		kept := m.state.Images[:0]
 		for _, image := range m.state.Images {

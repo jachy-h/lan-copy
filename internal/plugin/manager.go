@@ -48,6 +48,13 @@ type Manager struct {
 	lastRuntimeError string
 	statsCache       map[string]statsEntry
 
+	eventQueues      map[string]chan Event
+	eventRecords     map[string][]EventDelivery
+	eventStats       map[string]*EventStats
+	eventCircuit     map[string]eventCircuitState
+	eventLastDropLog time.Time
+	eventWG          sync.WaitGroup
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	runWG  sync.WaitGroup
@@ -93,9 +100,13 @@ func NewManager(store *Store, runtime Runtime, opts Options) (*Manager, error) {
 		httpClient: &http.Client{
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
-		statsCache: make(map[string]statsEntry),
-		ctx:        ctx,
-		cancel:     cancel,
+		statsCache:   make(map[string]statsEntry),
+		eventQueues:  make(map[string]chan Event),
+		eventRecords: make(map[string][]EventDelivery),
+		eventStats:   make(map[string]*EventStats),
+		eventCircuit: make(map[string]eventCircuitState),
+		ctx:          ctx,
+		cancel:       cancel,
 	}
 	if changed {
 		if err := manager.persist(); err != nil {
@@ -139,6 +150,7 @@ func (m *Manager) StartBackground() {
 // Shutdown cancels background work and optionally stops managed containers.
 func (m *Manager) Shutdown(ctx context.Context) {
 	m.cancel()
+	m.eventWG.Wait()
 	done := make(chan struct{})
 	go func() {
 		m.tasks.Wait()
@@ -205,8 +217,7 @@ func (m *Manager) Plugins() []PluginView {
 	for _, pluginEntry := range m.state.Plugins {
 		view := PluginView{Plugin: pluginEntry, Metrics: m.metricsLocked(pluginEntry.ID)}
 		if instance, ok := instanceForPlugin(m.state.Instances, pluginEntry.ID); ok {
-			copy := instance.Clone()
-			copy.Config = MaskConfig(copy.Config)
+			copy := MaskInstance(instance)
 			view.Instance = &copy
 			if image, ok := imageByID(m.state.Images, instance.ImageID); ok {
 				copyImage := image
@@ -230,8 +241,7 @@ func (m *Manager) Detail(ctx context.Context, pluginID string) (DetailView, erro
 	instance, hasInstance := instanceForPlugin(m.state.Instances, pluginID)
 	var instanceCopy *Instance
 	if hasInstance {
-		copy := instance.Clone()
-		copy.Config = MaskConfig(copy.Config)
+		copy := MaskInstance(instance)
 		instanceCopy = &copy
 	}
 	images := imagesForPlugin(m.state.Images, pluginID)

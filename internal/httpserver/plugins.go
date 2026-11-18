@@ -63,6 +63,12 @@ func (s *Server) pluginDispatch() http.Handler {
 					return
 				}
 				s.listPluginTasks(w, r)
+			case "event-catalog":
+				if r.Method != http.MethodGet {
+					methodNotAllowed(w, "GET")
+					return
+				}
+				s.pluginEventCatalog(w, r)
 			default:
 				r.SetPathValue("id", segment)
 				switch r.Method {
@@ -103,6 +109,15 @@ func (s *Server) pluginDispatch() http.Handler {
 				return
 			}
 			s.pluginTask(w, r)
+			return
+		}
+		if len(segments) == 3 && segments[1] == "events" && segments[2] == "test" {
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w, "POST")
+				return
+			}
+			r.SetPathValue("id", segments[0])
+			s.pluginTestEvent(w, r)
 			return
 		}
 		if len(segments) == 2 {
@@ -151,6 +166,12 @@ func (s *Server) pluginDispatch() http.Handler {
 					return
 				}
 				s.pluginConfig(w, r)
+			case "events":
+				if r.Method != http.MethodGet {
+					methodNotAllowed(w, "GET")
+					return
+				}
+				s.pluginEvents(w, r)
 			default:
 				writeError(w, http.StatusNotFound, "插件接口不存在")
 			}
@@ -509,6 +530,42 @@ func (s *Server) listPluginTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"tasks": s.plugins.Tasks(limit)})
 }
 
+func (s *Server) pluginEventCatalog(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePlugins(w, r, "") {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"events": plugin.EventCatalog()})
+}
+
+func (s *Server) pluginEvents(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePlugins(w, r, "") {
+		return
+	}
+	view, err := s.plugins.EventEndpoint(r.PathValue("id"))
+	if err != nil {
+		pluginHTTPError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, view)
+}
+
+func (s *Server) pluginTestEvent(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePlugins(w, r, pluginAction) {
+		return
+	}
+	id, err := s.plugins.SendTestEvent(r.PathValue("id"))
+	if err != nil {
+		if errors.Is(err, plugin.ErrPluginNotRunning) || errors.Is(err, plugin.ErrPluginUnhealthy) ||
+			errors.Is(err, plugin.ErrPluginNotInstalled) || errors.Is(err, plugin.ErrPluginUnavailable) {
+			writeError(w, http.StatusConflict, "插件未运行、健康检查未通过或未配置事件端点，无法发送测试事件")
+			return
+		}
+		pluginHTTPError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"eventId": id})
+}
+
 func (s *Server) pluginTask(w http.ResponseWriter, r *http.Request) {
 	if !s.requirePlugins(w, r, "") {
 		return
@@ -526,11 +583,7 @@ func (s *Server) requirePlugins(w http.ResponseWriter, r *http.Request, action s
 		writeError(w, http.StatusServiceUnavailable, "插件管理不可用")
 		return false
 	}
-	if !isLocalRequest(r) {
-		writeError(w, http.StatusForbidden, "插件管理仅限本机使用")
-		return false
-	}
-	if action != "" && !validLocalActionRequest(r, action) {
+	if action != "" && !validActionRequest(r, action) {
 		writeError(w, http.StatusForbidden, "请求来源校验失败")
 		return false
 	}
