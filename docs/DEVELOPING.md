@@ -229,6 +229,16 @@ Podman 在 Windows/macOS 上通过 `podman machine` 运行。此时 `host.contai
 
 上传资源限制可在设置 → 资源中由运行 Lan Copy 的本机修改，也可编辑共享目录同级应用数据目录中的 `upload-resources.json` 并重启服务。默认配置为 3 个并发上传、20 GiB 全局暂存空间和 60 秒读取空闲超时；范围分别为 1–32、1–1024 GiB、5–600 秒。配置文件只在网页保存后创建。同一页面的“资源详情”显示共享文件、按类型聚合的空间占用、上传任务、暂存空间、下载任务、Lan Copy 进程和运行中插件的 CPU/内存；运行数据每 2 秒刷新，文件类型统计只在打开或手动刷新时扫描。访客可查看统计，但不能修改限制。Lan Copy 自身内存使用 Go 运行时 `MemStats.Sys`，CPU 按单核百分比显示；插件统计来自容器运行时。单次上传总大小仍由 `-max-gb` 控制。目录上传先通过清单预检返回冲突，再传输文件；预检会话 15 分钟过期，最终提交仍会检查冲突。
 
+## macOS 后台启动 / macOS Background Launch
+
+中文：Homebrew 安装的命令名为 `lancopy`。在 macOS 终端直接执行 `lancopy`（无参数）时，程序先探测 `-listen` 地址是否已有实例，随后以 `--internal-background` 重新执行自身：子进程用 `Setsid` 脱离终端，stdin 指向 `/dev/null`，stdout/stderr 追加到 `~/Library/Logs/lancopy/lancopy.log`（`LAN_COPY_LOG_FILE` 可覆盖，超过 8 MiB 时轮转为 `lancopy.log.1`），只把启动摘要通过 fd 3 回传给父进程打印。插件探测等日志只写入日志文件，不出现在终端。父进程最多等待 15 秒；启动失败时打印日志尾部并以非零码退出，超时会终止本次启动的子进程。
+
+只有命令名恰为 `lancopy`、无参数、stdout 为真实 TTY 时才自动后台。发布包内的 `lan-copy`、`go run .`、`make build` 产物、带任意参数的启动以及 `brew services` 都保持前台；Windows 与 Linux 不受影响。停止后台实例使用页面右上角“关闭软件”（`POST /api/shutdown`）。
+
+English: The Homebrew command is `lancopy`. A bare `lancopy` on a macOS terminal probes the `-listen` address for an existing instance, then re-executes itself with `--internal-background`: the child calls `Setsid`, points stdin at `/dev/null`, appends stdout/stderr to `~/Library/Logs/lancopy/lancopy.log` (override with `LAN_COPY_LOG_FILE`, rotate to `lancopy.log.1` above 8 MiB), and returns only the startup summary to the waiting parent through fd 3. Plugin detection and other details stay in the log file and never reach the terminal. The parent waits up to 15 seconds, prints the log tail and exits non-zero on failure, and kills the child it started on timeout.
+
+Auto-backgrounding applies only when the binary is named `lancopy`, has no arguments, and stdout is a real TTY. The release binary `lan-copy`, `go run .`, `make build` output, any flag-bearing launch, and `brew services` stay in the foreground; Windows and Linux are unchanged. Stop a background instance with **关闭软件** (Shut Down) at the top right of the page (`POST /api/shutdown`).
+
 ## Windows 控制台行为 / Windows Console Behavior
 
 中文：从资源管理器双击启动时显示启动信息与访问地址，自动打开默认浏览器，并提示“按任意键关闭本窗口”；按键后调用 `FreeConsole()` 关闭控制台，服务继续在后台运行。停止服务请从本机 `localhost` 页面操作（`/api/shutdown`）；若有上传或下载在途，需查看风险提示并输入“强制关闭”确认。重复启动时，无论双击还是从终端启动，都会探测已有实例并打开其浏览器页面，随后退出第二个进程，不启动第二份服务。`/healthz` 必须返回 `X-Lan-Copy-Service: lan-copy` 和 `ok`；并发首次启动时会短暂重试，端口被其他程序占用则报告错误。旧版本没有身份响应头，升级时需先关闭旧服务。

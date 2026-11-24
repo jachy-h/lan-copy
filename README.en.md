@@ -16,15 +16,17 @@ Run Lan Copy on one computer to share files and text with phones, tablets, and c
 
 ```bash
 brew install jachy-h/jachy-h/lancopy
-brew services start lancopy   # run in the background, then open http://localhost:8080
+lancopy                       # prints startup logs, runs in the background, then open http://localhost:8080
 ```
+
+`lancopy` prints the local and LAN addresses, moves the server to the background, and returns your prompt. Running it again reports that Lan Copy is already running. Logs go to `~/Library/Logs/lancopy/lancopy.log`; set `LAN_COPY_LOG_FILE` to use another path. Stop the service with **关闭软件** (Shut Down) at the top right of the page, or use `brew services start lancopy` when you want launchd to keep it alive. Passing flags (for example `lancopy -dir ~/shared`) keeps it in the foreground; press `Ctrl-C` to stop.
 
 A Homebrew install provides the `lancopy` command; upgrade it with `brew upgrade lancopy`. The in-app updater rewrites files owned by Homebrew and should be avoided. Intel Macs are not supported yet.
 
 1. Download and extract the archive for your system from [Releases](https://github.com/jachy-h/lan-copy/releases/latest). Packages are available for Windows x64 and macOS Apple Silicon.
 2. Start the app:
    - **Windows**: double-click `lan-copy.exe`. Your browser opens automatically.
-   - **macOS**: in Terminal, change to the extracted folder and run `./lan-copy`. Then open <http://localhost:8080>.
+   - **macOS**: in Terminal, change to the extracted folder and run `./lan-copy` (runs in the foreground; press `Ctrl-C` to stop). Then open <http://localhost:8080>.
 3. Click the **Share icon** at the top of the page. Other devices on the same Wi-Fi / LAN can scan the QR code or open the LAN address in their browser.
 4. Drop files or folders into **内网空间** (Shared Space). In **碎片快传** (Fragment Transfer), publish text or paste, drag and drop images, and save a fragment into any folder in Shared Space. Fragments expire after 7 days by default; change this under **Settings → General**.
 

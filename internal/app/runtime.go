@@ -25,6 +25,7 @@ import (
 )
 
 func Run(webFiles fs.FS, version, updatePublicKey string) {
+	backgroundChild := desktop.IsBackgroundChild()
 	if len(os.Args) == 2 && os.Args[1] == "--internal-autostart" {
 		desktop.HideStartupConsole()
 		args, err := desktop.StartupLaunchArgs()
@@ -65,6 +66,19 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 			customDir = true
 		}
 	})
+	// A bare `lancopy` on macOS moves itself to the background before the
+	// listener is acquired. Explicit flags and the lan-copy binary stay in the
+	// foreground, and other platforms never take this branch.
+	if !backgroundChild && desktop.ShouldStartBackground() {
+		if address, found := runningInstanceAddress(*listen); found {
+			fmt.Printf("Lan Copy 已在运行: %s\n", address)
+			return
+		}
+		if err := desktop.StartBackground(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	desktop.SetupConsole()
 	// Acquire the listener before moving any legacy storage. A second launch must
 	// never rename a directory that an already-running instance is using.
@@ -125,12 +139,22 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		System:     processstats.New(),
 		Autostart:  desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
 	})
-	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)
-	log.Printf("本机访问: http://localhost:%s", port)
-	for _, address := range httpserver.LocalURLs(fmt.Sprintf(":%s", port)) {
-		log.Printf("局域网访问: %s", address)
+	ready := desktop.ReadyWriter()
+	for _, line := range startupSummary(*dir, port) {
+		log.Print(line)
+		if ready != nil {
+			if _, err := fmt.Fprintln(ready, line); err != nil {
+				ready.Close()
+				ready = nil
+			}
+		}
 	}
-	fmt.Printf("\n请在浏览器打开 http://localhost:%s 查看功能。\n", port)
+	browserHint := fmt.Sprintf("请在浏览器打开 http://localhost:%s 查看功能。", port)
+	fmt.Printf("\n%s\n", browserHint)
+	if ready != nil {
+		_, _ = fmt.Fprintln(ready, browserHint)
+		ready.Close()
+	}
 	httpServer := &http.Server{
 		Handler:           service.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -183,4 +207,39 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		pluginManager.Shutdown(pluginContext)
 		pluginCancel()
 	}
+}
+
+// startupSummary holds the lines shown on every launch and mirrored to the
+// background parent. Plugin details stay in the log file only.
+func startupSummary(dir, port string) []string {
+	lines := []string{
+		fmt.Sprintf("Lan Copy 已启动，文件保存在 %s", dir),
+		fmt.Sprintf("本机访问: http://localhost:%s", port),
+	}
+	for _, address := range httpserver.LocalURLs(fmt.Sprintf(":%s", port)) {
+		lines = append(lines, "局域网访问: "+address)
+	}
+	return lines
+}
+
+// runningInstanceAddress probes the listen address once: a bare background
+// launch must not wait two seconds when nothing is listening.
+func runningInstanceAddress(listen string) (string, bool) {
+	address, err := instanceURL(listen)
+	if err != nil {
+		return "", false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	transport := &http.Transport{DisableKeepAlives: true}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   300 * time.Millisecond,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	found, _ := probeRunningInstance(ctx, client, address)
+	return address, found
 }

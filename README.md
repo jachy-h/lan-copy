@@ -16,15 +16,17 @@
 
 ```bash
 brew install jachy-h/jachy-h/lancopy
-brew services start lancopy   # 后台常驻，随后打开 http://localhost:8080
+lancopy                       # 打印启动日志后在后台运行，随后打开 http://localhost:8080
 ```
+
+`lancopy` 会打印本机与局域网地址，然后把服务转入后台并恢复终端；再次执行会提示已在运行。日志写入 `~/Library/Logs/lancopy/lancopy.log`，可用 `LAN_COPY_LOG_FILE` 指定其他位置。停止服务请点击页面右上角的**关闭软件**；需要 launchd 常驻时仍可用 `brew services start lancopy`。带参数运行（例如 `lancopy -dir ~/共享`）保持前台，`Ctrl-C` 停止。
 
 Homebrew 安装后命令名为 `lancopy`，请用 `brew upgrade lancopy` 升级；应用内更新会改写 Homebrew 管理的文件，不建议使用。暂不支持 Intel Mac。
 
 1. 到 [下载页面](https://github.com/jachy-h/lan-copy/releases/latest) 获取对应系统的压缩包并解压。目前提供 Windows x64 和 macOS Apple Silicon 版本。
 2. 启动程序：
    - **Windows**：双击 `lan-copy.exe`，会自动打开浏览器。
-   - **macOS**：在终端进入解压目录，执行 `./lan-copy`，再打开 <http://localhost:8080>。
+   - **macOS**：在终端进入解压目录，执行 `./lan-copy`（前台运行，`Ctrl-C` 停止），再打开 <http://localhost:8080>。
 3. 点击页面顶部的**分享图标**，让同一 Wi-Fi / 局域网内的其他设备扫码，或在浏览器打开其中的局域网地址。
 4. 在**内网空间**拖入文件或文件夹；在**碎片快传**发布文字或粘贴、拖拽图片，也可以把碎片存入内网空间的指定文件夹。碎片默认 7 天到期，可在**设置 → 通用**中调整。
 
