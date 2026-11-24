@@ -34,7 +34,7 @@ GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代
 
 ## 一次性配置 Homebrew Tap 令牌
 
-tag 发布成功后，`homebrew` job 会更新 Tap 仓库 `jachy-h/homebrew-jachy-h` 的 `Formula/lan-copy.rb`：从本次 Release 的 `SHA256SUMS` 读取 macOS 归档校验值，仅改写 `url` 与 `sha256`，然后在 macOS runner 上执行 `ruby -c`、`brew style` 与 `brew audit --strict --online`，全部通过才以 `github-actions[bot]` 身份提交并推送。Tap 仓库自己的 `validate` 工作流会在推送后再校验一次。
+tag 发布成功后，`homebrew` job 会更新 Tap 仓库 `jachy-h/homebrew-jachy-h` 的 `Formula/lancopy.rb`：从本次 Release 的 `SHA256SUMS` 读取 macOS 归档校验值，仅改写 `url` 与 `sha256`，然后在 macOS runner 上执行 `ruby -c`、`brew style` 与 `brew audit --strict --online`，全部通过才以 `github-actions[bot]` 身份提交并推送。Tap 仓库自己的 `validate` 工作流会在推送后再校验一次。
 
 需要一个只对 Tap 仓库有写权限的 fine-grained personal access token（Repository access 仅选 `jachy-h/homebrew-jachy-h`，Permissions 选 `Contents: Read and write`），保存为 `jachy-h/lan-copy` 的 Repository secret：
 

@@ -15,11 +15,11 @@ Run Lan Copy on one computer to share files and text with phones, tablets, and c
 **macOS (Apple Silicon) can install with Homebrew** instead of extracting manually:
 
 ```bash
-brew install jachy-h/jachy-h/lan-copy
-brew services start lan-copy   # run in the background, then open http://localhost:8080
+brew install jachy-h/jachy-h/lancopy
+brew services start lancopy   # run in the background, then open http://localhost:8080
 ```
 
-Upgrade a Homebrew install with `brew upgrade lan-copy`; the in-app updater rewrites files owned by Homebrew and should be avoided. Intel Macs are not supported yet.
+A Homebrew install provides the `lancopy` command; upgrade it with `brew upgrade lancopy`. The in-app updater rewrites files owned by Homebrew and should be avoided. Intel Macs are not supported yet.
 
 1. Download and extract the archive for your system from [Releases](https://github.com/jachy-h/lan-copy/releases/latest). Packages are available for Windows x64 and macOS Apple Silicon.
 2. Start the app:

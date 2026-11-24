@@ -246,7 +246,7 @@ jobs:
           RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
         run: |
           python3 scripts/update_homebrew_formula.py \
-            --formula tap/Formula/lan-copy.rb \
+            --formula tap/Formula/lancopy.rb \
             --checksums dist/SHA256SUMS \
             --version "$RELEASE_VERSION" \
             --asset Lan-Copy-macOS-Apple-Silicon.tar.gz
@@ -254,13 +254,13 @@ jobs:
         if: steps.tap.outputs.configured == 'true'
         run: |
           set -euo pipefail
-          ruby -c tap/Formula/lan-copy.rb
-          brew style tap/Formula/lan-copy.rb
+          ruby -c tap/Formula/lancopy.rb
+          brew style tap/Formula/lancopy.rb
           tap_dir="$(brew --repository)/Library/Taps/jachy-h/homebrew-jachy-h"
           mkdir -p "$(dirname "$tap_dir")"
           ln -sfn "$GITHUB_WORKSPACE/tap" "$tap_dir"
           brew trust --tap jachy-h/jachy-h
-          brew audit --strict --online --formula jachy-h/jachy-h/lan-copy
+          brew audit --strict --online --formula jachy-h/jachy-h/lancopy
       - name: Commit and push the formula update
         if: steps.tap.outputs.configured == 'true'
         env:
@@ -269,7 +269,7 @@ jobs:
         run: |
           set -euo pipefail
           cd tap
-          git add Formula/lan-copy.rb
+          git add Formula/lancopy.rb
           if git diff --cached --quiet; then
             echo 'Formula is already current; nothing to push.' \
               | tee -a "$GITHUB_STEP_SUMMARY"
@@ -281,7 +281,7 @@ jobs:
           helper='!f() { echo username=x-access-token;'
           helper="$helper echo password=\$GITHUB_TOKEN; }; f"
           git config --local credential.helper "$helper"
-          git commit -m "chore: update lan-copy v$RELEASE_VERSION"
+          git commit -m "chore: update lancopy v$RELEASE_VERSION"
           git push
-          printf 'Updated `Formula/lan-copy.rb` to **v%s**.\n' \
+          printf 'Updated `Formula/lancopy.rb` to **v%s**.\n' \
             "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

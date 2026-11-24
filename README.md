@@ -15,11 +15,11 @@
 **macOS（Apple Silicon）可以用 Homebrew 安装**，跳过手动解压：
 
 ```bash
-brew install jachy-h/jachy-h/lan-copy
-brew services start lan-copy   # 后台常驻，随后打开 http://localhost:8080
+brew install jachy-h/jachy-h/lancopy
+brew services start lancopy   # 后台常驻，随后打开 http://localhost:8080
 ```
 
-Homebrew 安装后请用 `brew upgrade lan-copy` 升级；应用内更新会改写 Homebrew 管理的文件，不建议使用。暂不支持 Intel Mac。
+Homebrew 安装后命令名为 `lancopy`，请用 `brew upgrade lancopy` 升级；应用内更新会改写 Homebrew 管理的文件，不建议使用。暂不支持 Intel Mac。
 
 1. 到 [下载页面](https://github.com/jachy-h/lan-copy/releases/latest) 获取对应系统的压缩包并解压。目前提供 Windows x64 和 macOS Apple Silicon 版本。
 2. 启动程序：

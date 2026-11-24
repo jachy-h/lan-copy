@@ -7,7 +7,7 @@ from update_homebrew_formula import parse_checksums, update_formula, updated_for
 ASSET = "Lan-Copy-macOS-Apple-Silicon.tar.gz"
 OLD_SHA = "fe6cb38a213708405f9051c78f17bbca426053397003862953757eee001c9f37"
 NEW_SHA = "1" * 64
-FORMULA = f'''class LanCopy < Formula
+FORMULA = f'''class Lancopy < Formula
   desc "Zero-dependency LAN file and text sharing tool"
   homepage "https://github.com/jachy-h/lan-copy"
   url "https://github.com/jachy-h/lan-copy/releases/download/v0.8.1/{ASSET}"
@@ -15,11 +15,11 @@ FORMULA = f'''class LanCopy < Formula
   license "MIT"
 
   def install
-    bin.install "Lan-Copy-macOS-arm64/lan-copy"
+    bin.install "lan-copy" => "lancopy"
   end
 
   test do
-    assert_match "lan-copy", shell_output("#{{bin}}/lan-copy -h 2>&1", 2)
+    assert_match "lancopy", shell_output("#{{bin}}/lancopy -h 2>&1", 2)
   end
 end
 '''
@@ -80,7 +80,7 @@ class UpdatedFormulaTests(unittest.TestCase):
         self.assertEqual(updated_formula(formula, "0.15.0", ASSET, NEW_SHA), formula)
 
     def test_missing_url(self):
-        formula = FORMULA.replace("lan-copy", "lan-copy-other")
+        formula = FORMULA.replace("https://github.com/jachy-h/lan-copy/releases/download/", "https://example.invalid/")
         with self.assertRaises(ValueError) as caught:
             updated_formula(formula, "0.15.0", ASSET, NEW_SHA)
         self.assertIn("no Lan Copy release URL", str(caught.exception))
@@ -109,7 +109,7 @@ class UpdateFormulaTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.base = Path(self.directory.name)
-        self.formula = self.base / "lan-copy.rb"
+        self.formula = self.base / "lancopy.rb"
         self.formula.write_text(FORMULA)
         self.checksums = self.base / "SHA256SUMS"
         self.checksums.write_text(f'{NEW_SHA}  Lan-Copy-Windows-amd64.zip\n{NEW_SHA}  {ASSET}\n')
@@ -119,7 +119,7 @@ class UpdateFormulaTests(unittest.TestCase):
         self.assertTrue(changed)
         self.assertIn("v0.15.0", report)
         self.assertIn(NEW_SHA, self.formula.read_text())
-        self.assertFalse((self.base / ".lan-copy.rb.tmp").exists())
+        self.assertFalse((self.base / ".lancopy.rb.tmp").exists())
 
     def test_dry_run_does_not_write(self):
         report, changed = update_formula(self.formula, self.checksums, "0.15.0", ASSET, dry_run=True)
