@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -105,6 +106,11 @@ func TestResourceUsageReportsOccupancy(t *testing.T) {
 }
 
 func TestResourceUsageStorageFailure(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// Windows ignores directory permission bits, so chmod 0 cannot make the
+		// walk fail there; the success path is still covered on every platform.
+		t.Skip("chmod 0 does not block directory reads on Windows")
+	}
 	dir := t.TempDir()
 	app, err := newServer(dir, 1<<20)
 	if err != nil {
