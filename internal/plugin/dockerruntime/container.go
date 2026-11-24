@@ -23,7 +23,7 @@ func (r *Runtime) Create(ctx context.Context, req plugin.CreateInstanceRequest) 
 	if err != nil {
 		return nil, err
 	}
-	result, err := r.client.ContainerCreate(ctx, client.ContainerCreateOptions{
+	result, err := r.api().ContainerCreate(ctx, client.ContainerCreateOptions{
 		Config: config, HostConfig: hostConfig, NetworkingConfig: networking, Name: req.Name,
 	})
 	if err != nil {
@@ -37,7 +37,7 @@ func (r *Runtime) Create(ctx context.Context, req plugin.CreateInstanceRequest) 
 }
 
 func (r *Runtime) Start(ctx context.Context, runtimeID string) error {
-	_, err := r.client.ContainerStart(ctx, runtimeID, client.ContainerStartOptions{})
+	_, err := r.api().ContainerStart(ctx, runtimeID, client.ContainerStartOptions{})
 	return mapError(err)
 }
 
@@ -46,7 +46,7 @@ func (r *Runtime) Stop(ctx context.Context, runtimeID string, timeout time.Durat
 	if seconds < 0 {
 		seconds = 0
 	}
-	_, err := r.client.ContainerStop(ctx, runtimeID, client.ContainerStopOptions{Timeout: &seconds})
+	_, err := r.api().ContainerStop(ctx, runtimeID, client.ContainerStopOptions{Timeout: &seconds})
 	return mapError(err)
 }
 
@@ -55,17 +55,17 @@ func (r *Runtime) Restart(ctx context.Context, runtimeID string, timeout time.Du
 	if seconds < 0 {
 		seconds = 0
 	}
-	_, err := r.client.ContainerRestart(ctx, runtimeID, client.ContainerRestartOptions{Timeout: &seconds})
+	_, err := r.api().ContainerRestart(ctx, runtimeID, client.ContainerRestartOptions{Timeout: &seconds})
 	return mapError(err)
 }
 
 func (r *Runtime) Remove(ctx context.Context, runtimeID string) error {
-	_, err := r.client.ContainerRemove(ctx, runtimeID, client.ContainerRemoveOptions{Force: false, RemoveVolumes: false})
+	_, err := r.api().ContainerRemove(ctx, runtimeID, client.ContainerRemoveOptions{Force: false, RemoveVolumes: false})
 	return mapError(err)
 }
 
 func (r *Runtime) Inspect(ctx context.Context, runtimeID string) (*plugin.InstanceInfo, error) {
-	result, err := r.client.ContainerInspect(ctx, runtimeID, client.ContainerInspectOptions{})
+	result, err := r.api().ContainerInspect(ctx, runtimeID, client.ContainerInspectOptions{})
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -81,13 +81,13 @@ func (r *Runtime) List(ctx context.Context, labels map[string]string) ([]plugin.
 	if len(labels) == 0 {
 		filters.Add("label", plugin.LabelManaged+"=true")
 	}
-	result, err := r.client.ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
+	result, err := r.api().ContainerList(ctx, client.ContainerListOptions{All: true, Filters: filters})
 	if err != nil {
 		return nil, mapError(err)
 	}
 	infos := make([]plugin.InstanceInfo, 0, len(result.Items))
 	for _, summary := range result.Items {
-		inspect, err := r.client.ContainerInspect(ctx, summary.ID, client.ContainerInspectOptions{})
+		inspect, err := r.api().ContainerInspect(ctx, summary.ID, client.ContainerInspectOptions{})
 		if err != nil {
 			if errdefsNotFound(err) {
 				continue
@@ -184,7 +184,7 @@ func (r *Runtime) Logs(ctx context.Context, runtimeID string, opts plugin.LogOpt
 	if !opts.Since.IsZero() {
 		options.Since = strconv.FormatInt(opts.Since.Unix(), 10)
 	}
-	source, err := r.client.ContainerLogs(ctx, runtimeID, options)
+	source, err := r.api().ContainerLogs(ctx, runtimeID, options)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -211,7 +211,7 @@ func (l *logReadCloser) Close() error {
 }
 
 func (r *Runtime) Stats(ctx context.Context, runtimeID string) (*plugin.Stats, error) {
-	result, err := r.client.ContainerStats(ctx, runtimeID, client.ContainerStatsOptions{Stream: false, IncludePreviousSample: true})
+	result, err := r.api().ContainerStats(ctx, runtimeID, client.ContainerStatsOptions{Stream: false, IncludePreviousSample: true})
 	if err != nil {
 		return nil, mapError(err)
 	}

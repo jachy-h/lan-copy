@@ -1,3 +1,4 @@
+import { parseDelimited } from './delimitedText'
 import { previewFailure } from './errors'
 import { loadPDF, type PDFDocument, type PDFLoadingTask, type PDFPage, type PDFRenderTask } from './pdf'
 
@@ -58,6 +59,12 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
   const spreadsheetRequests = new Map<number, { resolve(value: SheetResult): void; reject(error: Error): void }>();
   let textBytes: Uint8Array = new Uint8Array();
   let textTruncated = false;
+  let delimitedDelimiter = "";
+  let delimitedMode: "table" | "text" = "table";
+  let delimitedToggle: HTMLButtonElement | undefined;
+  const maxDelimitedRows = 250;
+  const maxDelimitedColumns = 50;
+  const maxDelimitedBytes = 1024 * 1024;
   let stage = "请求文件";
   let failureDetails: HTMLDetailsElement | undefined;
 
@@ -104,15 +111,64 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
       getSpreadsheetWorker().postMessage({id, type, ...payload}, transfer);
     });
   }
+  function decodedText() {
+    return new TextDecoder($<HTMLSelectElement>("#textEncoding").value).decode(textBytes, {stream: textTruncated});
+  }
   function decodeText() {
-    const text = new TextDecoder($<HTMLSelectElement>("#textEncoding").value).decode(textBytes, {stream: textTruncated});
+    const text = decodedText();
+    content.classList.remove("preview-spreadsheet-container");
     const pre = document.createElement("pre");
     pre.className = "preview-text";
     pre.textContent = text;
     content.replaceChildren(pre);
     message(textTruncated ? "文件较大，仅显示前 256 KiB；下载可查看完整内容。" : "文本预览 · 乱码时可切换编码");
   }
-  $<HTMLSelectElement>("#textEncoding").addEventListener("change", decodeText, {signal: controller.signal});
+  function syncDelimitedToggle() {
+    if (!delimitedToggle) return;
+    const showingText = delimitedMode === "text";
+    delimitedToggle.textContent = showingText ? "表格" : "原始文本";
+    delimitedToggle.setAttribute("aria-pressed", String(showingText));
+    delimitedToggle.setAttribute("aria-label", showingText ? "切换为表格显示" : "切换为原始文本显示");
+  }
+  function renderDelimited() {
+    if (!delimitedDelimiter) return;
+    const text = decodedText();
+    const label = delimitedDelimiter === "\t" ? "TSV" : "CSV";
+    content.replaceChildren();
+    if (delimitedMode === "text") {
+      content.classList.remove("preview-spreadsheet-container");
+      const pre = document.createElement("pre");
+      pre.className = "preview-text";
+      pre.textContent = text;
+      content.append(pre);
+      message(textTruncated ? `${label} 原始文本 · 文件较大，仅显示前 1 MiB；下载可查看完整内容。` : `${label} 原始文本 · 可切换回表格`);
+      return;
+    }
+    const table = parseDelimited(text, delimitedDelimiter, {maxRows: maxDelimitedRows, maxColumns: maxDelimitedColumns});
+    // A ranged read ends mid-record; drop that incomplete last record.
+    if (textTruncated && !/[\r\n]$/.test(text)) table.rows.pop();
+    content.classList.add("preview-spreadsheet-container");
+    if (!table.header.length) {
+      content.classList.remove("preview-spreadsheet-container");
+      const note = document.createElement("p");
+      note.className = "preview-status";
+      note.textContent = "空表格，没有可显示的数据。";
+      content.append(note);
+      message(`${label} 表格为空。`);
+      return;
+    }
+    content.append(renderTable(table.header, table.rows, 1));
+    const limits: string[] = [];
+    if (table.truncatedRows) limits.push(`仅显示前 ${maxDelimitedRows} 行`);
+    if (table.truncatedColumns) limits.push(`仅显示前 ${maxDelimitedColumns} 列`);
+    if (textTruncated) limits.push("文件较大，仅读取前 1 MiB");
+    if (table.malformed) limits.push("引号未闭合，已尽力解析");
+    message(`${label} 表格 · ${table.rows.length} 行 × ${table.header.length} 列${limits.length ? ` · ${limits.join("、")}` : ""}`);
+  }
+  $<HTMLSelectElement>("#textEncoding").addEventListener("change", () => {
+    if (delimitedDelimiter) renderDelimited();
+    else decodeText();
+  }, {signal: controller.signal});
 
   async function showPDF() {
     message("正在载入 PDF…");
@@ -415,7 +471,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     }
   }
 
-  function renderSheet(sheet: Sheet, hasMoreSheets: boolean) {
+  function renderTable(columns: string[], rows: string[][], startRow: number) {
     const wrapper = document.createElement("div");
     wrapper.className = "preview-sheet-table-scroll";
     const table = document.createElement("table");
@@ -425,7 +481,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     const corner = document.createElement("th");
     corner.scope = "col";
     heading.append(corner);
-    sheet.columns.forEach(column => {
+    columns.forEach(column => {
       const cell = document.createElement("th");
       cell.scope = "col";
       cell.textContent = column;
@@ -433,11 +489,11 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     });
     head.append(heading);
     const body = document.createElement("tbody");
-    sheet.rows.forEach((row, index) => {
+    rows.forEach((row, index) => {
       const line = document.createElement("tr");
       const number = document.createElement("th");
       number.scope = "row";
-      number.textContent = String(sheet.startRow + index);
+      number.textContent = String(startRow + index);
       line.append(number);
       row.forEach(value => {
         const cell = document.createElement("td");
@@ -448,7 +504,11 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     });
     table.append(head, body);
     wrapper.append(table);
-    content.replaceChildren(wrapper);
+    return wrapper;
+  }
+
+  function renderSheet(sheet: Sheet, hasMoreSheets: boolean) {
+    content.replaceChildren(renderTable(sheet.columns, sheet.rows, sheet.startRow));
     content.classList.add("preview-spreadsheet-container");
     if (!sheet.rows.length) message(`「${sheet.name}」为空工作表。`);
     else {
@@ -460,11 +520,48 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     }
   }
 
+  async function showDelimited(response: Response, delimiter: string) {
+    stage = "读取表格文本";
+    message("正在读取表格…");
+    const result = await fetch(resource, {headers: {Range: `bytes=0-${maxDelimitedBytes - 1}`}, cache: "no-store", signal: controller.signal});
+    if (!result.ok) throw new Error(`HTTP ${result.status}`);
+    const bytes = await result.arrayBuffer();
+    if (controller.signal.aborted) return;
+    textBytes = new Uint8Array(bytes);
+    const length = Number(response.headers.get("Content-Length"));
+    textTruncated = Number.isFinite(length) && length > textBytes.length;
+    if (textBytes[0] === 0xff && textBytes[1] === 0xfe) $<HTMLSelectElement>("#textEncoding").value = "utf-16le";
+    else if (textBytes[0] === 0xfe && textBytes[1] === 0xff) $<HTMLSelectElement>("#textEncoding").value = "utf-16be";
+    delimitedDelimiter = delimiter;
+    delimitedMode = "table";
+    $("#textTools").classList.remove("hidden");
+    if (!delimitedToggle) {
+      const tools = document.createElement("nav");
+      tools.className = "preview-csv-tools";
+      tools.setAttribute("aria-label", "表格显示方式");
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "secondary";
+      toggle.addEventListener("click", () => {
+        if (!delimitedDelimiter) return;
+        delimitedMode = delimitedMode === "table" ? "text" : "table";
+        syncDelimitedToggle();
+        renderDelimited();
+      }, {signal: controller.signal});
+      tools.append(toggle);
+      mountTools(tools);
+      delimitedToggle = toggle;
+    }
+    syncDelimitedToggle();
+    renderDelimited();
+  }
+
   async function load() {
     if (!path) { message("未指定文件，请返回文件列表选择文件。"); return; }
     try {
       const isDOCX = /\.docx$/i.test(path);
       const isSpreadsheet = /\.(?:xlsx|xls)$/i.test(path);
+      const isDelimited = /\.(?:csv|tsv)$/i.test(path);
       const response = await fetch(resource, {method: isDOCX || isSpreadsheet ? "GET" : "HEAD", cache: "no-store", signal: controller.signal});
       if (controller.signal.aborted) return;
       if (!response.ok) {
@@ -504,6 +601,8 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
         content.append(media);
       } else if (type.startsWith("application/pdf")) {
         await showPDF();
+      } else if (isDelimited && (type.startsWith("text/plain") || !type)) {
+        await showDelimited(response, /\.tsv$/i.test(path) ? "\t" : ",");
       } else if (type.startsWith("text/plain")) {
         const result = await fetch(resource, {headers: {Range: `bytes=0-${textLimit - 1}`}, cache: "no-store", signal: controller.signal});
         if (!result.ok) throw new Error("text");
@@ -543,6 +642,7 @@ export function mountPreview(root: Document | HTMLElement, path: string) {
     content.replaceChildren();
     content.classList.remove("preview-docx-container", "preview-spreadsheet-container", "pdf-canvas-container");
     content.parentElement?.querySelector(".preview-pdf-tools")?.remove();
+    root.querySelector(".preview-csv-tools")?.remove();
   }
   load();
   return {destroy};

@@ -14,9 +14,12 @@ export interface PluginRuntime {
   architecture?: string
   networkMode: 'loopback' | 'container'
   network: string
+  apiBaseUrl?: string
+  apiBaseUrlReason?: string
   dataRoots?: string[]
   error?: string
   orphans?: string[]
+  startAvailable?: boolean
 }
 
 export interface Plugin {
@@ -32,11 +35,15 @@ export interface ManifestDefaults {
   cpuLimit?: number; memoryMB?: number; pidsLimit?: number
   requestTimeoutSeconds?: number; startupTimeoutSeconds?: number
 }
+export interface ManifestUI {
+  path?: string
+}
 export interface PluginManifest {
   schemaVersion: number; id: string; name: string; version: string
   description?: string; protocolVersion: string; runtime: string; category?: string
   containerPort: number; endpoints: ManifestEndpoints; capabilities: string[]
   events?: string[]
+  ui?: ManifestUI
   defaults?: ManifestDefaults
 }
 
@@ -135,6 +142,11 @@ const actionHeaders = { 'X-Lan-Copy-Action': 'plugins' }
 
 export function getPluginRuntime(signal?: AbortSignal) {
   return requestJSON<PluginRuntime>('/api/plugins/runtime', { cache: 'no-store', signal })
+}
+export function startPluginRuntime() {
+  return requestJSON<{ taskId: string }>('/api/plugins/runtime/start', {
+    method: 'POST', headers: actionHeaders,
+  })
 }
 export function listPlugins(signal?: AbortSignal) {
   return requestJSON<{ plugins: PluginView[] }>('/api/plugins', { cache: 'no-store', signal })
@@ -254,4 +266,30 @@ export function statusLabel(status: PluginStatus): string {
 
 export function healthLabel(status: HealthStatus): string {
   return { unknown: '未检查', checking: '检查中', healthy: '健康', unhealthy: '异常' }[status] || status
+}
+
+export interface PluginDialog {
+  pluginId: string
+  pluginName: string
+  title: string
+  url: string
+}
+
+// parsePluginDialogs keeps only same-origin plugin proxy paths. The server
+// already validates them, but the browser is the final place that must refuse
+// an unexpected external URL before putting it into an iframe.
+export function parsePluginDialogs(value: unknown): PluginDialog[] {
+  if (!Array.isArray(value)) return []
+  const dialogs: PluginDialog[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const entry = item as Record<string, unknown>
+    const pluginId = typeof entry.pluginId === 'string' ? entry.pluginId : ''
+    const pluginName = typeof entry.pluginName === 'string' ? entry.pluginName : ''
+    const title = typeof entry.title === 'string' ? entry.title : ''
+    const url = typeof entry.url === 'string' ? entry.url : ''
+    if (!pluginId || !url.startsWith('/plugin-app/') || url.startsWith('//') || url.includes('..')) continue
+    dialogs.push({ pluginId, pluginName, title: title || pluginName || '插件处理', url })
+  }
+  return dialogs
 }

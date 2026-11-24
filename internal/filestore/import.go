@@ -26,7 +26,7 @@ func (s *Store) SaveFile(destination, name string, data []byte) (string, error) 
 		return "", fs.ErrInvalid
 	}
 	safe, err := SafeName(name)
-	if err != nil || strings.ContainsAny(name, `/\`) {
+	if err != nil || strings.ContainsAny(name, `/\`) || IsHiddenMetadata(name) {
 		return "", fs.ErrInvalid
 	}
 	available, err := AvailableName(dir, safe)

@@ -7,7 +7,7 @@ import shlex
 import subprocess
 import sys
 
-from build_release import build_lock, make_preview, next_version, release_version
+from build_release import build_lock, make_preview, publish_version
 
 
 def git(root, *args, check=True):
@@ -41,7 +41,7 @@ def publish(root, version_file, override, remote, branch, command):
     if version_file != root / "VERSION":
         raise ValueError("make publish 必须使用项目根目录的 VERSION，以匹配 GitHub Actions。")
     if make_preview():
-        version = next_version(version_file, override)
+        version = publish_version(version_file, override)
         print(f"Would build {version}, commit VERSION, create v{version}, and atomically push {branch} and its tag to {remote}.")
         return 0
 
@@ -55,10 +55,7 @@ def publish(root, version_file, override, remote, branch, command):
         git(root, "remote", "get-url", remote)
         git(root, "ls-files", "--error-unmatch", "VERSION")
         before = git(root, "rev-parse", "HEAD").stdout.strip()
-        current = release_version(version_file.read_text().strip())
-        version = next_version(version_file, override)
-        if tuple(map(int, version.split("."))) <= tuple(map(int, current.split("."))):
-            raise ValueError(f"发布版本 {version} 必须大于当前版本 {current}。")
+        version = publish_version(version_file, override)
         tag = f"v{version}"
         if git(root, "show-ref", "--verify", "--quiet", f"refs/tags/{tag}", check=False).returncode == 0:
             raise ValueError(f"本地标签 {tag} 已存在，请检查版本或已有发布。")

@@ -25,19 +25,36 @@ var (
 // Manifest is the frozen plugin manifest carried by an image label. Unknown
 // fields are rejected so an image cannot smuggle runtime options through it.
 type Manifest struct {
-	SchemaVersion   int               `json:"schemaVersion"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Version         string            `json:"version"`
-	Description     string            `json:"description,omitempty"`
-	ProtocolVersion string            `json:"protocolVersion"`
-	Runtime         string            `json:"runtime"`
-	Category        string            `json:"category,omitempty"`
-	ContainerPort   int               `json:"containerPort"`
-	Endpoints       ManifestEndpoints `json:"endpoints"`
-	Capabilities    []string          `json:"capabilities"`
-	Events          []string          `json:"events,omitempty"`
-	Defaults        ManifestDefaults  `json:"defaults,omitempty"`
+	SchemaVersion   int                 `json:"schemaVersion"`
+	ID              string              `json:"id"`
+	Name            string              `json:"name"`
+	Version         string              `json:"version"`
+	Description     string              `json:"description,omitempty"`
+	ProtocolVersion string              `json:"protocolVersion"`
+	Runtime         string              `json:"runtime"`
+	Category        string              `json:"category,omitempty"`
+	ContainerPort   int                 `json:"containerPort"`
+	Endpoints       ManifestEndpoints   `json:"endpoints"`
+	Capabilities    []string            `json:"capabilities"`
+	Events          []string            `json:"events,omitempty"`
+	UI              *ManifestUI         `json:"ui,omitempty"`
+	UploadHook      *ManifestUploadHook `json:"uploadHook,omitempty"`
+	Defaults        ManifestDefaults    `json:"defaults,omitempty"`
+}
+
+// ManifestUploadHook declares a synchronous post-upload hook. Lan Copy calls
+// it after a committed upload and turns a returned page path into a browser
+// dialog under the plugin's own /plugin-app/<id>/ proxy.
+type ManifestUploadHook struct {
+	Path           string `json:"path"`
+	TimeoutSeconds int    `json:"timeoutSeconds,omitempty"`
+}
+
+// ManifestUI declares that the plugin serves a browser interface. Lan Copy
+// proxies it under /plugin-app/<id>/ and passes the prefix in
+// X-Forwarded-Prefix so the plugin can build relative URLs.
+type ManifestUI struct {
+	Path string `json:"path,omitempty"`
 }
 
 type ManifestEndpoints struct {
@@ -129,6 +146,20 @@ func ValidateManifest(m Manifest) error {
 			return err
 		}
 	}
+	if m.UI != nil && m.UI.Path != "" {
+		if err := validateEndpoint("ui.path", m.UI.Path); err != nil {
+			return err
+		}
+	}
+	if m.UploadHook != nil {
+		if err := validateEndpoint("uploadHook.path", m.UploadHook.Path); err != nil {
+			return err
+		}
+		if m.UploadHook.TimeoutSeconds != 0 &&
+			(m.UploadHook.TimeoutSeconds < MinUploadHookTimeoutSeconds || m.UploadHook.TimeoutSeconds > MaxUploadHookTimeoutSeconds) {
+			return fmt.Errorf("%w: uploadHook.timeoutSeconds out of range", ErrInvalidManifest)
+		}
+	}
 	if len(m.Events) > MaxEventSubscriptions {
 		return fmt.Errorf("%w: too many event subscriptions", ErrInvalidManifest)
 	}
@@ -186,6 +217,20 @@ func NormalizeManifest(m Manifest) Manifest {
 	}
 	if len(m.Events) > 0 && m.Endpoints.Events == "" {
 		m.Endpoints.Events = DefaultEventsEndpoint
+	}
+	if m.UI != nil {
+		ui := *m.UI
+		if ui.Path == "" {
+			ui.Path = "/"
+		}
+		m.UI = &ui
+	}
+	if m.UploadHook != nil {
+		hook := *m.UploadHook
+		if hook.TimeoutSeconds == 0 {
+			hook.TimeoutSeconds = DefaultUploadHookTimeoutSeconds
+		}
+		m.UploadHook = &hook
 	}
 	if m.Defaults.CPULimit == 0 {
 		m.Defaults.CPULimit = 0.5

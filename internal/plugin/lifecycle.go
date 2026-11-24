@@ -49,7 +49,7 @@ func (m *Manager) Install(ctx context.Context, req InstallRequest) (InstallResul
 	now := m.now()
 	instance := Instance{
 		ID: instanceID, PluginID: image.PluginID, ImageID: image.ID,
-		RuntimeType: m.settings.Type, ContainerName: containerName(image.PluginID, instanceID),
+		RuntimeType: m.currentRuntimeType(), ContainerName: containerName(image.PluginID, instanceID),
 		Status: StatusInstalling, HealthStatus: HealthUnknown, Config: config,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -139,6 +139,14 @@ func (m *Manager) createContainer(ctx context.Context, instance Instance, image 
 	if token, err := m.store.EventToken(instance.ID); err == nil && token != "" {
 		env = append(env, EventTokenEnv+"="+token)
 	}
+	apiAddress := m.resolveAPIAddress()
+	if apiAddress.URL != "" {
+		m.logger.Printf("插件 API 地址: %s（%s）", apiAddress.URL, apiAddress.Reason)
+		env = append(env, APIBaseURLEnv+"="+apiAddress.URL)
+		if token, err := m.store.APIToken(instance.ID); err == nil && token != "" {
+			env = append(env, APITokenEnv+"="+token)
+		}
+	}
 	return m.runtime.Create(ctx, CreateInstanceRequest{
 		Name: instance.ContainerName, ImageRef: image.RuntimeImageID,
 		Env: env, ContainerPort: image.Manifest.ContainerPort,
@@ -147,6 +155,7 @@ func (m *Manager) createContainer(ctx context.Context, instance Instance, image 
 		MemoryMB: instance.Config.MemoryMB, PIDsLimit: instance.Config.PIDsLimit,
 		RestartPolicy: instance.Config.RestartPolicy, LogMaxSizeMB: instance.Config.LogMaxSizeMB,
 		LogMaxFiles: instance.Config.LogMaxFiles,
+		ExtraHosts:  pluginExtraHosts(m.settings.NetworkMode, m.currentRuntimeType(), m.hostOS),
 		Labels: map[string]string{
 			LabelManaged: "true", LabelPluginID: instance.PluginID,
 			LabelInstanceID: instance.ID, LabelVersion: image.Manifest.Version,
@@ -461,6 +470,13 @@ func (m *Manager) Restart(ctx context.Context, pluginID string) error {
 	}
 	defer unlock()
 	if err := m.stopLocked(ctx, pluginID); err != nil {
+		return err
+	}
+	// Recreate the container on restart so host-derived values injected at
+	// creation time, especially LAN_COPY_API_URL, reflect the current host.
+	if err := m.updateInstance(pluginID, func(current *Instance) {
+		current.ConfigDirty = true
+	}); err != nil {
 		return err
 	}
 	return m.startLocked(ctx, pluginID)

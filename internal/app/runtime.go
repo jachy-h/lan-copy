@@ -12,12 +12,15 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"time"
 
 	"lan-copy/internal/deploytoken"
 	"lan-copy/internal/desktop"
 	"lan-copy/internal/httpserver"
 	"lan-copy/internal/printing"
+	"lan-copy/internal/processstats"
+	"lan-copy/internal/tablestore"
 	"lan-copy/internal/updater"
 )
 
@@ -43,6 +46,7 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	maxGB := flag.Int64("max-gb", 10, "单次上传总大小上限（GiB）")
 	pluginNetworkMode := flag.String("plugin-network-mode", "loopback", "插件网络模式（loopback 或 container）")
 	pluginNetwork := flag.String("plugin-network", "plugin-network", "插件专用 Docker 网络名称")
+	pluginAPIURL := flag.String("plugin-api-url", "", "注入插件的 Lan Copy API 地址（留空自动推断）")
 	autostart := flag.Bool("autostart", false, "登录后静默启动（供系统启动项使用）")
 	workingDir := flag.String("working-dir", "", "启动工作目录（供系统启动项使用）")
 	flag.Parse()
@@ -98,13 +102,19 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 	if err != nil {
 		log.Fatal("无法读取自动部署令牌: ", err)
 	}
-	pluginManager, err := preparePlugins(components.DataDir, *pluginNetworkMode, *pluginNetwork)
+	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	pluginAPIBaseURL := strings.TrimSpace(*pluginAPIURL)
+	pluginManager, err := preparePlugins(components.DataDir, port, *pluginNetworkMode, *pluginNetwork, pluginAPIBaseURL)
 	if err != nil {
 		log.Printf("插件管理不可用: %v", err)
 	}
+	tables := tablestore.New(components.Files)
+	if err := tables.LoadMarks(components.DataDir); err != nil {
+		log.Fatalf("加载表格标记失败: %v", err)
+	}
 	service := httpserver.New(httpserver.Config{
 		Dir: components.Dir, DataDir: components.DataDir,
-		Files: components.Files, Texts: components.Texts,
+		Files: components.Files, Tables: tables, Texts: components.Texts,
 		UploadResources: components.UploadResources, UploadPreflight: components.UploadPreflight,
 		Releases: components.Releases, Web: webRoot, AirDev: *airDev,
 		Version: version, UpdatePublicKey: updatePublicKey, MaxUpload: *maxGB << 30,
@@ -112,9 +122,9 @@ func Run(webFiles fs.FS, version, updatePublicKey string) {
 		Updater:    updateService,
 		Printing:   printService,
 		Plugins:    pluginManager,
+		System:     processstats.New(),
 		Autostart:  desktop.ConfigureAutostart(listener.Addr().String(), *dir, *maxGB),
 	})
-	port := strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
 	log.Printf("Lan Copy 已启动，文件保存在 %s", *dir)
 	log.Printf("本机访问: http://localhost:%s", port)
 	for _, address := range httpserver.LocalURLs(fmt.Sprintf(":%s", port)) {

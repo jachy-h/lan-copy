@@ -6,7 +6,7 @@
 
 ## 检查 GitHub 新版本
 
-进入“更新”菜单会由运行 Lan Copy 的电脑访问 GitHub 最新正式 Release，并按 `主版本.次版本.修订号` 比较版本号，兼容标签的 `v` 前缀。结果在服务端缓存 5 分钟，重新进入菜单或点击“重新检查”会读取缓存或发起检查。开发版 `dev` 不自动比较或安装线上版本。
+进入“更新”菜单会由运行 Lan Copy 的电脑访问 GitHub 最新正式 Release，先按 `主版本.次版本.修订号`、再按构建号比较版本号，兼容标签的 `v` 前缀和无构建号的历史版本（按 `build0` 处理）。结果在服务端缓存 5 分钟，重新进入菜单或点击“重新检查”会读取缓存或发起检查。开发版 `dev` 不自动比较或安装线上版本。
 
 发现新版本后提供“下载并更新”和“前往查看”。下载使用运行程序的系统与架构（而非浏览器设备），支持 Windows amd64 和 macOS Apple Silicon。程序会下载完整 Release 附件，复用离线上传的暂存、大小限制、Ed25519 验签、平台和程序校验、安装重启、失败恢复及页面刷新流程；同时要求包内版本与 Release 标签一致。无适用附件或当前启动方式不支持更新时，禁用安装并说明原因，仍可查看 Release。
 
@@ -18,14 +18,14 @@
 make build
 ```
 
-默认自动读取项目的 `.config/update.key` 私钥和 `.config/update.pub` 公钥，不需要手动 export。此目录已被 Git 忽略，不会包含在发布包中。CI 仍可通过 `LAN_COPY_SIGNING_KEY` 环境变量和 `UPDATE_PUBLIC_KEY` 参数覆盖本地密钥。自定义文件位置可设置 `UPDATE_SIGNING_KEY_FILE` 和 `UPDATE_PUBLIC_KEY_FILE`。Windows ZIP 和 macOS tar.gz 包中会包含程序、`update.json` 和 `update.sig`。`make build` 直接读取项目根目录 `VERSION` 并按该版本构建，不自动递增；若文件不存在则使用 `0.1.0`。所有平台使用同一版本，全部打包成功后才写回 `VERSION`；构建失败不改版本。构建结束打印版本、完成时间、耗时、签名方式及产物绝对路径和大小。可用 `make build VERSION=1.2.3` 显式指定版本，成功后保存该版本。请将 `VERSION` 随发布代码一起提交。直接执行 `make windows`、`make macos` 或 `make artifacts` 也使用已保存版本。程序版本通过 `-X main.version=1.2.3` 写入；直接 `go build` 未指定时仍为 `dev`。Make 每次重新生成发布包，防止更换版本或公钥后复用旧包。Windows Authenticode 签名流程 `scripts/release-windows.ps1 -Version 1.2.3` 同样生成清单，清单校验的是最终签名后的程序。
+默认自动读取项目的 `.config/update.key` 私钥和 `.config/update.pub` 公钥，不需要手动 export。此目录已被 Git 忽略，不会包含在发布包中。CI 仍可通过 `LAN_COPY_SIGNING_KEY` 环境变量和 `UPDATE_PUBLIC_KEY` 参数覆盖本地密钥。自定义文件位置可设置 `UPDATE_SIGNING_KEY_FILE` 和 `UPDATE_PUBLIC_KEY_FILE`。Windows ZIP 和 macOS tar.gz 包中会包含程序、`update.json` 和 `update.sig`。`make build` 读取项目根目录 `VERSION`，把构建号加一后按 `x.y.z-build{c}` 构建；例如 `0.8.1-build3` 之后是 `0.8.1-build4`。文件不存在时从 `0.1.0-build1` 开始；基础版本升级（如 `0.8.1` → `0.8.2`）后首次构建为 `0.8.2-build1`。所有平台使用同一版本，全部打包成功后才写回 `VERSION`；构建失败不改版本。构建结束打印版本、完成时间、耗时、签名方式及产物绝对路径和大小。可用 `make build VERSION=0.9.0` 开始新基础版本，或 `make build VERSION=0.9.0-build3` 原样指定完整版本（CI 和重跑使用后者）；构建版本不得低于当前 `VERSION`。请将 `VERSION` 随发布代码一起提交。直接执行 `make windows`、`make macos` 或 `make artifacts` 也使用已保存版本且不递增。程序版本通过 `-X main.version=0.8.1-build4` 写入；直接 `go build` 未指定时仍为 `dev`。Make 每次重新生成发布包，防止更换版本或公钥后复用旧包。Windows Authenticode 签名流程 `scripts/release-windows.ps1 -Version 0.8.1-build4` 同样生成清单，清单校验的是最终签名后的程序。
 
 清单格式：
 
 ```json
 {
   "app": "lan-copy",
-  "version": "1.2.3",
+  "version": "0.8.1-build4",
   "os": "windows",
   "arch": "amd64",
   "binary": "lan-copy.exe",
@@ -47,7 +47,7 @@ go run ./scripts/update-manifest -generate-key .config/update.key
 命令以独占方式创建权限为 0600 的私钥文件，向标准输出打印 Base64 公钥，将输出的公钥保存到 `.config/update.pub`。私钥不要放入仓库或发布包。将私钥内容作为 CI 的 `LAN_COPY_SIGNING_KEY` 秘密环境变量，构建时传入公钥：
 
 ```sh
-make artifacts VERSION=1.2.3 UPDATE_PUBLIC_KEY='<上一步输出的 Base64 公钥>'
+make artifacts VERSION=1.2.3-build4 UPDATE_PUBLIC_KEY='<上一步输出的 Base64 公钥>'
 ```
 
 打包工具要求配置可信公钥，以及对应的私钥文件或 `LAN_COPY_SIGNING_KEY` 环境变量（环境变量优先），会对 **update.json 原始字节** 签名，并写出 Base64 `update.sig`。缺少公钥、私钥或密钥不匹配时，拒绝生成发布包；程序更新时必须验证签名，不能通过上传无签名包绕过。之后的发布应继续固定同一公钥；更换公钥需要设计受信迁移流程或手动替换程序。
@@ -67,9 +67,9 @@ Windows PowerShell 发布流程使用 `LAN_COPY_UPDATE_PUBLIC_KEY` 环境变量�
 
 ## GitHub 自动构建
 
-代码提交后，可在 `main` 上执行 `make publish`，自动完成签名构建、patch 版本递增、版本提交、标签和推送；有未提交文件时会停止并提示先 commit。`make publish` 的版本递增独立于 `make build`。最终 Release 由 GitHub Actions 测试通过后发布。
+代码提交后，可在 `main` 上执行 `make publish`，自动完成签名构建、构建号递增、版本提交、标签和推送；有未提交文件时会停止并提示先 commit。默认在同一基础版本上把构建号加一，例如 `0.8.1-build3` → `v0.8.1-build4`；`VERSION=0.9.0` 会开始新基础版本并重置为 `0.9.0-build1`。`make publish` 的递增独立于直接执行 `make artifacts`。最终 Release 由 GitHub Actions 测试通过后发布。
 
-推送 `main` 自动测试和构建，推送版本标签后发布 Release。CI 需要一次性配置与本地相同的签名密钥，使用已提交的 `VERSION` 且不递增。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。
+推送 `main` 自动测试和构建，推送版本标签后发布 Release。CI 需要一次性配置与本地相同的签名密钥，使用已提交的完整 `VERSION` 且不递增。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。
 
 ## 验证
 
@@ -90,11 +90,11 @@ export LAN_COPY_DEPLOY_TOKEN='<目标机器配置的令牌>'
 node scripts/release-local.mjs --package release/Lan-Copy-Windows-amd64.zip
 ```
 
-可用 `--dry-run` 预览，`--url` 临时覆盖地址，`--version x.y.z` 指定构建版本，`--skip-build` 直接部署现有包。默认使用当前 VERSION，不递增、不提交或推送 Git。`--skip-build` 与 `--version` 不能同时使用。脚本从任意工作目录启动均使用仓库根目录解析包路径。Node 入口测试命令为 `node --test scripts/test-release-local.mjs`。
+可用 `--dry-run` 预览，`--url` 临时覆盖地址，`--version x.y.z` 或 `--version x.y.z-build{c}` 指定构建版本，`--skip-build` 直接部署现有包。默认先执行 `make build` 并递增构建号，不提交或推送 Git。`--skip-build` 与 `--version` 不能同时使用。脚本从任意工作目录启动均使用仓库根目录解析包路径。Node 入口测试命令为 `node --test scripts/test-release-local.mjs`。
 
 已安装个人 skill `lan-copy-release-deploy`，可通过 `$lan-copy-release-deploy` 调用本地发布入口；它会按目标 `/api/app` 返回的平台选择压缩包。
 
-上传包必须匹配目标机器平台；macOS Apple Silicon 使用 `release/Lan-Copy-macOS-Apple-Silicon.tar.gz`。也可在 `make publish` 成功后调用该脚本上传本地产物，无需等待 GitHub Release。脚本不会递增版本、修改 Git 或自动重试部署；可以纳入自己的发布脚本。重启确认默认等待 90 秒，可用 `--timeout` 调整。退出码 0 表示观察到本次更新标识及目标版本，非 0 表示拒绝、回滚、连接失败或未确认成功；超时请检查日志。
+上传包必须匹配目标机器平台；macOS Apple Silicon 使用 `release/Lan-Copy-macOS-Apple-Silicon.tar.gz`。也可在 `make publish` 成功后调用该脚本上传本地产物，无需等待 GitHub Release。脚本使用递增后的构建版本，不修改 Git 或自动重试部署；可以纳入自己的发布脚本。重启确认默认等待 90 秒，可用 `--timeout` 调整。退出码 0 表示观察到本次更新标识及目标版本，非 0 表示拒绝、回滚、连接失败或未确认成功；超时请检查日志。
 
 发布后可直接执行 `make deploy`：它会读取目标的 `/api/app` 自动选择 Windows amd64 或 macOS Apple Silicon 包，使用 `.config/deploy.token` 的令牌构建并部署。`DEPLOY_URL` 可覆盖目标地址，`DEPLOY_PACKAGE` 可覆盖发布包，`DRY_RUN=1` 只打印构建与部署命令。
 

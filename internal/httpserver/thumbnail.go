@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"lan-copy/internal/filestore"
 )
 
 // Bound simultaneous full-resolution decodes independently of file transfers.
@@ -20,6 +22,10 @@ var thumbnailSlots = make(chan struct{}, 2)
 
 func (s *Server) thumbnailFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if filestore.IsHiddenMetadata(name) {
+		writeError(w, http.StatusNotFound, "文件不存在")
+		return
+	}
 	_, err := s.files.Path(name)
 	if err != nil || name == "" {
 		filesystemError(w, errOrInvalid(err))

@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"mime/multipart"
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"lan-copy/internal/filestore"
+	"lan-copy/internal/plugin"
 )
 
 type treeTestPart struct{ field, body string }
@@ -392,5 +394,80 @@ func TestReplacementRollbackRestoresOriginal(t *testing.T) {
 	data, err := os.ReadFile(original)
 	if err != nil || string(data) != "original" {
 		t.Fatalf("original not restored: %q %v", data, err)
+	}
+}
+
+func TestUploadTreeReturnsPluginDialogs(t *testing.T) {
+	app, _ := newServer(t.TempDir(), 1<<20)
+	called := 0
+	app.runPluginUploadHooks = func(_ context.Context, data plugin.FileUploadedData) []plugin.UploadHookDialog {
+		called++
+		if data.Destination != "" || len(data.Files) != 1 || data.Files[0].Path != "发票/a.pdf" {
+			t.Fatalf("unexpected hook data: %+v", data)
+		}
+		return []plugin.UploadHookDialog{{
+			PluginID: "demo", PluginName: "Demo", Title: "确认发票", Path: "/review/abc",
+		}}
+	}
+	request := treeRequest(t, []filestore.TreeEntry{{Path: "发票", Directory: true}, {Path: "发票/a.pdf"}}, []treeTestPart{{"file-1", "pdf"}})
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, request)
+	if result.Code != http.StatusCreated {
+		t.Fatalf("%d: %s", result.Code, result.Body.String())
+	}
+	if called != 1 {
+		t.Fatalf("hook calls = %d", called)
+	}
+	var response struct {
+		PluginDialogs []pluginUploadDialog `json:"pluginDialogs"`
+	}
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.PluginDialogs) != 1 {
+		t.Fatalf("dialogs = %+v", response.PluginDialogs)
+	}
+	dialog := response.PluginDialogs[0]
+	if dialog.PluginID != "demo" || dialog.Title != "确认发票" || dialog.URL != "/plugin-app/demo/review/abc" {
+		t.Fatalf("unexpected dialog: %+v", dialog)
+	}
+}
+
+func TestUploadTreeSkipsHookForEmptyFolder(t *testing.T) {
+	app, _ := newServer(t.TempDir(), 1<<20)
+	called := 0
+	app.runPluginUploadHooks = func(_ context.Context, _ plugin.FileUploadedData) []plugin.UploadHookDialog {
+		called++
+		return nil
+	}
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, treeRequest(t, []filestore.TreeEntry{{Path: "空文件夹/更深", Directory: true}}, nil))
+	if result.Code != http.StatusCreated {
+		t.Fatalf("%d: %s", result.Code, result.Body.String())
+	}
+	if called != 0 {
+		t.Fatalf("empty upload called the hook %d times", called)
+	}
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(result.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := response["pluginDialogs"]; exists {
+		t.Fatal("empty upload returned pluginDialogs")
+	}
+}
+
+func TestUploadTreeHookFailureDoesNotFailUpload(t *testing.T) {
+	app, _ := newServer(t.TempDir(), 1<<20)
+	app.runPluginUploadHooks = func(_ context.Context, _ plugin.FileUploadedData) []plugin.UploadHookDialog {
+		return nil
+	}
+	result := httptest.NewRecorder()
+	app.routes().ServeHTTP(result, treeRequest(t, []filestore.TreeEntry{{Path: "a.txt"}}, []treeTestPart{{"file-0", "ok"}}))
+	if result.Code != http.StatusCreated {
+		t.Fatalf("%d: %s", result.Code, result.Body.String())
+	}
+	if data, err := os.ReadFile(filepath.Join(app.dir, "a.txt")); err != nil || string(data) != "ok" {
+		t.Fatalf("upload content = %q, %v", data, err)
 	}
 }

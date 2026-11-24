@@ -12,26 +12,75 @@ import tempfile
 import time
 
 
+stable_version = re.compile(
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-build([1-9][0-9]*))?"
+)
+
+
 def release_version(value):
-    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
-        raise ValueError("version must be MAJOR.MINOR.PATCH, for example 0.1.0")
+    if not stable_version.fullmatch(value):
+        raise ValueError("version must be x.y.z or x.y.z-buildN, for example 0.8.1-build3")
     return value
 
 
-def next_version(version_file, override=""):
-    if override:
-        return release_version(override)
-    current = release_version(version_file.read_text().strip() if version_file.exists() else "0.1.0")
-    major, minor, patch = current.split(".")
-    return f"{major}.{minor}.{int(patch) + 1}"
+def parse_version(value):
+    """Return ((major, minor, patch), build); a version without a suffix is build 0."""
+    matched = stable_version.fullmatch(value)
+    if not matched:
+        raise ValueError("version must be x.y.z or x.y.z-buildN, for example 0.8.1-build3")
+    base = tuple(int(matched.group(index)) for index in range(1, 4))
+    return base, int(matched.group(4) or 0)
+
+
+def format_version(base, build):
+    version = ".".join(str(part) for part in base)
+    return f"{version}-build{build}" if build else version
+
+
+def saved_version(version_file):
+    value = version_file.read_text().strip() if version_file.exists() else "0.1.0"
+    return release_version(value)
+
+
+def next_build_version(value):
+    """Advance the build number, or start a new base version at build 1."""
+    base, build = parse_version(release_version(value))
+    return format_version(base, build + 1)
+
+
+def resolve_version(current, override=""):
+    """Resolve one build without saving it, keeping build numbers monotonic."""
+    current_base, current_build = parse_version(release_version(current))
+    if not override:
+        return format_version(current_base, current_build + 1)
+    requested = release_version(override)
+    requested_base, requested_build = parse_version(requested)
+    if requested_build:
+        candidate = requested
+    elif requested_base > current_base:
+        # A new base version always starts at its first build.
+        candidate = format_version(requested_base, 1)
+    elif requested_base == current_base:
+        candidate = format_version(current_base, current_build + 1)
+    else:
+        raise ValueError(f"version {requested} must not be lower than current version {current}")
+    if parse_version(candidate) < (current_base, current_build):
+        raise ValueError(f"version {candidate} must not be lower than current version {current}")
+    return candidate
 
 
 def build_version(version_file, override=""):
-    """Return the requested version or the saved build version without incrementing it."""
-    if override:
-        return release_version(override)
-    current = version_file.read_text().strip() if version_file.exists() else "0.1.0"
-    return release_version(current)
+    """Return the version for the next build, or the exact requested version."""
+    return resolve_version(saved_version(version_file), override)
+
+
+def publish_version(version_file, override=""):
+    """Return the version for a release, which must be strictly newer."""
+    current = saved_version(version_file)
+    version = resolve_version(current, override)
+    if parse_version(version) <= parse_version(current):
+        raise ValueError(f"published version {version} must be greater than current version {current}")
+    return version
 
 
 @contextmanager

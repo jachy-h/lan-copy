@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 
-export type UploadPhase = 'idle' | 'reading' | 'uploading' | 'complete' | 'error' | 'cancelled'
+export type UploadPhase = 'idle' | 'reading' | 'uploading' | 'processing' | 'complete' | 'error' | 'cancelled'
 
 export interface UploadProgressState {
   /** Whether an upload task exists and can be restored from the header. */
@@ -78,6 +78,17 @@ export function completeUpload(label: string) {
   uploadProgress.progress = 100
   uploadProgress.speed = 0
   if (uploadProgress.total > 0) uploadProgress.loaded = uploadProgress.total
+  resetTransferRate()
+}
+
+// The bytes reached the server but an upload hook may still be preparing a
+// review page. Keep the task visible without pretending transfer is ongoing.
+export function waitForPlugin(label: string) {
+  if (!uploadProgress.visible) return
+  uploadProgress.phase = 'processing'
+  uploadProgress.label = label
+  uploadProgress.progress = null
+  uploadProgress.speed = 0
   resetTransferRate()
 }
 

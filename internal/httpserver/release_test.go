@@ -69,6 +69,25 @@ func TestReleaseCheckAndCache(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+func TestReleaseCheckComparesBuildNumbers(t *testing.T) {
+	old := version
+	version = "0.8.1-build2"
+	defer func() { version = old }()
+	s, _ := newServer(t.TempDir(), defaultMaxUpload)
+	s.releases, _ = fakeReleaseService(t, "v0.8.1-build3", []byte("archive"))
+	w := httptest.NewRecorder()
+	s.routes().ServeHTTP(w, httptest.NewRequest("GET", "/api/update/check", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"available":true`) {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	s.version = "0.8.1-build3"
+	w = httptest.NewRecorder()
+	s.checkRelease(w, httptest.NewRequest("GET", "/api/update/check", nil))
+	if !strings.Contains(w.Body.String(), `"available":false`) {
+		t.Fatal(w.Body.String())
+	}
+}
+
 func TestOnlineUpdateUsesSignedInstaller(t *testing.T) {
 	if runtime.GOOS != "windows" && !(runtime.GOOS == "darwin" && runtime.GOARCH == "arm64") {
 		t.Skip("online release packages target Windows and macOS arm64")

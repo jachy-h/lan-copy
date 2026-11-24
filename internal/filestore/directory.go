@@ -92,6 +92,12 @@ func (s *Store) ListDirectory(ctx context.Context, name, query string, limit int
 			}
 			return nil
 		}
+		if IsHiddenMetadata(sharedName) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err
@@ -123,6 +129,9 @@ func (s *Store) MutateDirectory(action string, input Mutation, onPartial func())
 	if err != nil {
 		return MutationResult{}, err
 	}
+	if IsHiddenMetadata(input.Path) {
+		return MutationResult{}, fs.ErrInvalid
+	}
 	switch action {
 	case "mkdir", "move", "rename":
 		parent, name := source, input.Name
@@ -138,7 +147,7 @@ func (s *Store) MutateDirectory(action string, input Mutation, onPartial func())
 				name = path.Base(input.Path)
 			}
 		}
-		if err := ValidateComponent(name); err != nil {
+		if err := ValidateComponent(name); err != nil || IsHiddenMetadata(name) {
 			return MutationResult{}, fs.ErrInvalid
 		}
 		info, err := os.Stat(parent)

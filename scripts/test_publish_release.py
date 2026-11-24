@@ -65,22 +65,22 @@ class PublishReleaseTests(unittest.TestCase):
     def test_success_commits_only_version_and_pushes_annotated_tag(self):
         status, output = self.run_publish()
         self.assertEqual(status, 0)
-        self.assertEqual((self.repo / "VERSION").read_text(), "1.2.4\n")
+        self.assertEqual((self.repo / "VERSION").read_text(), "1.2.3-build1\n")
         self.assertEqual(self.git("status", "--porcelain"), "")
         self.assertEqual(self.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"), "VERSION")
-        self.assertEqual(self.git("cat-file", "-t", "v1.2.4"), "tag")
+        self.assertEqual(self.git("cat-file", "-t", "v1.2.3-build1"), "tag")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(self.git("rev-parse", "v1.2.4^{}"), head)
+        self.assertEqual(self.git("rev-parse", "v1.2.3-build1^{}"), head)
         self.assertEqual(self.command("git", "--git-dir", str(self.remote), "rev-parse", "main"), head)
-        self.assertEqual(self.command("git", "--git-dir", str(self.remote), "rev-parse", "v1.2.4^{}"), head)
+        self.assertEqual(self.command("git", "--git-dir", str(self.remote), "rev-parse", "v1.2.3-build1^{}"), head)
         self.assertIn("GitHub Actions", output)
-        self.assertIn("v1.2.4", output)
+        self.assertIn("v1.2.3-build1", output)
 
     def test_does_not_push_other_tags_from_global_follow_tags_setting(self):
         self.git("config", "push.followTags", "true")
         self.git("tag", "-a", "old-local-tag", "-m", "Unrelated local tag")
         self.assertEqual(self.run_publish()[0], 0)
-        self.assertEqual(self.command("git", "--git-dir", str(self.remote), "tag", "--list"), "v1.2.4")
+        self.assertEqual(self.command("git", "--git-dir", str(self.remote), "tag", "--list"), "v1.2.3-build1")
 
     def test_unstaged_changes_require_commit(self):
         (self.repo / "code.txt").write_text("modified")
@@ -108,15 +108,15 @@ class PublishReleaseTests(unittest.TestCase):
         self.assert_not_built()
 
     def test_existing_local_tag_stops_before_build(self):
-        self.git("tag", "v1.2.4")
+        self.git("tag", "v1.2.3-build1")
         with self.assertRaisesRegex(ValueError, "本地标签"):
             self.run_publish()
         self.assert_not_built()
 
     def test_existing_remote_tag_stops_before_build(self):
-        self.git("tag", "v1.2.4")
-        self.git("push", "origin", "v1.2.4")
-        self.git("tag", "-d", "v1.2.4")
+        self.git("tag", "v1.2.3-build1")
+        self.git("push", "origin", "v1.2.3-build1")
+        self.git("tag", "-d", "v1.2.3-build1")
         with self.assertRaisesRegex(ValueError, "远端标签"):
             self.run_publish()
         self.assert_not_built()
@@ -143,8 +143,8 @@ class PublishReleaseTests(unittest.TestCase):
         hook.chmod(0o755)
         status, output = self.run_publish()
         self.assertNotEqual(status, 0)
-        self.assertEqual((self.repo / "VERSION").read_text(), "1.2.4\n")
-        self.assertEqual(self.git("cat-file", "-t", "v1.2.4"), "tag")
+        self.assertEqual((self.repo / "VERSION").read_text(), "1.2.3-build1\n")
+        self.assertEqual(self.git("cat-file", "-t", "v1.2.3-build1"), "tag")
         self.assertIn("git push --atomic", output)
         self.assertEqual(self.command("git", "--git-dir", str(self.remote), "rev-parse", "main"), self.initial)
         self.assertEqual(self.command("git", "--git-dir", str(self.remote), "tag", "--list"), "")
@@ -152,7 +152,7 @@ class PublishReleaseTests(unittest.TestCase):
     def test_dry_run_does_not_publish(self):
         status, output = self.run_publish(env={"MAKEFLAGS": "n"})
         self.assertEqual(status, 0)
-        self.assertIn("Would build 1.2.4", output)
+        self.assertIn("Would build 1.2.3-build1", output)
         self.assert_not_built()
         self.assertFalse((self.repo / ".config").exists())
         self.prompt.assert_not_called()
@@ -163,7 +163,7 @@ class PublishReleaseTests(unittest.TestCase):
                 status, output = self.run_publish(answers=[answer])
                 self.assertEqual(status, 0)
                 self.assertIn("已取消发布", output)
-                self.prompt.assert_called_once_with("请确认是否发布 1.2.4 版本 [y/n]: ")
+                self.prompt.assert_called_once_with("请确认是否发布 1.2.3-build1 版本 [y/n]: ")
                 self.assert_not_built()
                 self.assertEqual(self.git("tag", "--list"), "")
                 self.assertEqual(self.command("git", "--git-dir", str(self.remote), "rev-parse", "main"), self.initial)
@@ -174,7 +174,7 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(self.prompt.call_count, 3)
         self.assertEqual(output.count("请输入 y 或 n"), 2)
-        self.assertEqual(self.git("rev-parse", "v1.2.4^{}"), self.git("rev-parse", "HEAD"))
+        self.assertEqual(self.git("rev-parse", "v1.2.3-build1^{}"), self.git("rev-parse", "HEAD"))
 
     def test_edits_during_confirmation_stop_before_build(self):
         def edit_before_confirming(_prompt):
@@ -186,12 +186,22 @@ class PublishReleaseTests(unittest.TestCase):
         self.assert_not_built()
 
     def test_explicit_version_and_reject_non_increasing_version(self):
-        with self.assertRaisesRegex(ValueError, "必须大于"):
-            self.run_publish("1.2.3")
+        with self.assertRaisesRegex(ValueError, "must not be lower"):
+            self.run_publish("1.0.0")
         self.assert_not_built()
+        self.assertEqual(self.run_publish("1.2.3")[0], 0)
+        self.prompt.assert_called_once_with("请确认是否发布 1.2.3-build1 版本 [y/n]: ")
+        self.assertEqual(self.git("rev-parse", "v1.2.3-build1^{}"), self.git("rev-parse", "HEAD"))
+
+    def test_explicit_base_resets_build_and_full_version_is_exact(self):
         self.assertEqual(self.run_publish("2.0.0")[0], 0)
-        self.prompt.assert_called_once_with("请确认是否发布 2.0.0 版本 [y/n]: ")
-        self.assertEqual(self.git("rev-parse", "v2.0.0^{}"), self.git("rev-parse", "HEAD"))
+        self.assertEqual((self.repo / "VERSION").read_text(), "2.0.0-build1\n")
+        self.assertEqual(self.git("rev-parse", "v2.0.0-build1^{}"), self.git("rev-parse", "HEAD"))
+        with self.assertRaisesRegex(ValueError, "must be greater"):
+            self.run_publish("2.0.0-build1")
+        self.assertEqual(self.run_publish("2.0.0-build3")[0], 0)
+        self.assertEqual((self.repo / "VERSION").read_text(), "2.0.0-build3\n")
+        self.assertEqual(self.git("rev-parse", "v2.0.0-build3^{}"), self.git("rev-parse", "HEAD"))
 
     def test_remote_ahead_stops_before_build(self):
         other = self.base / "other"

@@ -188,6 +188,18 @@ func (m *Resources) Snapshot() ResourceConfig {
 	return m.config
 }
 
+// ResourceUsage is the current occupancy of upload slots and staging bytes.
+type ResourceUsage struct {
+	ActiveUploads int   `json:"activeUploads"`
+	StagedBytes   int64 `json:"stagedBytes"`
+}
+
+func (m *Resources) Usage() ResourceUsage {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return ResourceUsage{ActiveUploads: m.active, StagedBytes: m.staged}
+}
+
 func (m *Resources) Configure(dataDir string, config ResourceConfig) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

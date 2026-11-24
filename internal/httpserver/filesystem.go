@@ -5,14 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"log"
 	"net/http"
+	"path"
+	"strings"
 
 	"lan-copy/internal/filestore"
 )
 
 var maxDirectorySearchEntries = 10000
 
-type directoryEntry = filestore.Entry
+type directoryEntry struct {
+	filestore.Entry
+	Table bool `json:"table,omitempty"`
+}
 
 func filesystemError(w http.ResponseWriter, err error) {
 	status, message := http.StatusInternalServerError, "无法完成文件操作"
@@ -41,12 +47,17 @@ func (s *Server) listDirectory(w http.ResponseWriter, r *http.Request) {
 		filesystemError(w, err)
 		return
 	}
-	for i := range entries {
-		if !entries[i].Directory {
-			entries[i].PreviewType = previewContentType(entries[i].Path)
+	result := make([]directoryEntry, len(entries))
+	for i, entry := range entries {
+		if !entry.Directory {
+			entry.PreviewType = previewContentType(entry.Path)
+		}
+		result[i] = directoryEntry{Entry: entry}
+		if !entry.Directory && s.tables != nil && strings.EqualFold(path.Ext(entry.Path), ".csv") && s.tables.IsMarked(entry.Path) {
+			result[i].Table = true
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"path": name, "entries": entries})
+	writeJSON(w, http.StatusOK, map[string]any{"path": name, "entries": result})
 }
 
 func (s *Server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
@@ -79,9 +90,36 @@ func (s *Server) mutateDirectory(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
+	s.syncTableMarks(result)
 	s.notifyFilesChanged()
 	s.publishMutation(result)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) syncTableMarks(result filestore.MutationResult) {
+	if s.tables == nil {
+		return
+	}
+	var err error
+	switch result.Action {
+	case "delete":
+		err = s.tables.RemoveMarks(result.Path, result.Directory)
+		if !result.Directory {
+			if layoutErr := s.tables.RemoveLayout(result.Path); layoutErr != nil {
+				log.Printf("删除表格列偏好失败: path=%s: %v", result.Path, layoutErr)
+			}
+		}
+	case "move", "rename":
+		err = s.tables.RelocateMarks(result.PreviousPath, result.Path, result.Directory)
+		if !result.Directory {
+			if layoutErr := s.tables.RelocateLayout(result.PreviousPath, result.Path); layoutErr != nil {
+				log.Printf("移动表格列偏好失败: %s -> %s: %v", result.PreviousPath, result.Path, layoutErr)
+			}
+		}
+	}
+	if err != nil {
+		log.Printf("同步表格标记失败: action=%s path=%s: %v", result.Action, result.Path, err)
+	}
 }
 
 func errOrInvalid(err error) error {

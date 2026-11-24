@@ -11,7 +11,7 @@ Lan Copy 地址：${origin}
 
 ## 目标
 
-把目标服务打包成可通过“插件服务 → 镜像 → 上传离线镜像”导入的 Docker 镜像，并符合 Lan Copy 插件协议 1.0。导入后应能在 Lan Copy 页面中安装、启动、查看健康状态和日志。
+把目标服务打包成可通过“设置 → 插件 → 镜像 → 上传离线镜像”导入的 Docker 镜像，并符合 Lan Copy 插件协议 1.0。导入后应能在 Lan Copy 页面中安装、启动、查看健康状态和日志。
 
 ## 必须实现的 HTTP 端点
 
@@ -131,6 +131,21 @@ curl -s ${origin}/api/plugins/<plugin-id>
 curl -s ${origin}/api/plugins/<plugin-id>/status
 curl -s "${origin}/api/plugins/<plugin-id>/logs?tail=200"
 
+## 插件 Web 界面（可选）
+
+如果目标服务已有浏览器界面，希望在局域网通过 Lan Copy 打开，请在 Manifest 增加：
+
+"ui": { "path": "/" }
+
+1. path 是界面在容器内的挂载路径，默认 /，必须以 / 开头，不能包含 ..、查询串或片段；省略 ui 表示没有界面。
+2. Lan Copy 固定入口为 ${origin}/plugin-app/<plugin-id>/，把请求反向代理到容器端口，只在实例运行且健康时可访问。
+3. 插件必须读取请求头 X-Forwarded-Prefix（例如 /plugin-app/<plugin-id>），用它生成 HTML 资源地址、<base href>、前端路由 base 和 Cookie Path；不要写死 /assets/... 或 /api/...。
+4. 代理支持 SSE、上传下载和 WebSocket；页面与 Lan Copy 同源，写接口请自行校验 CSRF。
+
+安装并启动后验证：
+
+curl -s ${origin}/plugin-app/<plugin-id>/
+
 ## 生命周期事件（可选）
 
 如果目标服务需要在上传、文件夹/文件变化或文本变化时收到通知，请同时完成以下改造：
@@ -153,6 +168,63 @@ curl -s "${origin}/api/plugins/<plugin-id>/logs?tail=200"
 安装并启动后，用以下接口验证：
 curl -X POST -H 'X-Lan-Copy-Action: plugins' ${origin}/api/plugins/<plugin-id>/events/test
 curl -s ${origin}/api/plugins/<plugin-id>/events
+
+## 上传 Hook（可选，Lan Copy v0.13.0+）
+
+如果目标服务需要在上传成功后弹出自己的审核页，请在 Manifest 增加：
+
+\`\`\`json
+"uploadHook": {
+  "path": "/hooks/upload",
+  "timeoutSeconds": 5
+}
+\`\`\`
+
+1. Manifest 还必须声明 \`ui\`；返回的页面只能位于 \`/plugin-app/<plugin-id>/\` 下，不能返回外部 URL。
+2. Lan Copy 在上传提交成功后同步调用 \`POST /hooks/upload\`，请求头：
+   - \`X-Lan-Copy-Hook: file.uploaded\`
+   - \`X-Lan-Copy-Hook-Id\`
+   - \`X-Lan-Copy-Timestamp\`
+   - \`X-Lan-Copy-Signature: v1=<hex>\`
+3. 请求体与 \`file.uploaded\` 事件信封相同；签名算法仍是 HMAC-SHA256(LAN_COPY_EVENT_TOKEN, timestamp + "." + 原始请求体)。
+4. Hook 应快速返回，不要在 Hook 内做耗时 OCR；耗时工作放到返回页面的后台任务。
+5. \`204\` 表示不需要弹窗。需要弹窗时返回：
+
+\`\`\`json
+{
+  "schemaVersion": 1,
+  "dialogs": [
+    { "title": "确认信息", "path": "/review/<session-id>" }
+  ]
+}
+\`\`\`
+
+6. Hook 失败或超时不会让上传失败，也不重试。不要依赖 Hook 一定送达。
+7. 页面完成后可向父窗口发送：
+
+\`\`\`js
+window.parent.postMessage({
+  type: 'lan-copy:plugin-dialog:complete',
+  refresh: true,
+  message: '已保存'
+}, window.location.origin)
+\`\`\`
+
+页面必须允许被同源 iframe 嵌入（CSP \`frame-ancestors 'self'\`），并读取 \`X-Forwarded-Prefix\` 生成 API 地址。
+
+## 智能表格 API（可选）
+
+如果插件需要读写共享目录中的 CSV 表格，Lan Copy 会在安装时注入：
+
+LAN_COPY_API_URL
+LAN_COPY_API_TOKEN
+
+使用 Bearer 令牌调用：
+
+- POST $LAN_COPY_API_URL/api/plugin-api/tables/query
+- POST $LAN_COPY_API_URL/api/plugin-api/tables/lock-and-update
+
+lock-and-update 必须在 expectedVersion 中提交查询返回的当前 version，并提供唯一且非空的 keyColumn；版本冲突返回 409，重新查询后再重试。
 
 ## 重要边界
 

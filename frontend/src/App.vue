@@ -9,10 +9,11 @@ import UploadProgress from './components/UploadProgress.vue'
 import { close as closeContextMenu } from './ui/contextMenu'
 
 type Page = 'files' | 'transfer' | 'print' | 'plugins'
+type NavPage = Exclude<Page, 'plugins'>
 function currentPage(): Page {
   if (location.pathname === '/print-queue' || location.pathname === '/print.html') return 'print'
   if (location.pathname === '/transfer-text' || location.pathname === '/transfer.html') return 'transfer'
-  if (location.pathname === '/plugins' || location.pathname === '/plugins.html') return 'plugins'
+  if (location.pathname === '/plugins' || location.pathname === '/plugins.html' || location.pathname.startsWith('/plugins/')) return 'plugins'
   return 'files'
 }
 const page = ref<Page>(currentPage())
@@ -35,12 +36,12 @@ async function syncRoute() {
   await nextTick()
   if (shutdown) window.dispatchEvent(new Event('lan-copy:shutdown'))
 }
-function navigate(event: MouseEvent, target: Page) {
+function navigate(event: MouseEvent, target: NavPage) {
   if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return
   event.preventDefault()
   if (page.value === target) return
   if (page.value === 'files') filesHref.value = location.pathname + location.search + location.hash
-  history.pushState(null, '', target === 'files' ? filesHref.value : target === 'print' ? '/print-queue' : target === 'plugins' ? '/plugins' : '/transfer-text')
+  history.pushState(null, '', target === 'files' ? filesHref.value : target === 'print' ? '/print-queue' : '/transfer-text')
   void syncRoute()
 }
 function printSharedFile(path: string) {

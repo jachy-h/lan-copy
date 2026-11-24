@@ -246,5 +246,10 @@ func (s *Server) uploadTree(w http.ResponseWriter, r *http.Request) {
 	}
 	s.notifyFilesChanged()
 	s.publishUpload(destination, saved, directories)
-	writeJSON(w, http.StatusCreated, map[string]any{"files": saved, "directories": directories})
+	dialogs := s.runUploadHooks(r.Context(), destination, saved, directories)
+	response := map[string]any{"files": saved, "directories": directories}
+	if len(dialogs) > 0 {
+		response["pluginDialogs"] = dialogs
+	}
+	writeJSON(w, http.StatusCreated, response)
 }

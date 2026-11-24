@@ -3,6 +3,7 @@ lan-copy.exe
 lan-copy-data/
 lan-copy.syso
 lan-copy.ico
+Lan-Copy-macOS-*/
 dist/
 release/
 tmp/

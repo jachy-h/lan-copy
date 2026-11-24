@@ -47,32 +47,34 @@ func NewReleaseService() *ReleaseService {
 	}}}
 }
 
-var stableVersion = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+var stableVersion = regexp.MustCompile(`^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-build([1-9][0-9]*))?$`)
 
 func CompareVersions(a, b string) (int, error) {
 	aa, bb := stableVersion.FindStringSubmatch(a), stableVersion.FindStringSubmatch(b)
 	if aa == nil || bb == nil {
 		return 0, errors.New("无法比较非正式版本号")
 	}
-	result := 0
-	for i := 1; i <= 3; i++ {
-		x, e := strconv.ParseUint(aa[i], 10, 64)
-		if e != nil {
-			return 0, e
-		}
-		y, e := strconv.ParseUint(bb[i], 10, 64)
-		if e != nil {
-			return 0, e
-		}
-		if result == 0 {
-			if x > y {
-				result = 1
-			} else if x < y {
-				result = -1
+	for i := 1; i <= 4; i++ {
+		x, y := uint64(0), uint64(0)
+		var err error
+		if aa[i] != "" {
+			if x, err = strconv.ParseUint(aa[i], 10, 64); err != nil {
+				return 0, err
 			}
 		}
+		if bb[i] != "" {
+			if y, err = strconv.ParseUint(bb[i], 10, 64); err != nil {
+				return 0, err
+			}
+		}
+		if x > y {
+			return 1, nil
+		}
+		if x < y {
+			return -1, nil
+		}
 	}
-	return result, nil
+	return 0, nil
 }
 func (s *ReleaseService) Latest(ctx context.Context) (Release, error) {
 	s.mu.Lock()

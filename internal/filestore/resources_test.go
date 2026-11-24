@@ -34,14 +34,23 @@ func TestUploadResourceConfigPersistsAndValidates(t *testing.T) {
 
 func TestUploadResourceManagerBudgets(t *testing.T) {
 	m := NewResources(ResourceConfig{Concurrent: 1, StagingGiB: 1, IdleSeconds: 5})
+	if usage := m.Usage(); usage != (ResourceUsage{}) {
+		t.Fatalf("initial usage = %+v", usage)
+	}
 	if !m.Begin() || m.Begin() {
 		t.Fatal("concurrency limit not enforced")
 	}
 	if !m.Reserve(gib) || m.Reserve(1) {
 		t.Fatal("staging limit not enforced")
 	}
+	if usage := m.Usage(); usage != (ResourceUsage{ActiveUploads: 1, StagedBytes: gib}) {
+		t.Fatalf("usage = %+v", usage)
+	}
 	m.Release(gib)
 	m.End()
+	if usage := m.Usage(); usage != (ResourceUsage{}) {
+		t.Fatalf("released usage = %+v", usage)
+	}
 	if !m.Begin() {
 		t.Fatal("released upload slot was not reusable")
 	}

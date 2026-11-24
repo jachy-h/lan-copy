@@ -14,6 +14,15 @@ func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/app", s.appInfo)
 	mux.HandleFunc("GET /api/plugins", s.listPlugins)
+	mux.HandleFunc("GET /api/tables", s.listTables)
+	mux.HandleFunc("POST /api/tables/mark", s.setTableMark)
+	mux.HandleFunc("POST /api/tables/query", s.queryTable)
+	mux.HandleFunc("POST /api/tables/layout", s.saveTableLayout)
+	mux.HandleFunc("POST /api/tables/create", s.createTable)
+	mux.HandleFunc("POST /api/tables/lock-and-update", s.lockAndUpdateTable)
+	mux.HandleFunc("GET /api/plugin-api/tables", s.pluginAPITableList)
+	mux.HandleFunc("POST /api/plugin-api/tables/query", s.pluginAPITableQuery)
+	mux.HandleFunc("POST /api/plugin-api/tables/lock-and-update", s.pluginAPITableUpdate)
 	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete} {
 		mux.Handle(method+" /api/plugins/", s.pluginDispatch())
 	}
@@ -26,6 +35,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("PUT /api/settings/autostart", s.autostartSettings)
 	mux.HandleFunc("GET /api/settings/upload-resources", s.uploadResourceSettings)
 	mux.HandleFunc("PUT /api/settings/upload-resources", s.uploadResourceSettings)
+	mux.HandleFunc("GET /api/resource-usage", s.resourceUsage)
+	mux.HandleFunc("GET /api/system-usage", s.systemUsage)
 	mux.HandleFunc("GET /api/settings/fragments", s.fragmentSettings)
 	mux.HandleFunc("PUT /api/settings/fragments", s.fragmentSettings)
 	mux.HandleFunc("GET /api/settings/deploy-token", s.deployTokenSettings)
@@ -83,12 +94,29 @@ func (s *Server) routes() http.Handler {
 		page.URL.RawPath = ""
 		s.web.ServeHTTP(w, page)
 	})
-	mux.HandleFunc("GET /plugins", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /tables", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusFound)
+	})
+	mux.HandleFunc("GET /tables.html", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/", http.StatusFound)
+	})
+	servePlugins := func(w http.ResponseWriter, r *http.Request) {
 		page := r.Clone(r.Context())
 		page.URL.Path = "/plugins.html"
 		page.URL.RawPath = ""
 		s.web.ServeHTTP(w, page)
-	})
+	}
+	mux.HandleFunc("GET /plugins", servePlugins)
+	mux.HandleFunc("GET /plugins/{tab}", servePlugins)
+	// Method-specific patterns avoid a ServeMux precedence conflict with the
+	// "GET /" static catch-all while still covering the methods a browser UI
+	// uses. The proxy handler parses /plugin-app/<id>/<rest>.
+	for _, method := range []string{
+		http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut,
+		http.MethodPatch, http.MethodDelete, http.MethodOptions,
+	} {
+		mux.Handle(method+" /plugin-app/", http.HandlerFunc(s.pluginUIProxy))
+	}
 	mux.HandleFunc("GET /preview.html", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; font-src 'self' blob: data:; img-src 'self' data: blob:; frame-ancestors 'none'")
 		s.web.ServeHTTP(w, r)
@@ -151,7 +179,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; font-src 'self' blob: data:; worker-src 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; img-src 'self' data: blob:; font-src 'self' blob: data:; worker-src 'self'; frame-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

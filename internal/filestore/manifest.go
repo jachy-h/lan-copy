@@ -104,6 +104,9 @@ func ValidateUploadTree(entries []TreeEntry) ([]string, []string, error) {
 			if err := ValidateComponent(component); err != nil {
 				return nil, nil, fs.ErrInvalid
 			}
+			if IsHiddenMetadata(component) {
+				return nil, nil, fs.ErrInvalid
+			}
 			prefix := strings.Join(components[:index+1], "/")
 			key := strings.ToLower(prefix)
 			if existing, ok := canonical[key]; ok && existing != prefix {

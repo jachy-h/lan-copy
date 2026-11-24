@@ -124,6 +124,9 @@ func TestBuildCreateConfigsRejectsUnsafeInput(t *testing.T) {
 		{"docker socket", func(r *plugin.CreateInstanceRequest) {
 			r.Mounts = []plugin.Mount{{HostPath: "/var/run/docker.sock", ContainerPath: "/sock"}}
 		}},
+		{"podman socket", func(r *plugin.CreateInstanceRequest) {
+			r.Mounts = []plugin.Mount{{HostPath: "/run/podman/podman.sock", ContainerPath: "/sock"}}
+		}},
 		{"nul env", func(r *plugin.CreateInstanceRequest) { r.Env = []string{"A=x\x00y"} }},
 	}
 	for _, test := range tests {
@@ -134,5 +137,24 @@ func TestBuildCreateConfigsRejectsUnsafeInput(t *testing.T) {
 				t.Fatal("unsafe request accepted")
 			}
 		})
+	}
+}
+
+func TestExtraHostsOnlyAllowsFixedHostGateway(t *testing.T) {
+	for _, allowed := range []string{"host.docker.internal:host-gateway", "host.containers.internal:host-gateway"} {
+		request := validCreateRequest()
+		request.ExtraHosts = []string{allowed}
+		_, host, _, err := buildCreateConfigs(request)
+		if err != nil {
+			t.Fatalf("%s: %v", allowed, err)
+		}
+		if len(host.ExtraHosts) != 1 || host.ExtraHosts[0] != allowed {
+			t.Fatalf("extra hosts = %+v", host.ExtraHosts)
+		}
+	}
+	request := validCreateRequest()
+	request.ExtraHosts = []string{"evil.example:1.2.3.4"}
+	if _, _, _, err := buildCreateConfigs(request); err == nil {
+		t.Fatal("arbitrary extra host accepted")
 	}
 }

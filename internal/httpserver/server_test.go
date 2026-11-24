@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"lan-copy/internal/filestore"
+	"lan-copy/internal/tablestore"
 	"lan-copy/internal/textstore"
 	"lan-copy/internal/updater"
 )
@@ -70,9 +71,15 @@ func newServer(dir string, maxUpload int64) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	files := filestore.New(absDir, dataDir)
+	tables := tablestore.New(files)
+	if err := tables.LoadMarks(dataDir); err != nil {
+		return nil, err
+	}
 	return New(Config{
 		Dir: absDir, DataDir: dataDir, MaxUpload: maxUpload,
-		Files: filestore.New(absDir, dataDir), Texts: textstore.NewWithSettings(dataDir, fragmentSettings),
+		Files: files, Tables: tables,
+		Texts:           textstore.NewWithSettings(dataDir, fragmentSettings),
 		UploadResources: filestore.NewResources(uploadConfig), UploadPreflight: filestore.NewPreflightManager(),
 		Releases: updater.NewReleaseService(), Web: webRoot,
 		Version: version, UpdatePublicKey: updatePublicKey,

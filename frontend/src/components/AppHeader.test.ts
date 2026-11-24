@@ -14,6 +14,13 @@ function render() {
 }
 
 describe('AppHeader upload indicator', () => {
+  it('keeps plugin management out of the primary navigation', () => {
+    render()
+    expect(wrapper!.find('.page-nav a[href="/plugins"]').exists()).toBe(false)
+    expect(wrapper!.find('.page-nav a[href="/tables"]').exists()).toBe(false)
+    expect(wrapper!.get('.page-nav').text()).toBe('内网空间碎片快传')
+  })
+
   it('shows local storage usage from the logo tooltip', async () => {
     render()
     await flushPromises()

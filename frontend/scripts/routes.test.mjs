@@ -32,6 +32,15 @@ test('dev text route serves the shared app directly without legacy redirects', a
       const plugins = await fetch(origin + '/plugins', { method })
       assert.equal(plugins.status, 200)
       if (method === 'GET') assert.ok((await plugins.text()).includes('正在检测 Docker'))
+      const integration = await fetch(origin + '/plugins/integration', { method })
+      assert.equal(integration.status, 200)
+      if (method === 'GET') assert.ok((await integration.text()).includes('正在检测 Docker'))
+      const tables = await fetch(origin + '/tables', { method, redirect: 'manual' })
+      assert.equal(tables.status, 302)
+      assert.equal(tables.headers.get('location'), '/')
+      const tablesHtml = await fetch(origin + '/tables.html', { method, redirect: 'manual' })
+      assert.equal(tablesHtml.status, 302)
+      assert.equal(tablesHtml.headers.get('location'), '/')
     }
   } finally { await server.close() }
 })

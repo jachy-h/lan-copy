@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
   deletePluginImage, getPluginEventCatalog, getPluginEvents, getPluginRuntime,
   healthLabel, listPluginImages, listPlugins, pluginAction, sendPluginTestEvent,
-  statusLabel, uninstallPlugin, uploadPluginImage, waitForTask,
+  startPluginRuntime, statusLabel, uninstallPlugin, uploadPluginImage, waitForTask,
   type PluginEventCatalogEntry, type PluginEventEndpoint,
   type PluginImage, type PluginRuntime, type PluginTask, type PluginView,
 } from '../api/plugins'
@@ -18,7 +18,18 @@ const plugins = ref<PluginView[]>([])
 const images = ref<PluginImage[]>([])
 const loading = ref(true)
 const loadError = ref('')
-const tab = ref<'plugins' | 'images' | 'events'>('plugins')
+type PluginTab = 'installed' | 'images' | 'integration'
+const tabPaths: Record<PluginTab, string> = {
+  installed: '/plugins/installed',
+  images: '/plugins/images',
+  integration: '/plugins/integration',
+}
+function tabFromLocation(): PluginTab {
+  const match = location.pathname.match(/^\/plugins\/(installed|images|integration)\/?$/)
+  if (match) return match[1] as PluginTab
+  return 'installed'
+}
+const tab = ref<PluginTab>(tabFromLocation())
 const activeTask = ref<PluginTask | null>(null)
 const taskError = ref('')
 const installOpen = ref(false)
@@ -44,6 +55,8 @@ let refreshAgain = false
 const MAX_IMAGE_BYTES = 2 * 1024 * 1024 * 1024
 const taskActive = computed(() => activeTask.value !== null)
 const canManage = computed(() => runtime.value?.available === true && !taskActive.value)
+const runtimeName = computed(() => runtime.value?.type === 'podman' ? 'Podman' : 'Docker')
+const startingRuntime = ref(false)
 
 function message(error: unknown, fallback = '操作失败') {
   return error instanceof Error ? error.message : fallback
@@ -71,6 +84,26 @@ function isBusy(view: PluginView) {
   if (taskActive.value) return true
   if (!view.instance) return false
   return ['installing', 'starting', 'stopping', 'uninstalling'].includes(view.instance.status)
+}
+
+function pluginUIUrl(id: string) {
+  return `/plugin-app/${encodeURIComponent(id)}/`
+}
+
+function hasPluginUI(view: PluginView) {
+  return Boolean(view.image?.manifest?.ui)
+}
+
+function canOpenPluginUI(view: PluginView) {
+  return hasPluginUI(view) && view.instance?.status === 'running' && view.instance?.healthStatus === 'healthy'
+}
+
+function pluginUITitle(view: PluginView) {
+  return canOpenPluginUI(view) ? '打开插件界面（局域网设备使用同一地址）' : '插件运行且健康后可打开界面'
+}
+
+function openPluginUI(event: MouseEvent, view: PluginView) {
+  if (!canOpenPluginUI(view)) event.preventDefault()
 }
 
 async function refresh() {
@@ -132,6 +165,19 @@ async function runTask(taskId: string, success: string) {
   }
 }
 
+async function startRuntime() {
+  if (startingRuntime.value || taskActive.value) return
+  startingRuntime.value = true
+  try {
+    const { taskId } = await startPluginRuntime()
+    await runTask(taskId, '容器运行时已启动')
+  } catch (error) {
+    notify(message(error), true)
+  } finally {
+    startingRuntime.value = false
+  }
+}
+
 async function lifecycle(view: PluginView, action: 'start' | 'stop' | 'restart') {
   if (!canManage.value) return
   try {
@@ -180,7 +226,7 @@ async function removeImage(image: PluginImage) {
   if (!canManage.value) return
   const accepted = await confirm({
     title: '删除镜像',
-    message: `将删除镜像记录并从 Docker 移除 ${image.imageName}:${image.imageTag || 'latest'}。正在使用的镜像不能删除。`,
+    message: `将删除镜像记录并从容器运行时移除 ${image.imageName}:${image.imageTag || 'latest'}。正在使用的镜像不能删除。`,
     confirmText: '删除镜像', danger: true,
   })
   if (!accepted) return
@@ -243,6 +289,10 @@ const manifestSnippet = `"endpoints": {
 },
 "events": ["file.uploaded", "folder.*", "text.*"]`
 
+const uiSnippet = `"ui": {
+  "path": "/"
+}`
+
 const envelopeSnippet = `POST /events
 Content-Type: application/json
 X-Lan-Copy-Event: folder.created
@@ -271,6 +321,34 @@ if !hmac.Equal([]byte(expected), []byte(r.Header.Get("X-Lan-Copy-Signature"))) {
     return
 }
 // 再按 body 中的 id 做幂等处理，成功后返回 2xx。`
+
+const tableEnvSnippet = `LAN_COPY_API_URL=http://host.docker.internal:8080
+LAN_COPY_API_TOKEN=<每实例令牌>`
+
+const tableQuerySnippet = `POST $LAN_COPY_API_URL/api/plugin-api/tables/query
+Authorization: Bearer $LAN_COPY_API_TOKEN
+Content-Type: application/json
+
+{
+  "path": "data/orders.csv",
+  "q": "pending",
+  "filters": [{ "column": "status", "op": "eq", "value": "pending" }],
+  "limit": 100,
+  "offset": 0
+}`
+
+const tableUpdateSnippet = `POST $LAN_COPY_API_URL/api/plugin-api/tables/lock-and-update
+Authorization: Bearer $LAN_COPY_API_TOKEN
+Content-Type: application/json
+
+{
+  "path": "data/orders.csv",
+  "expectedVersion": "sha256:...",
+  "keyColumn": "id",
+  "operations": [
+    { "kind": "update", "key": "A-1", "changes": { "status": "done" } }
+  ]
+}`
 
 async function loadEventCatalog() {
   try {
@@ -311,12 +389,24 @@ async function loadPluginEvents() {
   }
 }
 
-function selectTab(next: 'plugins' | 'images' | 'events') {
+function selectTab(next: PluginTab) {
   tab.value = next
-  if (next !== 'events') return
+  const path = tabPaths[next]
+  if (location.pathname !== path) history.pushState(null, '', path)
+  if (next !== 'integration') return
   if (eventCatalog.value.length === 0) void loadEventCatalog()
-  if (plugins.value.length === 0) void refresh().then(() => { if (tab.value === 'events') void loadPluginEvents() })
+  if (plugins.value.length === 0) void refresh().then(() => { if (tab.value === 'integration') void loadPluginEvents() })
   else void loadPluginEvents()
+}
+
+function onPopState() {
+  const next = tabFromLocation()
+  if (next === tab.value) return
+  tab.value = next
+  if (next === 'integration') {
+    if (eventCatalog.value.length === 0) void loadEventCatalog()
+    void loadPluginEvents()
+  }
 }
 
 function endpointFor(view: PluginView) {
@@ -362,20 +452,30 @@ async function copySnippet(text: string, label: string) {
 
 function installed() {
   installOpen.value = false
-  tab.value = 'plugins'
+  tab.value = 'installed'
   void refresh()
 }
 
 onMounted(() => {
-  void refresh()
+  if (location.pathname === '/plugins' || location.pathname === '/plugins.html') {
+    history.replaceState(null, '', tabPaths.installed + location.search)
+  }
+  window.addEventListener('popstate', onPopState)
+  void refresh().then(() => {
+    if (tab.value === 'integration') {
+      void loadEventCatalog()
+      void loadPluginEvents()
+    }
+  })
   refreshTimer = setInterval(() => {
     if (document.hidden) return
     void refresh().then(() => {
-      if (tab.value === 'events') void loadPluginEvents()
+      if (tab.value === 'integration') void loadPluginEvents()
     })
   }, 5000)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('popstate', onPopState)
   if (refreshTimer) clearInterval(refreshTimer)
   refreshController?.abort()
   taskController?.abort()
@@ -388,7 +488,7 @@ onBeforeUnmount(() => {
   <section class="plugins-page">
     <div class="plugins-heading">
       <div>
-        <span class="plugins-eyebrow">局域网服务 · Docker</span>
+        <span class="plugins-eyebrow">局域网服务 · 容器运行时</span>
         <h2>插件服务</h2>
         <p>安装、运行并调用独立的本地插件。插件以受限容器运行，局域网内可管理。</p>
       </div>
@@ -402,13 +502,22 @@ onBeforeUnmount(() => {
     <div class="plugin-runtime" :class="{ offline: runtime && !runtime.available }" role="status">
       <span class="plugin-runtime-dot" aria-hidden="true"></span>
       <div class="plugin-runtime-text">
-        <strong v-if="runtime?.available">Docker {{ runtime.version || '已连接' }}</strong>
-        <strong v-else-if="runtime">Docker 不可用</strong>
-        <strong v-else>正在检测 Docker…</strong>
+        <strong v-if="runtime?.available">{{ runtimeName }} {{ runtime.version || '已连接' }}</strong>
+        <strong v-else-if="runtime">容器运行时不可用</strong>
+        <strong v-else>正在检测容器运行时…</strong>
         <span v-if="runtime?.available">{{ runtime.os }}/{{ runtime.architecture }} · 网络 {{ runtime.networkMode === 'container' ? '容器 DNS' : '本机回环' }} · {{ runtime.network }}</span>
-        <span v-else-if="runtime?.error">{{ runtime.error }}</span>
-        <span v-else>插件管理使用 Docker Engine API，不执行 docker 命令行。</span>
+        <span v-if="runtime?.apiBaseUrl" class="plugin-runtime-api">
+          插件 API 地址 <code>{{ runtime.apiBaseUrl }}</code><template v-if="runtime.apiBaseUrlReason"> · {{ runtime.apiBaseUrlReason }}</template>
+        </span>
+        <span v-else-if="runtime?.apiBaseUrlReason" class="plugin-runtime-api">
+          插件 API 地址未注入 · {{ runtime.apiBaseUrlReason }}
+        </span>
+        <span v-if="runtime && !runtime.available && runtime.error">{{ runtime.error }}</span>
+        <span v-if="!runtime">插件管理使用 Docker / Podman 兼容 API，不执行容器命令行。</span>
       </div>
+      <button v-if="runtime && !runtime.available && runtime.startAvailable" class="secondary plugin-runtime-start" type="button" :disabled="startingRuntime || taskActive" @click="startRuntime">
+        {{ startingRuntime ? '正在启动 Podman…' : '启动 Podman' }}
+      </button>
       <a v-if="runtime?.available && tab === 'images'" class="plugin-runtime-link" href="#plugin-images">上传镜像</a>
     </div>
 
@@ -426,18 +535,18 @@ onBeforeUnmount(() => {
     <p v-if="taskError" class="plugin-inline-error" role="alert">{{ taskError }}</p>
     <p v-if="loadError" class="plugin-inline-error" role="alert">{{ loadError }}</p>
 
-    <div class="plugin-tabs" role="tablist" aria-label="插件、镜像与生命周期">
-      <button type="button" role="tab" :aria-selected="tab === 'plugins'" @click="selectTab('plugins')">插件<span>{{ plugins.length }}</span></button>
+    <div class="plugin-tabs" role="tablist" aria-label="插件、镜像与对接">
+      <button type="button" role="tab" :aria-selected="tab === 'installed'" @click="selectTab('installed')">插件<span>{{ plugins.length }}</span></button>
       <button type="button" role="tab" :aria-selected="tab === 'images'" @click="selectTab('images')">镜像<span>{{ images.length }}</span></button>
-      <button type="button" role="tab" :aria-selected="tab === 'events'" @click="selectTab('events')">生命周期<span>{{ eventCatalog.length || '说明' }}</span></button>
+      <button type="button" role="tab" :aria-selected="tab === 'integration'" @click="selectTab('integration')">对接<span>{{ eventCatalog.length || '说明' }}</span></button>
     </div>
 
-    <section v-if="tab === 'plugins'" class="plugin-panel" aria-label="插件列表">
+    <section v-if="tab === 'installed'" class="plugin-panel" aria-label="插件列表">
       <div v-if="loading" class="plugin-empty"><strong>正在读取插件…</strong><p>请稍候</p></div>
       <div v-else-if="plugins.length === 0" class="plugin-empty">
         <div class="plugin-empty-icon" aria-hidden="true">◇</div>
         <strong>还没有安装插件</strong>
-        <p>先在“镜像”中上传 Docker 镜像包，然后选择镜像安装插件。</p>
+        <p>先在“镜像”中上传容器镜像包，然后选择镜像安装插件。</p>
         <button class="secondary" type="button" :disabled="!canManage" @click="tab = 'images'">前往镜像管理</button>
       </div>
       <div v-else class="plugin-table" role="table" aria-label="插件列表">
@@ -472,6 +581,17 @@ onBeforeUnmount(() => {
           </div>
           <div class="plugin-time" role="cell">{{ formatDate(view.instance?.startedAt) }}</div>
           <div class="plugin-actions" role="cell">
+            <a
+              v-if="hasPluginUI(view)"
+              class="secondary plugin-ui-link"
+              :class="{ disabled: !canOpenPluginUI(view) }"
+              :href="pluginUIUrl(view.plugin.id)"
+              :aria-disabled="!canOpenPluginUI(view)"
+              :title="pluginUITitle(view)"
+              target="_blank"
+              rel="noopener"
+              @click="openPluginUI($event, view)"
+            >打开界面</a>
             <button class="secondary" type="button" :disabled="!canManage || isBusy(view) || !view.instance" @click="lifecycle(view, 'start')">启动</button>
             <button class="secondary" type="button" :disabled="!canManage || isBusy(view) || !view.instance" @click="lifecycle(view, 'stop')">停止</button>
             <button class="secondary" type="button" :disabled="!canManage || isBusy(view) || !view.instance" @click="lifecycle(view, 'restart')">重启</button>
@@ -533,12 +653,12 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <section v-else class="plugin-panel plugin-events-panel" aria-label="生命周期事件">
+    <section v-else class="plugin-panel plugin-events-panel" aria-label="插件对接">
       <div class="plugin-events-intro">
         <div>
-          <span class="plugins-eyebrow">生命周期事件</span>
-          <h3>让插件在文件变化时被通知</h3>
-          <p>上传、文件夹与文件操作、文本操作成功后，Lan Copy 会异步推送到已订阅插件的 <code>/events</code>。推送不阻塞文件操作，失败只记录投递状态。</p>
+          <span class="plugins-eyebrow">插件对接</span>
+          <h3>生命周期事件、智能表格 API 与 Web 界面</h3>
+          <p>插件可以通过签名事件感知文件变化，使用注入的地址和令牌读写 CSV 表格，也可以在 Manifest 中声明 ui，把自带界面开放到局域网。</p>
         </div>
         <button class="secondary" type="button" @click="copyAgentPrompt">复制对接说明</button>
       </div>
@@ -546,6 +666,50 @@ onBeforeUnmount(() => {
       <p v-if="eventCatalogError" class="plugin-inline-error" role="alert">{{ eventCatalogError }}</p>
       <p v-if="eventStatusError" class="plugin-inline-error" role="alert">{{ eventStatusError }}</p>
       <p v-if="eventNotice" class="plugin-event-notice" role="status">{{ eventNotice }}</p>
+
+      <section class="plugin-event-card" aria-labelledby="plugin-web-ui">
+        <div class="plugin-event-card-head">
+          <div>
+            <h3 id="plugin-web-ui">插件 Web 界面</h3>
+            <p>在 Manifest 中声明 <code>ui</code> 后，Lan Copy 为插件提供局域网入口，并把请求反向代理到容器端口。</p>
+          </div>
+          <button class="secondary" type="button" @click="copySnippet(uiSnippet, 'Web 界面声明示例')">复制</button>
+        </div>
+        <pre class="plugin-code">{{ uiSnippet }}</pre>
+        <p class="plugin-step-hint">入口固定为 <code>/plugin-app/&lt;插件ID&gt;/</code>。例如插件 ID 是 <code>invoice-ocr</code>，局域网设备访问 <code>http://&lt;lan-copy&gt;/plugin-app/invoice-ocr/</code>；省略 <code>ui</code> 表示没有界面。</p>
+        <ul class="plugin-event-notes">
+          <li><code>ui.path</code> 是界面在容器内的挂载路径，默认 <code>/</code>；必须以 <code>/</code> 开头，不能包含 <code>..</code>、查询串或片段。</li>
+          <li>插件必须读取 <code>X-Forwarded-Prefix</code>（例如 <code>/plugin-app/invoice-ocr</code>）生成资源地址、<code>&lt;base href&gt;</code>、前端路由 base 和 Cookie <code>Path</code>，不要写死 <code>/assets/...</code>。</li>
+          <li>实例运行且健康时才能打开；停止或不健康返回 503。代理支持 SSE、上传下载和 WebSocket。</li>
+          <li>页面与 Lan Copy 同源，写接口需要插件自行处理 CSRF 与鉴权；只安装可信镜像。</li>
+        </ul>
+      </section>
+
+      <section class="plugin-event-card" aria-labelledby="plugin-table-api">
+        <div class="plugin-event-card-head">
+          <div>
+            <h3 id="plugin-table-api">智能表格 API</h3>
+            <p>安装时自动注入地址和令牌。令牌只授权表格 API，不能访问插件管理、普通文件、更新或关停接口；停止实例后令牌失效。</p>
+          </div>
+          <button class="secondary" type="button" @click="copySnippet(tableQuerySnippet + '\n\n' + tableUpdateSnippet, '智能表格对接示例')">复制</button>
+        </div>
+        <pre class="plugin-code">{{ tableEnvSnippet }}</pre>
+        <div class="plugin-event-grid">
+          <div class="plugin-event-subcard">
+            <h4>查询</h4>
+            <pre class="plugin-code">{{ tableQuerySnippet }}</pre>
+          </div>
+          <div class="plugin-event-subcard">
+            <h4>原子更新</h4>
+            <pre class="plugin-code">{{ tableUpdateSnippet }}</pre>
+          </div>
+        </div>
+        <ul class="plugin-event-notes">
+          <li>查询使用 <code>POST /api/plugin-api/tables/query</code>，支持全文搜索、列筛选、排序和分页。</li>
+          <li><code>lock_and_update</code> 必须提交查询返回的 <code>version</code> 和唯一非空的 <code>keyColumn</code>；版本冲突返回 409，重新查询后再重试。</li>
+          <li>CSV 单文件不超过 8 MiB、50,000 行、200 列；写入会原子替换原文件。</li>
+        </ul>
+      </section>
 
       <section class="plugin-event-card" aria-labelledby="plugin-event-catalog">
         <div class="plugin-event-card-head">

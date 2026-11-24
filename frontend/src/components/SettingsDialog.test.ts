@@ -18,7 +18,10 @@ beforeEach(async () => {
     if (url === '/api/app') return response(app)
     if (url === '/api/update/check') return response(noUpdate)
     if (url === '/api/settings/autostart') return response({ enabled: false, available: false, reason: '本机不可用' })
-    if (url === '/api/settings/upload-resources') return response({ config: { concurrentUploads: 3, stagingGiB: 20, idleTimeoutSeconds: 60 }, editable: true })
+    if (url === '/api/settings/upload-resources') {
+      if (init?.method === 'PUT') return response({ config: JSON.parse(String(init.body)), editable: true })
+      return response({ config: { concurrentUploads: 3, stagingGiB: 20, idleTimeoutSeconds: 60 }, editable: true })
+    }
     if (url === '/api/settings/fragments') return response({ expiryDays: init?.method === 'PUT' ? 14 : 7, defaultExpiryDays: 7, minExpiryDays: 1, maxExpiryDays: 365, editable: true })
     if (url === '/api/settings/deploy-token') {
       if (init?.method === 'PUT') return response({ configured: true, source: 'file' })
@@ -26,6 +29,30 @@ beforeEach(async () => {
       return response({ configured: false, source: 'none' })
     }
     if (url === '/api/files') return response({ files: [{ size: 1024 }] })
+    if (url === '/api/resource-usage') return response({
+      storage: {
+        bytes: 1024, files: 2,
+        types: [
+          { kind: 'image', bytes: 768, files: 1 },
+          { kind: 'document', bytes: 256, files: 1 },
+        ],
+      },
+      uploads: { active: 1, limit: 3 },
+      staging: { usedBytes: 0, limitBytes: 20 * (1 << 30) },
+      downloads: { active: 0 },
+    })
+    if (url === '/api/system-usage') return response({
+      app: { cpuPercent: 1.2, memoryBytes: 2 * (1 << 20), cpuReady: true, sampledAt: '2026-11-20T12:00:00Z' },
+      plugins: {
+        running: 1, unavailable: 0, cpuPercent: 3.4,
+        memoryBytes: 1 << 20, memoryLimitBytes: 4 * (1 << 20), pids: 5,
+        items: [{
+          pluginId: 'demo', name: '示例插件', cpuPercent: 3.4,
+          memoryBytes: 1 << 20, memoryLimitBytes: 4 * (1 << 20), pids: 5, available: true,
+        }],
+        sampledAt: '2026-11-20T12:00:00Z',
+      },
+    })
     if (url === '/api/shutdown/status') return response({ uploads: 0, downloads: 0 })
     throw new Error(`Unexpected request: ${url}`)
   })
@@ -38,6 +65,7 @@ beforeEach(async () => {
 afterEach(() => {
   wrapper?.unmount()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
   vi.mocked(dialogs.confirm).mockReset().mockResolvedValue(false)
   vi.mocked(dialogs.confirmText).mockReset().mockResolvedValue(false)
 })
@@ -50,7 +78,12 @@ const inDialog = (selector: string) => {
 describe('SettingsDialog', () => {
   it('loads settings, preserves visitor read-only state, and checks release on its tab', async () => {
     expect(document.body.textContent).toContain('当前版本 1.0.0 · darwin / arm64')
-    expect(document.body.textContent).toContain('已占用存储空间：1.0 KiB（1 个文件）')
+    expect(document.body.textContent).toContain('共享文件')
+    expect(document.body.textContent).toContain('1.0 KiB')
+    expect(document.body.textContent).toContain('2 个文件')
+    expect(document.body.textContent).toContain('1 / 3')
+    expect(document.body.textContent).toContain('0 B / 20 GiB')
+    expect(document.body.textContent).toContain('统计为当前时刻快照。')
     const autostart = inDialog('.autostart-toggle') as HTMLInputElement
     expect(autostart.disabled).toBe(true)
     ;(inDialog('[data-settings-tab="update"]') as HTMLButtonElement).click()
@@ -58,6 +91,59 @@ describe('SettingsDialog', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/update/check', expect.objectContaining({ cache: 'no-store' }))
     expect(inDialog('.release-status').textContent).toContain('当前无需更新')
     expect(inDialog('.release-page').getAttribute('href')).toBe(noUpdate.pageURL)
+  })
+
+  it('shows file type stack and live process and plugin usage', async () => {
+    ;(inDialog('[data-settings-tab="resources"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const panel = inDialog('#resourcesSettings')
+    expect(panel.textContent).toContain('资源详情')
+    expect(panel.textContent).toContain('资源配置')
+    expect(panel.textContent).toContain('合计 1.0 KiB · 2 个文件')
+    const segments = Array.from(inDialog('.storage-bar').children) as HTMLElement[]
+    expect(segments).toHaveLength(2)
+    expect(segments[0].style.width).toBe('75%')
+    expect(segments[1].style.width).toBe('25%')
+    expect(inDialog('.storage-legend').textContent).toContain('图片')
+    expect(inDialog('.storage-legend').textContent).toContain('768 B')
+    expect(inDialog('.storage-legend').textContent).toContain('75%')
+    expect(inDialog('.live-stats').textContent).toContain('1.2%')
+    expect(inDialog('.live-stats').textContent).toContain('2.0 MiB')
+    expect(inDialog('.live-stats').textContent).toContain('3.4%')
+    expect(inDialog('.live-stats').textContent).toContain('1.0 MiB / 4.0 MiB')
+    const row = inDialog('.plugin-usage-table tbody tr')
+    expect(row.textContent).toContain('示例插件')
+    expect(row.textContent).toContain('3.4%')
+    expect(row.textContent).toContain('1.0 MiB')
+    expect(row.textContent).toContain('5')
+  })
+
+  it('schedules live usage refresh and stops it when the dialog closes', async () => {
+    const setInterval = vi.spyOn(window, 'setInterval')
+    const clearInterval = vi.spyOn(window, 'clearInterval')
+    ;(inDialog('[data-settings-tab="resources"]') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 2000)
+    ;(inDialog('.settings-close') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(clearInterval).toHaveBeenCalled()
+  })
+
+  it('refreshes resource occupancy and keeps limits usable when stats fail', async () => {
+    ;(inDialog('[data-settings-tab="resources"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const usageCalls = () => fetchMock.mock.calls.filter(([url]) => url === '/api/resource-usage').length
+    const before = usageCalls()
+    ;(inDialog('.resource-refresh') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(usageCalls()).toBe(before + 1)
+
+    const base = fetchMock.getMockImplementation() as ((url: string, init?: RequestInit) => unknown) | undefined
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => url === '/api/resource-usage' ? Promise.reject(new Error('统计失败')) : base!(url, init))
+    ;(inDialog('.resource-refresh') as HTMLButtonElement).click()
+    await flushPromises()
+    expect(inDialog('.resource-usage').textContent).toContain('统计失败')
+    expect((inDialog('.upload-concurrent') as HTMLInputElement).disabled).toBe(false)
   })
 
   it('keeps the upload action header and rejects out-of-range resource settings locally', async () => {
@@ -73,6 +159,7 @@ describe('SettingsDialog', () => {
     await flushPromises()
     const write = fetchMock.mock.calls.find(([url, init]) => url === '/api/settings/upload-resources' && init?.method === 'PUT')
     expect(new Headers(write?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('upload-resources')
+    expect(inDialog('.resource-stats').textContent).toContain('1 / 4')
   })
 
   it('saves the fragment expiry in days with the local action header', async () => {
@@ -87,6 +174,17 @@ describe('SettingsDialog', () => {
     expect(new Headers(write?.[1]?.headers).get('X-Lan-Copy-Action')).toBe('fragments')
     expect(JSON.parse(String(write?.[1]?.body))).toEqual({ expiryDays: 14 })
     expect(inDialog('.fragment-status').textContent).toContain('已保存')
+  })
+
+  it('offers the plugin service as a new-tab entry from settings', async () => {
+    ;(inDialog('[data-settings-tab="plugins"]') as HTMLButtonElement).click()
+    await flushPromises()
+    const link = inDialog('.settings-plugin-launch') as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('/plugins')
+    expect(link.getAttribute('target')).toBe('_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+    expect(link.getAttribute('rel')).toContain('noreferrer')
+    expect(link.textContent).toContain('在新标签页打开插件服务')
   })
 
   it('saves and deletes the deploy token from the settings page', async () => {
@@ -157,10 +255,14 @@ describe('SettingsDialog', () => {
 
   it('cycles the accessible tabs with arrow keys and returns focus to the trigger on close', async () => {
     const general = inDialog('[data-settings-tab="general"]') as HTMLButtonElement
+    const plugins = inDialog('[data-settings-tab="plugins"]')
     const about = inDialog('[data-settings-tab="about"]')
     about.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     await flushPromises()
     expect(general.getAttribute('aria-selected')).toBe('true')
+    about.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await flushPromises()
+    expect(plugins.getAttribute('aria-selected')).toBe('true')
     ;(inDialog('.settings-close') as HTMLButtonElement).click()
     await flushPromises()
     expect(document.activeElement).toBe(wrapper.get('[aria-label="设置"]').element)

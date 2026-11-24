@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ApiError, requestJSON } from '../api/client'
+import { parsePluginDialogs, type PluginDialog } from '../api/plugins'
+import { setTableMark as updateTableMark } from '../api/tables'
 import { copyText, notify } from '../ui/fileUi'
 import { isPrintableFile } from '../printing/document'
 import { confirm as confirmDialog } from '../ui/dialog'
 import { fromEntries, fromFiles, type UploadEntry } from '../upload/uploadTree'
-import { beginUpload, cancelUpload, completeUpload, failUpload, prepareUpload, startUpload, updateReading, updateUploadProgress, uploadProgress } from '../upload/progress'
+import { beginUpload, cancelUpload, completeUpload, failUpload, prepareUpload, startUpload, updateReading, updateUploadProgress, uploadProgress, waitForPlugin } from '../upload/progress'
 import { close as closeContextMenu, open as openContextMenu, register as registerContextMenu, registerPage as registerPageContextMenu } from '../ui/contextMenu'
 import EmptyState from './EmptyState.vue'
 import FileBreadcrumbs from './FileBreadcrumbs.vue'
@@ -13,8 +15,10 @@ import FileListHeader from './FileListHeader.vue'
 import FileTree from './FileTree.vue'
 import FileExplorerRow, { type FileEntry } from './FileExplorerRow.vue'
 import FilePreviewPane from './FilePreviewPane.vue'
+import SmartTable from './SmartTable.vue'
 import FileEditDialog from './FileEditDialog.vue'
 import FileMoveDialog from './FileMoveDialog.vue'
+import PluginDialogView from './PluginDialog.vue'
 
 const emit = defineEmits<{ print: [path: string] }>()
 
@@ -24,6 +28,7 @@ type Mutation = 'mkdir' | 'move' | 'rename' | 'delete'
 
 const currentPath = ref(new URLSearchParams(location.hash.slice(1)).get('path') || '')
 const previewPath = ref('')
+const tablePath = ref('')
 const treeOpen = ref(false)
 const fileTree = ref<InstanceType<typeof FileTree> | null>(null)
 const SIDEBAR_MIN = 220
@@ -56,6 +61,8 @@ const moveFolders = ref<FileEntry[]>([])
 const moveError = ref('')
 const moveLoading = ref(false)
 const movePending = ref(false)
+const pluginDialogs = ref<PluginDialog[]>([])
+const activePluginDialog = computed(() => pluginDialogs.value[0] ?? null)
 const visibleItems = computed(() => {
   const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   return [...entries.value].sort((a, b) => {
@@ -93,6 +100,7 @@ let stopped = false
 let uploadActive = false
 let dragDepth = 0
 let previewReturnFocus: HTMLElement | null = null
+let tableReturnFocus: HTMLElement | null = null
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -117,6 +125,7 @@ function highlightParts(name: string) {
 }
 function isSelected(item: FileEntry) { return selectedPaths.value.has(item.path) }
 function entryType(item: FileEntry) { return item.directory ? '文件夹' : item.name.includes('.') ? `${item.name.split('.').pop()!.toUpperCase()} 文件` : '文件' }
+function isCSVFile(item: FileEntry) { return !item.directory && /\.csv$/i.test(item.name) }
 function entryIcon(item: FileEntry) { return item.directory ? '▱' : item.name.split('.').pop()?.slice(0, 4) || '文件' }
 function previewHref(item: FileEntry) { const params = new URLSearchParams({ path: item.path, from: location.pathname + location.search + location.hash }); return `/preview.html?${params}` }
 function shareHref(item: FileEntry) {
@@ -221,10 +230,11 @@ async function loadDirectory() {
 }
 function message(error: unknown, fallback: string) { return error instanceof Error ? error.message : fallback }
 function navigate(path: string) {
-  if (path === currentPath.value && !previewPath.value) return
+  if (path === currentPath.value && !previewPath.value && !tablePath.value) return
   closeContextMenu(false); directoryController?.abort()
   treeOpen.value = false
   previewPath.value = ''
+  tablePath.value = ''
   currentPath.value = path; lastListing = ''; hasLoaded.value = false; entries.value = []; selectedPaths.value.clear(); selectionAnchor.value = null; focusedPath.value = null; summary.value = '正在读取…'
   history.pushState(null, '', `#${new URLSearchParams({ path })}`)
   void fileTree.value?.reveal(path)
@@ -259,6 +269,7 @@ const selectedItems = computed(() => entries.value.filter(item => selectedPaths.
 
 function openEntry(item: FileEntry, trigger: HTMLElement | null = document.activeElement as HTMLElement) {
   if (item.directory) navigate(item.path)
+  else if (item.table) openTable(item.path, trigger)
   else if (item.previewType) openPreview(item.path, trigger)
   else notify('该文件格式暂不支持预览')
 }
@@ -279,6 +290,7 @@ function openPreview(path: string, trigger: HTMLElement | null = document.active
     void loadDirectory()
   }
   treeOpen.value = false
+  tablePath.value = ''
   previewReturnFocus = trigger
   previewPath.value = path
   void fileTree.value?.reveal(parent)
@@ -293,13 +305,48 @@ function closePreview() {
     previewReturnFocus = null
   })
 }
+function openTable(path: string, trigger: HTMLElement | null = document.activeElement as HTMLElement) {
+  const parent = parentPath(path)
+  if (parent !== currentPath.value) {
+    closeContextMenu(false); directoryController?.abort()
+    currentPath.value = parent; lastListing = ''; hasLoaded.value = false; entries.value = []; selectedPaths.value.clear(); selectionAnchor.value = null; focusedPath.value = null; summary.value = '正在读取…'
+    history.replaceState(null, '', `#${new URLSearchParams({ path: parent })}`)
+    void loadDirectory()
+  }
+  treeOpen.value = false
+  previewPath.value = ''
+  tableReturnFocus = trigger
+  tablePath.value = path
+  void fileTree.value?.reveal(parent)
+  void nextTick(() => document.querySelector<HTMLElement>('#tableBack')?.focus())
+}
+function closeTable() {
+  if (!tablePath.value) return
+  tablePath.value = ''
+  void nextTick(() => {
+    if (tableReturnFocus?.isConnected) tableReturnFocus.focus()
+    else document.querySelector<HTMLElement>('.tree-row .tree-label')?.focus()
+    tableReturnFocus = null
+  })
+}
+function previewFromTable() {
+  if (!tablePath.value) return
+  openPreview(tablePath.value, tableReturnFocus)
+}
 function itemAt(path: string) { return entries.value.find(item => item.path === path) }
 function fileMenuItems(trigger: HTMLElement | null): MenuItem[] {
   const items = selectedItems.value, item = items.length === 1 ? items[0] : null
   const actionTrigger = trigger?.matches('.explorer-row') ? trigger.querySelector<HTMLElement>('.row-menu-button') || trigger : trigger
   const actions: MenuItem[] = [{ label: item?.directory ? '在此文件夹中新建文件夹' : '新建文件夹', action: () => openEdit(null, item?.directory ? item.path : currentPath.value) }]
   if (items.length === 1 && item) {
-    if (item.directory || item.previewType) actions.push({ label: item.directory ? '打开' : '预览', action: () => openEntry(item, trigger) })
+    const csv = isCSVFile(item)
+    if (item.directory || item.table || item.previewType) {
+      actions.push({ label: item.directory ? '打开' : item.table ? '打开表格' : '预览', action: () => openEntry(item, trigger) })
+    }
+    if (csv) {
+      actions.push({ label: item.table ? '取消表格标记' : '标记为智能表格', action: () => setTableMark(item, !item.table) })
+    }
+    if (item.table) actions.push({ label: '预览原文件', action: () => openPreview(item.path, trigger) })
     if (!item.directory) actions.push({ label: '下载', action: () => downloadEntry(item) })
     if (!item.directory && isPrintableFile(item.path)) actions.push({ label: '打印', action: () => emit('print', item.path) })
     if (!item.directory && localhostAccess) actions.push({ label: '打开所在文件夹', action: () => openContainingFolder(item, actionTrigger) })
@@ -307,6 +354,16 @@ function fileMenuItems(trigger: HTMLElement | null): MenuItem[] {
   }
   actions.push({ label: items.length > 1 ? '复制所选分享链接' : '复制分享链接', action: () => copyShareLinks(items) })
   return actions
+}
+async function setTableMark(item: FileEntry, marked: boolean) {
+  try {
+    await updateTableMark(item.path, marked)
+    notify(marked ? '已标记为智能表格' : '已取消表格标记')
+    await loadDirectory()
+    if (!marked && tablePath.value === item.path) closeTable()
+  } catch (error) {
+    notify(message(error, marked ? '标记智能表格失败' : '取消表格标记失败'), true)
+  }
 }
 function openRowMenu(event: MouseEvent, item: FileEntry) {
   event.stopPropagation(); selectContextItem(item)
@@ -409,11 +466,12 @@ function onDocumentKey(event: KeyboardEvent) {
   if (event.defaultPrevented || target.closest('input,textarea,select,[contenteditable=true],dialog') || !document.querySelector<HTMLElement>('#fileMenu')?.hidden) return
   const command = event.ctrlKey || event.metaKey
   if (event.key === 'Escape') {
+    if (tablePath.value) { closeTable(); return }
     if (previewPath.value) { closePreview(); return }
     if (selectedPaths.value.size) clearSelection()
     return
   }
-  if (previewPath.value || !target.closest('#entries,.explorer-row')) return
+  if (tablePath.value || previewPath.value || !target.closest('#entries,.explorer-row')) return
   if (command && event.key.toLowerCase() === 'a') { event.preventDefault(); selectedPaths.value = new Set(entries.value.map(item => item.path)); return }
   if (event.key === 'F2' && selectedItems.value.length === 1) { event.preventDefault(); openEdit(selectedItems.value[0]) }
   else if (event.key === 'Delete' && selectedItems.value.length === 1) { event.preventDefault(); void deleteEntry(selectedItems.value[0]) }
@@ -429,7 +487,7 @@ function onDocumentClick(event: MouseEvent) {
 function onPopState() {
   if (location.pathname === '/transfer-text') return
   const path = new URLSearchParams(location.hash.slice(1)).get('path') || ''
-  previewPath.value = ''; currentPath.value = path; clearSelection(); focusedPath.value = null; lastListing = ''; hasLoaded.value = false; entries.value = []; summary.value = '正在读取…'
+  previewPath.value = ''; tablePath.value = ''; currentPath.value = path; clearSelection(); focusedPath.value = null; lastListing = ''; hasLoaded.value = false; entries.value = []; summary.value = '正在读取…'
   void fileTree.value?.reveal(path)
   void loadDirectory()
 }
@@ -471,8 +529,20 @@ function onExternalDrop(event: DragEvent) {
   if (roots.some(Boolean) && !roots.every(Boolean)) { notify('部分拖入内容无法读取，请检查权限后重试', true); return }
   void uploadToFolder(progress => roots.length && roots.every(Boolean) ? fromEntries(roots as FileSystemEntry[], progress) : Promise.resolve(fromFiles(files, false, progress)))
 }
+function enqueuePluginDialogs(value: unknown) {
+  const parsed = parsePluginDialogs(value)
+  if (parsed.length) pluginDialogs.value.push(...parsed)
+  return parsed.length
+}
+function closePluginDialog() { pluginDialogs.value.shift() }
+function completePluginDialog(message: string, refresh: boolean) {
+  pluginDialogs.value.shift()
+  if (message) notify(message)
+  if (refresh) { void loadDirectory(); void fileTree.value?.refresh() }
+}
+
 async function uploadToFolder(collect: (progress: (count: number) => void) => Promise<UploadEntry[]>) {
-  if (uploadActive || uploadProgress.phase === 'reading' || uploadProgress.phase === 'uploading') { notify('正在上传，请等待本次完成后再拖入', true); return }
+  if (uploadActive || uploadProgress.phase === 'reading' || uploadProgress.phase === 'uploading' || uploadProgress.phase === 'processing') { notify('正在上传，请等待本次完成后再拖入', true); return }
   uploadActive = true; const uploadPath = currentPath.value
   beginUpload()
   try {
@@ -480,7 +550,7 @@ async function uploadToFolder(collect: (progress: (count: number) => void) => Pr
     if (!uploadEntries.length) throw new Error('未读取到文件或文件夹，请检查浏览器权限后重试')
     const fileCount = uploadEntries.filter(entry => !entry.directory).length, folderCount = uploadEntries.length - fileCount
     const description = `${fileCount} 个文件${folderCount ? `、${folderCount} 个文件夹` : ''}`, replace = new Set<string>()
-    const send = async () => {
+    const send = async (): Promise<Record<string, unknown>> => {
       prepareUpload('正在检查同名文件…')
       const preflight = await fetch(`/api/upload-tree/preflight?${new URLSearchParams({ path: uploadPath })}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entries: uploadEntries.map(({ path, directory }) => ({ path, directory })) }) })
       const checked = await preflight.json()
@@ -494,11 +564,20 @@ async function uploadToFolder(collect: (progress: (count: number) => void) => Pr
       form.append('manifest', JSON.stringify({ entries: uploadEntries.map(({ path, directory }) => ({ path, directory })), replace: [...replace] }))
       uploadEntries.forEach((entry, index) => { if (!entry.directory && entry.file) form.append(`file-${index}`, entry.file, entry.file.name) })
       startUpload(`正在上传 ${description}到 ${uploadPath || '全部文件'}`)
-      await new Promise<void>((resolve, reject) => {
+      return await new Promise<Record<string, unknown>>((resolve, reject) => {
         const xhr = new XMLHttpRequest()
-        xhr.upload.addEventListener('progress', event => { if (event.lengthComputable) updateUploadProgress(event.loaded, event.total) })
+        xhr.upload.addEventListener('progress', event => {
+          if (!event.lengthComputable) return
+          updateUploadProgress(event.loaded, event.total)
+          if (event.total > 0 && event.loaded >= event.total) waitForPlugin('文件已上传，正在等待插件处理…')
+        })
         xhr.addEventListener('load', () => {
-          if (xhr.status >= 200 && xhr.status < 300) { resolve(); return }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            let body: Record<string, unknown> = {}
+            try { body = JSON.parse(xhr.responseText) as Record<string, unknown> } catch {}
+            resolve(body)
+            return
+          }
           let errorMessage = '上传失败，请重试', conflicts: string[] | undefined
           try { const body = JSON.parse(xhr.responseText); errorMessage = body.error || errorMessage; conflicts = body.conflicts } catch {}
           const error = new Error(errorMessage) as Error & { conflicts?: string[] }
@@ -510,8 +589,9 @@ async function uploadToFolder(collect: (progress: (count: number) => void) => Pr
         xhr.open('POST', `/api/upload-tree?${new URLSearchParams({ path: uploadPath, session: checked.session })}`); xhr.send(form)
       }).finally(() => fetch(`/api/upload-tree/session/${encodeURIComponent(checked.session)}`, { method: 'DELETE' }).catch(() => {}))
     }
+    let uploaded: Record<string, unknown> = {}
     for (;;) {
-      try { await send(); break }
+      try { uploaded = await send(); break }
       catch (error) {
         const conflicts = (error as Error & { conflicts?: string[] }).conflicts
         if (!conflicts) throw error
@@ -525,7 +605,10 @@ async function uploadToFolder(collect: (progress: (count: number) => void) => Pr
         }
       }
     }
-    completeUpload(`${description}已上传到 ${uploadPath || '全部文件'}`); notify('上传完成'); await loadDirectory(); void fileTree.value?.refresh()
+    completeUpload(`${description}已上传到 ${uploadPath || '全部文件'}`)
+    const dialogCount = enqueuePluginDialogs(uploaded.pluginDialogs)
+    notify(dialogCount ? '上传完成，请在弹窗中确认' : '上传完成')
+    await loadDirectory(); void fileTree.value?.refresh()
   } catch (error) {
     const failure = message(error, '无法读取文件夹，请检查权限后重试')
     failUpload(failure); notify(failure, true)
@@ -571,7 +654,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath), 'resizing-sidebar': resizingSidebar }" :style="{ '--sidebar-width': `${sidebarWidth}px` }" aria-label="内网空间文件列表">
+  <section class="files-section explorer explorer-workspace" :class="{ 'tree-open': treeOpen, 'preview-active': Boolean(previewPath || tablePath), 'table-active': Boolean(tablePath), 'resizing-sidebar': resizingSidebar }" :style="{ '--sidebar-width': `${sidebarWidth}px` }" aria-label="内网空间文件列表">
     <aside class="explorer-sidebar" aria-label="内网资源目录">
       <div class="explorer-sidebar-head">
         <strong>内网资源</strong>
@@ -582,7 +665,8 @@ onBeforeUnmount(() => {
     <div class="explorer-resizer" role="separator" aria-orientation="vertical" aria-label="调整资源目录宽度" :aria-valuemin="SIDEBAR_MIN" :aria-valuemax="SIDEBAR_MAX" :aria-valuenow="sidebarWidth" tabindex="0" @pointerdown="startSidebarResize" @pointermove="moveSidebarResize" @pointerup="endSidebarResize" @pointercancel="endSidebarResize" @dblclick="resetSidebarWidth" @keydown="onSidebarResizeKey" />
     <div v-if="treeOpen" class="tree-backdrop" aria-hidden="true" @click="treeOpen = false" />
     <div class="explorer-main">
-      <FilePreviewPane v-if="previewPath" :key="previewPath" :path="previewPath" @close="closePreview" />
+      <SmartTable v-if="tablePath" :key="tablePath" :path="tablePath" @close="closeTable" @preview="previewFromTable" />
+      <FilePreviewPane v-else-if="previewPath" :key="previewPath" :path="previewPath" @close="closePreview" />
       <template v-else>
         <div class="explorer-navigation">
           <button class="secondary tree-toggle" type="button" aria-label="打开资源目录" :aria-expanded="treeOpen" @click="treeOpen = !treeOpen">☰ 目录</button>
@@ -592,7 +676,7 @@ onBeforeUnmount(() => {
         </div>
         <FileListHeader :sort-key="sortKey" :sort-direction="sortDirection" @sort="setSort" />
         <div id="entries" class="file-list" role="grid" aria-label="共享文件列表" aria-describedby="entrySummary" tabindex="0">
-          <FileExplorerRow v-for="(item,index) in visibleItems" :key="item.path" :item="item" :selected="isSelected(item)" :tabindex="item.path===focusedPath||(!focusedPath&&index===0)?0:-1" :search-result="Boolean(search.trim())" :recent="isRecent(item.modified)" :icon="entryIcon(item)" :type="entryType(item)" :date="dateLabel(item.modified)" :size-label="item.directory?'—':formatBytes(item.size)" :preview-url="previewHref(item)" :thumbnail-url="thumbnailHref(item)" :parts="highlightParts(item.name)" @select="selectRow" @open="openEntry" @navigate="navigate" @menu="openRowMenu" @key="onRowKey" @dragstart="(event,entry)=>event.dataTransfer?.setData('application/x-lan-copy-path',entry.path)" @dragover="(event)=>internalDragOver(event)" @dragleave="internalDragLeave" @drop="(event,entry)=>internalDrop(event,entry.path)" />
+          <FileExplorerRow v-for="(item,index) in visibleItems" :key="item.path" :item="item" :selected="isSelected(item)" :tabindex="item.path===focusedPath||(!focusedPath&&index===0)?0:-1" :search-result="Boolean(search.trim())" :recent="isRecent(item.modified)" :icon="entryIcon(item)" :type="entryType(item)" :date="dateLabel(item.modified)" :size-label="item.directory?'—':formatBytes(item.size)" :preview-url="previewHref(item)" :thumbnail-url="thumbnailHref(item)" :parts="highlightParts(item.name)" @select="selectRow" @open="openEntry" @navigate="navigate" @menu="openRowMenu" @key="onRowKey" @table="(item,trigger)=>openTable(item.path,trigger)" @dragstart="(event,entry)=>event.dataTransfer?.setData('application/x-lan-copy-path',entry.path)" @dragover="(event)=>internalDragOver(event)" @dragleave="internalDragLeave" @drop="(event,entry)=>internalDrop(event,entry.path)" />
         </div>
         <EmptyState :loaded="hasLoaded" loading-title="正在读取文件列表" :empty-title="search.trim()?'没有匹配的文件或文件夹':'这个文件夹还是空的'" empty-description="将其他位置的文件移动到这里，或拖入文件上传" icon="▱" :hidden="visibleItems.length>0||Boolean(loadError)" />
         <p v-if="loadError" class="file-meta" role="alert">{{ loadError }}</p>
@@ -604,5 +688,6 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <FileEditDialog v-model:open="editOpen" v-model:value="editValue" :title="editTitle" :extension="editExtension" :error="editError" :pending="mutationPending" @submit="submitEdit" />
     <FileMoveDialog v-model:open="moveOpen" :item-name="moving?.name || ''" :breadcrumbs="moveBreadcrumbs" :folders="moveFolders" :loading="moveLoading" :error="moveError" :disabled="moveDisabled" @navigate="loadMoveFolders" @confirm="confirmMove" />
+    <PluginDialogView v-if="activePluginDialog" :key="activePluginDialog.url" :dialog="activePluginDialog" @close="closePluginDialog" @complete="completePluginDialog" />
   </Teleport>
 </template>

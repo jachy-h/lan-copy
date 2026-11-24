@@ -15,8 +15,18 @@ test('build failure stops deployment', () => {
 
 test('requires token and validates version before build', () => {
   assert.throws(() => release(['--package', 'test.zip'], {}), /LAN_COPY_DEPLOY_TOKEN/);
-  assert.throws(() => release(['--package', 'test.zip', '--version', 'bad'], {}), /MAJOR/);
+  assert.throws(() => release(['--package', 'test.zip', '--version', 'bad'], {}), /x\.y\.z/);
   assert.throws(() => release(['--package', 'test.zip', '--skip-build', '--version', '1.2.3'], {}), /不能/);
+});
+
+test('build forwards an explicit build version', () => {
+  const calls = [];
+  const result = release(['--package', 'scripts/deploy.py', '--version', '1.2.3-build4'], { LAN_COPY_DEPLOY_TOKEN: 'secret' }, (...args) => {
+    calls.push(args);
+    return { status: 0 };
+  });
+  assert.equal(result, undefined);
+  assert.deepEqual(calls[0][1], ['build', 'VERSION=1.2.3-build4']);
 });
 
 test('dry run uses configured address without executing anything', () => {

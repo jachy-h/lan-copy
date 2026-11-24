@@ -1,7 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, describe, expect, it } from 'vitest'
 import UploadProgress from './UploadProgress.vue'
-import { beginUpload, completeUpload, dismissUpload, openUpload, startUpload, updateReading, updateUploadProgress } from '../upload/progress'
+import { beginUpload, completeUpload, dismissUpload, openUpload, startUpload, updateReading, updateUploadProgress, waitForPlugin } from '../upload/progress'
 
 let wrapper: ReturnType<typeof mount> | undefined
 
@@ -57,5 +57,17 @@ describe('UploadProgress dialog', () => {
 
     await wrapper!.get('.transfer-dialog-collapse').trigger('click')
     expect(wrapper!.find('.transfer-dialog').exists()).toBe(false)
+  })
+
+  it('shows a waiting state while an upload hook prepares a review page', async () => {
+    beginUpload()
+    startUpload('正在上传 2 个文件到 全部文件')
+    updateUploadProgress(1024, 1024)
+    waitForPlugin('文件已上传，正在等待插件处理…')
+    render()
+    await flushPromises()
+    expect(wrapper!.get('#transferDialogTitle').text()).toBe('处理上传结果')
+    expect(wrapper!.get('.transfer-dialog-meta').text()).toContain('等待插件处理')
+    expect(wrapper!.get('.transfer-dialog-meta').text()).toContain('等待插件')
   })
 })

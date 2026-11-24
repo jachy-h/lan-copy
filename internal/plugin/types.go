@@ -200,17 +200,23 @@ type TaskFunc func(ctx context.Context, progress func(percent int, message strin
 
 // RuntimeInfo describes the selected runtime and its environment.
 type RuntimeInfo struct {
-	Type         string   `json:"type"`
-	Available    bool     `json:"available"`
-	Version      string   `json:"version,omitempty"`
-	APIVersion   string   `json:"apiVersion,omitempty"`
-	OS           string   `json:"os,omitempty"`
-	Architecture string   `json:"architecture,omitempty"`
-	NetworkMode  string   `json:"networkMode"`
-	Network      string   `json:"network"`
-	DataRoots    []string `json:"dataRoots,omitempty"`
-	Error        string   `json:"error,omitempty"`
-	Orphans      []string `json:"orphans,omitempty"`
+	Type         string `json:"type"`
+	Available    bool   `json:"available"`
+	Version      string `json:"version,omitempty"`
+	APIVersion   string `json:"apiVersion,omitempty"`
+	OS           string `json:"os,omitempty"`
+	Architecture string `json:"architecture,omitempty"`
+	NetworkMode  string `json:"networkMode"`
+	Network      string `json:"network"`
+	APIBaseURL   string `json:"apiBaseUrl,omitempty"`
+	// APIBaseURLReason explains how APIBaseURL was chosen.
+	APIBaseURLReason string   `json:"apiBaseUrlReason,omitempty"`
+	DataRoots        []string `json:"dataRoots,omitempty"`
+	Error            string   `json:"error,omitempty"`
+	Orphans          []string `json:"orphans,omitempty"`
+	// StartAvailable reports that this host can try to start Podman from the
+	// plugin page (used when the runtime is unavailable).
+	StartAvailable bool `json:"startAvailable,omitempty"`
 }
 
 // ImageInfo is the runtime-neutral result of an image import or inspection.
@@ -254,6 +260,7 @@ type CreateInstanceRequest struct {
 	RestartPolicy    string
 	LogMaxSizeMB     int
 	LogMaxFiles      int
+	ExtraHosts       []string
 	Labels           map[string]string
 	StopTimeoutSecs  int
 	ExposedPortProto string
@@ -292,6 +299,30 @@ type Stats struct {
 	MemoryLimitBytes int64     `json:"memoryLimitBytes"`
 	PIDs             int64     `json:"pids"`
 	SampledAt        time.Time `json:"sampledAt"`
+}
+
+// UsageItem is one running plugin's resource sample.
+type UsageItem struct {
+	PluginID         string  `json:"pluginId"`
+	Name             string  `json:"name"`
+	CPUPercent       float64 `json:"cpuPercent"`
+	MemoryBytes      int64   `json:"memoryBytes"`
+	MemoryLimitBytes int64   `json:"memoryLimitBytes"`
+	PIDs             int64   `json:"pids"`
+	Available        bool    `json:"available"`
+	Error            string  `json:"error,omitempty"`
+}
+
+// Usage aggregates resource samples for running plugin containers.
+type Usage struct {
+	Running          int         `json:"running"`
+	Unavailable      int         `json:"unavailable"`
+	CPUPercent       float64     `json:"cpuPercent"`
+	MemoryBytes      int64       `json:"memoryBytes"`
+	MemoryLimitBytes int64       `json:"memoryLimitBytes"`
+	PIDs             int64       `json:"pids"`
+	Items            []UsageItem `json:"items"`
+	SampledAt        time.Time   `json:"sampledAt"`
 }
 
 // CallMetrics are in-memory per-plugin HTTP client counters.
@@ -393,6 +424,13 @@ type DetailView struct {
 	Runtime       RuntimeInfo    `json:"runtime"`
 }
 
+// ProxyTarget is the resolved upstream for one plugin's browser interface.
+// It contains no secrets and is only valid while the instance stays running.
+type ProxyTarget struct {
+	BaseURL string // http://127.0.0.1:<port> or http://<container>:<port>
+	UIPath  string // manifest ui.path, normalized to an absolute path
+}
+
 type InstallRequest struct {
 	ImageID          string `json:"imageId"`
 	ExpectedPluginID string `json:"expectedPluginId,omitempty"`
@@ -482,6 +520,7 @@ var (
 	ErrPluginNotInstalled     = errors.New("plugin not installed")
 	ErrPluginNotRunning       = errors.New("plugin not running")
 	ErrPluginUnhealthy        = errors.New("plugin unhealthy")
+	ErrPluginNoUI             = errors.New("plugin has no web interface")
 	ErrPluginTimeout          = errors.New("plugin request timed out")
 	ErrPluginUnavailable      = errors.New("plugin unavailable")
 	ErrPluginProtocolMismatch = errors.New("plugin protocol mismatch")

@@ -71,20 +71,30 @@ func LoadSecretBox(dir, environmentKey string) (*SecretBox, error) {
 	return &SecretBox{aead: aead, key: append([]byte(nil), key...)}, nil
 }
 
+func (b *SecretBox) deriveInstanceToken(label, instanceID string) (string, error) {
+	if b == nil || len(b.key) == 0 || instanceID == "" {
+		return "", ErrSecretKeyUnavailable
+	}
+	// Derive a dedicated subkey so the AES key is not reused directly.
+	subkey := hmac.New(sha256.New, b.key)
+	_, _ = subkey.Write([]byte("lan-copy-plugin-token-key"))
+	mac := hmac.New(sha256.New, subkey.Sum(nil))
+	_, _ = mac.Write([]byte(label))
+	_, _ = mac.Write([]byte(":"))
+	_, _ = mac.Write([]byte(instanceID))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+}
+
 // EventToken derives a stable per-instance signing token from the secret key.
 // It is never persisted, so the plugin state format stays unchanged and a
 // downgrade cannot be blocked by an unknown field.
 func (b *SecretBox) EventToken(instanceID string) (string, error) {
-	if b == nil || len(b.key) == 0 || instanceID == "" {
-		return "", ErrSecretKeyUnavailable
-	}
-	// Derive a dedicated signing subkey so the AES key is not reused directly.
-	subkey := hmac.New(sha256.New, b.key)
-	_, _ = subkey.Write([]byte("lan-copy-plugin-event-signing-key"))
-	mac := hmac.New(sha256.New, subkey.Sum(nil))
-	_, _ = mac.Write([]byte("lan-copy-plugin-event-token:"))
-	_, _ = mac.Write([]byte(instanceID))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil)), nil
+	return b.deriveInstanceToken("event", instanceID)
+}
+
+// APIToken derives the per-instance token used by the plugin table API.
+func (b *SecretBox) APIToken(instanceID string) (string, error) {
+	return b.deriveInstanceToken("api", instanceID)
 }
 
 func createSecretKey(path string, key []byte) error {

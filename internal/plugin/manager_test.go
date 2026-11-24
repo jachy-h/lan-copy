@@ -156,6 +156,9 @@ func TestManifestValidation(t *testing.T) {
 		{"default cpu", func(m *Manifest) { m.Defaults.CPULimit = 100 }},
 		{"default memory", func(m *Manifest) { m.Defaults.MemoryMB = 1 }},
 		{"category", func(m *Manifest) { m.Category = "Not Valid" }},
+		{"ui path relative", func(m *Manifest) { m.UI = &ManifestUI{Path: "ui"} }},
+		{"ui path traversal", func(m *Manifest) { m.UI = &ManifestUI{Path: "/../etc"} }},
+		{"ui path query", func(m *Manifest) { m.UI = &ManifestUI{Path: "/ui?x=1"} }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -174,6 +177,111 @@ func TestManifestValidation(t *testing.T) {
 	}
 	if !ProtocolCompatible("1.9") || ProtocolCompatible("2.0") {
 		t.Fatal("protocol compatibility is wrong")
+	}
+}
+
+func TestManifestUIPath(t *testing.T) {
+	manifest := testManifest(8080)
+	manifest.UI = &ManifestUI{}
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseManifest(string(raw))
+	if err != nil {
+		t.Fatalf("manifest with empty ui rejected: %v", err)
+	}
+	if parsed.UI == nil || parsed.UI.Path != "/" {
+		t.Fatalf("ui = %+v, want default /", parsed.UI)
+	}
+	if manifest.UI.Path != "" {
+		t.Fatal("normalization mutated the input manifest")
+	}
+
+	manifest.UI = &ManifestUI{Path: "/console"}
+	raw, err = json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = ParseManifest(string(raw))
+	if err != nil {
+		t.Fatalf("manifest with ui path rejected: %v", err)
+	}
+	if parsed.UI == nil || parsed.UI.Path != "/console" {
+		t.Fatalf("ui = %+v, want /console", parsed.UI)
+	}
+
+	withoutUI := testManifest(8080)
+	raw, err = json.Marshal(withoutUI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err = ParseManifest(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.UI != nil {
+		t.Fatalf("ui = %+v, want nil", parsed.UI)
+	}
+}
+
+func TestProxyTarget(t *testing.T) {
+	manager, _, _ := testManager(t)
+	manifest := testManifest(8080)
+	manifest.UI = &ManifestUI{Path: "/console"}
+	set := func(instance Instance, ui *ManifestUI) {
+		imageManifest := manifest
+		imageManifest.UI = ui
+		manager.mu.Lock()
+		manager.state.Plugins = []Plugin{{ID: "demo"}}
+		manager.state.Images = []Image{{ID: "img-1", PluginID: "demo", Manifest: imageManifest}}
+		manager.state.Instances = []Instance{instance}
+		manager.mu.Unlock()
+	}
+
+	running := Instance{
+		ID: "inst-1", PluginID: "demo", ImageID: "img-1",
+		Status: StatusRunning, HealthStatus: HealthHealthy,
+		InternalAddress: "http://127.0.0.1:4567",
+	}
+	set(running, manifest.UI)
+	target, err := manager.ProxyTarget("demo")
+	if err != nil {
+		t.Fatalf("proxy target: %v", err)
+	}
+	if target.BaseURL != "http://127.0.0.1:4567" || target.UIPath != "/console" {
+		t.Fatalf("target = %+v", target)
+	}
+
+	tests := []struct {
+		name     string
+		instance Instance
+		ui       *ManifestUI
+		want     error
+	}{
+		{"no ui", running, nil, ErrPluginNoUI},
+		{"stopped", func() Instance { value := running; value.Status = StatusStopped; return value }(), manifest.UI, ErrPluginNotRunning},
+		{"no address", func() Instance { value := running; value.InternalAddress = ""; return value }(), manifest.UI, ErrPluginNotRunning},
+		{"unhealthy", func() Instance { value := running; value.HealthStatus = HealthUnhealthy; return value }(), manifest.UI, ErrPluginUnhealthy},
+		{"status unhealthy", func() Instance {
+			value := running
+			value.Status = StatusUnhealthy
+			value.HealthStatus = HealthUnhealthy
+			return value
+		}(), manifest.UI, ErrPluginUnhealthy},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			set(test.instance, test.ui)
+			if _, err := manager.ProxyTarget("demo"); !errors.Is(err, test.want) {
+				t.Fatalf("err = %v, want %v", err, test.want)
+			}
+		})
+	}
+
+	set(running, manifest.UI)
+	if _, err := manager.ProxyTarget("missing"); !errors.Is(err, ErrPluginNotInstalled) {
+		t.Fatalf("missing plugin err = %v", err)
 	}
 }
 
@@ -782,5 +890,19 @@ func TestClientMultipartUploadAndDownload(t *testing.T) {
 	_ = body.Close()
 	if err != nil || string(data) != "file-content" {
 		t.Fatalf("download = %q, %v", data, err)
+	}
+}
+
+func TestFriendlyRuntimeErrorShowsDiagnosticDetail(t *testing.T) {
+	detail := fmt.Errorf("%w: 未找到可用的 Docker 或 Podman API 端点（已尝试：/run/podman/podman.sock）", ErrRuntimeUnavailable)
+	if got := friendlyRuntimeError(detail); !strings.Contains(got, "未找到可用的") {
+		t.Fatalf("friendly error = %q", got)
+	}
+	if got := runtimeErrorDetail(ErrRuntimeUnavailable); got != "" {
+		t.Fatalf("sentinel detail = %q", got)
+	}
+	generic := friendlyRuntimeError(ErrRuntimeUnavailable)
+	if !strings.Contains(generic, "Podman") || !strings.Contains(generic, "podman.socket") {
+		t.Fatalf("generic error = %q", generic)
 	}
 }

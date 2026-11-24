@@ -12,6 +12,8 @@ import (
 	"lan-copy/internal/filestore"
 	"lan-copy/internal/plugin"
 	"lan-copy/internal/printing"
+	"lan-copy/internal/processstats"
+	"lan-copy/internal/tablestore"
 	"lan-copy/internal/textstore"
 	"lan-copy/internal/updater"
 )
@@ -41,6 +43,8 @@ type Config struct {
 	Autostart                              *desktop.Autostart
 	Printing                               *printing.Service
 	Plugins                                *plugin.Manager
+	Tables                                 *tablestore.Store
+	System                                 *processstats.Sampler
 }
 
 // Server owns HTTP state; persistent state and its locks live in components.
@@ -48,6 +52,7 @@ type Server struct {
 	airDev            bool
 	printing          *printing.Service
 	plugins           *plugin.Manager
+	tables            *tablestore.Store
 	updater           *updater.Service
 	releases          *updater.ReleaseService
 	autostart         *desktop.Autostart
@@ -73,36 +78,55 @@ type Server struct {
 	appContext        context.Context
 	cancelApp         context.CancelFunc
 	transfers         transferTracker
+	system            *processstats.Sampler
+
+	// pluginProxyTransport serves plugin browser interfaces with long-lived
+	// streaming semantics instead of the plugin API call timeouts.
+	pluginProxyTransport *http.Transport
 
 	// publishPluginEvent overrides lifecycle publishing in tests. Production
 	// leaves it nil and goes through the plugin manager.
 	publishPluginEvent func(string, any)
+
+	// runPluginUploadHooks overrides synchronous upload-hook invocation in
+	// tests. Production leaves it nil and goes through the plugin manager.
+	runPluginUploadHooks func(context.Context, plugin.FileUploadedData) []plugin.UploadHookDialog
+
+	// pluginUITarget overrides plugin target resolution in proxy tests.
+	pluginUITarget func(string) (plugin.ProxyTarget, error)
 }
 
 func New(config Config) *Server {
 	appContext, cancelApp := context.WithCancel(context.Background())
+	system := config.System
+	if system == nil {
+		system = processstats.New()
+	}
 	return &Server{
 		airDev:     config.AirDev,
 		deployAuth: config.DeployAuth,
 		printing:   config.Printing,
 		plugins:    config.Plugins,
+		tables:     config.Tables,
 		updater:    config.Updater, autostart: config.Autostart,
 		version: config.Version, updatePublicKey: config.UpdatePublicKey,
-		releases:          config.Releases,
-		texts:             config.Texts,
-		files:             config.Files,
-		dir:               config.Dir,
-		dataDir:           config.DataDir,
-		maxUpload:         config.MaxUpload,
-		uploadResources:   config.UploadResources,
-		uploadPreflight:   config.UploadPreflight,
-		web:               StaticFiles(config.Web),
-		probeURLs:         ReachableLocalURLs,
-		openPath:          openLocalPath,
-		changeSubscribers: make(map[chan changeEvent]struct{}),
-		shutdownRequested: make(chan struct{}),
-		appContext:        appContext,
-		cancelApp:         cancelApp,
+		releases:             config.Releases,
+		texts:                config.Texts,
+		files:                config.Files,
+		dir:                  config.Dir,
+		dataDir:              config.DataDir,
+		maxUpload:            config.MaxUpload,
+		uploadResources:      config.UploadResources,
+		uploadPreflight:      config.UploadPreflight,
+		web:                  StaticFiles(config.Web),
+		probeURLs:            ReachableLocalURLs,
+		openPath:             openLocalPath,
+		changeSubscribers:    make(map[chan changeEvent]struct{}),
+		shutdownRequested:    make(chan struct{}),
+		appContext:           appContext,
+		cancelApp:            cancelApp,
+		system:               system,
+		pluginProxyTransport: newPluginProxyTransport(),
 	}
 }
 

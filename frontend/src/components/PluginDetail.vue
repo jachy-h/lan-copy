@@ -5,7 +5,7 @@ import {
   statusLabel, updatePluginConfig,
   type EnvVar, type PluginConfig, type PluginDetail, type PluginStatusView,
 } from '../api/plugins'
-import { notify } from '../ui/fileUi'
+import { notify, copyText } from '../ui/fileUi'
 
 const props = defineProps<{ pluginId: string }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
@@ -37,6 +37,20 @@ const running = computed(() => {
 })
 const manifestJSON = computed(() => detail.value ? JSON.stringify(detail.value.manifest, null, 2) : '')
 const capabilities = computed(() => detail.value?.manifest.capabilities || [])
+const uiAddress = computed(() => {
+  const path = `/plugin-app/${encodeURIComponent(props.pluginId)}/`
+  return typeof location === 'undefined' ? path : `${location.origin}${path}`
+})
+const canOpenUI = computed(() => {
+  if (!detail.value?.manifest.ui) return false
+  const current = status.value?.status || detail.value?.instance?.status
+  const health = status.value?.healthStatus || detail.value?.instance?.healthStatus
+  return current === 'running' && health === 'healthy'
+})
+async function copyUIAddress() {
+  const copied = await copyText(uiAddress.value)
+  notify(copied ? '插件界面地址已复制' : '复制失败，请检查浏览器权限', !copied)
+}
 const healthRecords = computed(() => (status.value?.healthRecords || detail.value?.healthRecords || []).slice(-20).reverse())
 
 function message(value: unknown, fallback = '操作失败') {
@@ -217,6 +231,14 @@ onBeforeUnmount(() => {
           <div><dt>最近健康检查</dt><dd>{{ formatDate(status?.lastHealthAt || detail.instance?.lastHealthAt) }}</dd></div>
           <div><dt>重启次数</dt><dd>{{ status?.restartCount ?? detail.instance?.restartCount ?? 0 }}</dd></div>
           <div><dt>镜像</dt><dd>{{ detail.images[0]?.imageName }}:{{ detail.images[0]?.imageTag || 'latest' }}</dd></div>
+          <div v-if="detail.manifest.ui">
+            <dt>Web 界面</dt>
+            <dd class="plugin-ui-address">
+              <a v-if="canOpenUI" :href="uiAddress" target="_blank" rel="noopener">{{ uiAddress }}</a>
+              <span v-else>{{ uiAddress }}（运行且健康后可打开）</span>
+              <button class="secondary" type="button" @click="copyUIAddress">复制地址</button>
+            </dd>
+          </div>
         </dl>
 
         <div class="plugin-metric-grid">

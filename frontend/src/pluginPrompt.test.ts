@@ -20,9 +20,20 @@ describe('buildAgentPrompt', () => {
       '/api/plugins/install',
       '原地升级',
       'LAN_COPY_EVENT_TOKEN',
+      'LAN_COPY_API_TOKEN',
+      'lock-and-update',
       'POST /events',
       'folder.*',
+      '插件 Web 界面',
+      'X-Forwarded-Prefix',
+      '/plugin-app/<plugin-id>/',
       '/api/plugins/<plugin-id>/events/test',
+      '上传 Hook',
+      'uploadHook',
+      'X-Lan-Copy-Hook',
+      'lan-copy:plugin-dialog:complete',
+      'frame-ancestors',
+      '设置 → 插件',
     ]) {
       expect(prompt).toContain(expected)
     }

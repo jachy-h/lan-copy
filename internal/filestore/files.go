@@ -37,6 +37,12 @@ func (s *Store) ListFiles() ([]File, error) {
 			}
 			return nil
 		}
+		if IsHiddenMetadata(name) {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err

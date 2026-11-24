@@ -75,6 +75,9 @@ func TestPrepareHostMount(t *testing.T) {
 	if _, err := PrepareHostMount(filepath.Join(root, "docker.sock"), []string{root}); err == nil {
 		t.Fatal("docker socket accepted")
 	}
+	if _, err := PrepareHostMount(filepath.Join(root, "podman.sock"), []string{root}); err == nil {
+		t.Fatal("podman socket accepted")
+	}
 	linkRoot := t.TempDir()
 	if runtime.GOOS != "windows" {
 		link := filepath.Join(linkRoot, "link")

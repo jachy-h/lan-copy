@@ -11,7 +11,7 @@ let wrapper: ReturnType<typeof mount>
 function render() {
   wrapper = mount(App, { attachTo: document.body, global: { stubs: {
     FileExplorer: Files, FragmentTransfer: Texts, PrintQueue: { props: ['sharedPath'], emits: ['localFile'], template: '<section id="print-view">{{ sharedPath }}<button id="local-file" @click="$emit(\'localFile\')">选择本地文件</button></section>' },
-    SharePopover: { template: '<button>分享</button>' }, SettingsDialog: { template: '<button>设置</button>' },
+    SharePopover: { template: '<button>分享</button>' }, SettingsDialog: { template: '<button>设置</button>' }, PluginManager: { template: '<section id="plugins-view">plugins</section>' },
     ServiceStatus: { template: '<button>局域网在线</button>' },
   } } })
 }
@@ -56,6 +56,22 @@ describe('shared SPA', () => {
     expect(preventedByApp).toBe(false)
     expect(location.pathname).toBe('/transfer-text')
   })
+  it('renders the plugin service at its direct route without a top-nav entry', () => {
+    history.replaceState(null, '', '/plugins')
+    render()
+    expect(wrapper.find('#plugins-view').exists()).toBe(true)
+    expect(wrapper.find('.page-nav a[href="/plugins"]').exists()).toBe(false)
+    expect(document.title).toBe('插件服务 · Lan Copy')
+  })
+
+  it('treats the removed table route as the file space', () => {
+    history.replaceState(null, '', '/tables')
+    render()
+    expect(wrapper.find('#files-view').exists()).toBe(true)
+    expect(document.title).toBe('内网空间 · Lan Copy')
+    expect(wrapper.get('.page-nav').text()).toBe('内网空间碎片快传')
+  })
+
   it('renders the transfer page when opened through the static transfer.html entry', () => {
     history.replaceState(null, '', '/transfer.html?from=bookmark')
     render()

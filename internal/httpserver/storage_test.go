@@ -32,11 +32,19 @@ func TestStorageUsage(t *testing.T) {
 	var usage struct {
 		Bytes int64 `json:"bytes"`
 		Files int   `json:"files"`
+		Types []struct {
+			Kind  string `json:"kind"`
+			Bytes int64  `json:"bytes"`
+			Files int    `json:"files"`
+		} `json:"types"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &usage); err != nil {
 		t.Fatal(err)
 	}
 	if usage.Bytes != 11 || usage.Files != 2 {
 		t.Fatalf("usage = %+v, want 11 bytes and 2 files", usage)
+	}
+	if len(usage.Types) != 1 || usage.Types[0].Kind != "document" || usage.Types[0].Bytes != 11 || usage.Types[0].Files != 2 {
+		t.Fatalf("types = %+v", usage.Types)
 	}
 }

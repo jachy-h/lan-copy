@@ -190,3 +190,98 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
           gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json url --jq '.url' >> "$GITHUB_STEP_SUMMARY"
+
+  homebrew:
+    name: Update Homebrew tap
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [metadata, release]
+    runs-on: macos-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Check whether the tap token is configured
+        id: tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$HOMEBREW_TAP_TOKEN" ]; then
+            echo '::warning::Set the HOMEBREW_TAP_TOKEN repository secret ' \
+              'to update jachy-h/homebrew-jachy-h automatically.'
+            printf 'Homebrew tap not updated: ' >> "$GITHUB_STEP_SUMMARY"
+            printf '`HOMEBREW_TAP_TOKEN` is not configured.\n' \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo 'configured=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.tap.outputs.configured == 'true'
+        with:
+          persist-credentials: false
+      - name: Check out the tap repository
+        if: steps.tap.outputs.configured == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: jachy-h/homebrew-jachy-h
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+          persist-credentials: false
+      - name: Download release checksums
+        if: steps.tap.outputs.configured == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern SHA256SUMS --dir dist
+      - name: Point the formula at the new release
+        if: steps.tap.outputs.configured == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          python3 scripts/update_homebrew_formula.py \
+            --formula tap/Formula/lan-copy.rb \
+            --checksums dist/SHA256SUMS \
+            --version "$RELEASE_VERSION" \
+            --asset Lan-Copy-macOS-Apple-Silicon.tar.gz
+      - name: Validate the updated formula
+        if: steps.tap.outputs.configured == 'true'
+        run: |
+          set -euo pipefail
+          ruby -c tap/Formula/lan-copy.rb
+          brew style tap/Formula/lan-copy.rb
+          tap_dir="$(brew --repository)/Library/Taps/jachy-h/homebrew-jachy-h"
+          mkdir -p "$(dirname "$tap_dir")"
+          ln -sfn "$GITHUB_WORKSPACE/tap" "$tap_dir"
+          brew trust --tap jachy-h/jachy-h
+          brew audit --strict --online --formula jachy-h/jachy-h/lan-copy
+      - name: Commit and push the formula update
+        if: steps.tap.outputs.configured == 'true'
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd tap
+          git add Formula/lan-copy.rb
+          if git diff --cached --quiet; then
+            echo 'Formula is already current; nothing to push.' \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          bot="41898282+github-actions[bot]"
+          git config user.name "github-actions[bot]"
+          git config user.email "$bot@users.noreply.github.com"
+          helper='!f() { echo username=x-access-token;'
+          helper="$helper echo password=\$GITHUB_TOKEN; }; f"
+          git config --local credential.helper "$helper"
+          git commit -m "chore: update lan-copy v$RELEASE_VERSION"
+          git push
+          printf 'Updated `Formula/lan-copy.rb` to **v%s**.\n' \
+            "$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"

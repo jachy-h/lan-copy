@@ -11,7 +11,7 @@ const cleanup: (() => void)[] = []
 
 beforeEach(() => {
   root = document.createElement('section')
-  root.innerHTML = '<p id="previewStatus"></p><div id="textTools" class="hidden"><select id="textEncoding"><option value="utf-8">UTF-8</option></select></div><div id="previewContent"></div>'
+  root.innerHTML = '<p id="previewStatus"></p><div id="previewTools"></div><div id="textTools" class="hidden"><select id="textEncoding"><option value="utf-8">UTF-8</option><option value="gb18030">GB18030</option><option value="utf-16le">UTF-16 LE</option><option value="utf-16be">UTF-16 BE</option></select></div><div id="previewContent"></div>'
   document.body.append(root)
   vi.stubGlobal('IntersectionObserver', class { observe() {} disconnect() {} })
   vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { headers: { 'Content-Type': 'application/pdf' } })))
@@ -132,5 +132,75 @@ describe('preview engine lifetime', () => {
     bytes.resolve(new TextEncoder().encode('old text').buffer); await flush()
     expect(root.querySelector('pre')).toBeNull()
     expect(root.querySelector('#textTools')!.classList.contains('hidden')).toBe(true)
+  })
+
+  function delimitedFetch(body: Uint8Array<ArrayBuffer>, total = body.byteLength) {
+    return vi.fn(async (_url: string, init?: RequestInit) => init?.method === 'HEAD'
+      ? new Response(null, { headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': String(total) } })
+      : new Response(body, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }))
+  }
+
+  it('renders a CSV file as a table and toggles back to raw text', async () => {
+    const body = new TextEncoder().encode('id,name\n1,"a, b"\n2,Carol\n')
+    vi.stubGlobal('fetch', delimitedFetch(body))
+    preview = mountPreview(root, 'data/orders.csv'); await flush()
+    const table = root.querySelector('.preview-sheet-table')!
+    expect(table).not.toBeNull()
+    expect([...table.querySelectorAll('thead th')].map(cell => cell.textContent)).toEqual(['', 'id', 'name'])
+    expect([...table.querySelectorAll('tbody tr')].map(row => [...row.children].map(cell => cell.textContent))).toEqual([
+      ['1', '1', 'a, b'],
+      ['2', '2', 'Carol'],
+    ])
+    expect(root.querySelector('pre.preview-text')).toBeNull()
+    expect(root.querySelector('#textTools')!.classList.contains('hidden')).toBe(false)
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('CSV 表格 · 2 行 × 2 列')
+    const toggle = root.querySelector<HTMLButtonElement>('.preview-csv-tools button')!
+    expect(toggle.textContent).toBe('原始文本')
+    toggle.click(); await flush()
+    expect(root.querySelector('.preview-sheet-table')).toBeNull()
+    expect(root.querySelector('pre.preview-text')!.textContent).toContain('id,name')
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('CSV 原始文本')
+    expect(toggle.textContent).toBe('表格')
+    toggle.click(); await flush()
+    expect(root.querySelectorAll('.preview-sheet-table tbody tr')).toHaveLength(2)
+  })
+
+  it('renders TSV files with the tab delimiter', async () => {
+    const body = new TextEncoder().encode('id\tname\n1\tAlice\n')
+    vi.stubGlobal('fetch', delimitedFetch(body))
+    preview = mountPreview(root, 'data/orders.tsv'); await flush()
+    expect([...root.querySelectorAll('.preview-sheet-table tbody tr')].map(row => [...row.children].map(cell => cell.textContent))).toEqual([['1', '1', 'Alice']])
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('TSV 表格')
+  })
+
+  it('drops the incomplete last record when a CSV read is truncated', async () => {
+    const body = new TextEncoder().encode('id,name\n1,Alice\n2,Par')
+    vi.stubGlobal('fetch', delimitedFetch(body, body.byteLength + 10))
+    preview = mountPreview(root, 'data/orders.csv'); await flush()
+    expect(root.querySelectorAll('.preview-sheet-table tbody tr')).toHaveLength(1)
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('仅读取前 1 MiB')
+  })
+
+  it('detects a UTF-16LE BOM in CSV previews', async () => {
+    const text = 'id,name\n1,中文\n'
+    const body = new Uint8Array(2 + text.length * 2)
+    body.set([0xff, 0xfe])
+    for (let index = 0; index < text.length; index++) {
+      const code = text.charCodeAt(index)
+      body[2 + index * 2] = code & 0xff
+      body[3 + index * 2] = code >> 8
+    }
+    vi.stubGlobal('fetch', delimitedFetch(body))
+    preview = mountPreview(root, 'data/orders.csv'); await flush()
+    expect((root.querySelector('#textEncoding') as HTMLSelectElement).value).toBe('utf-16le')
+    expect(root.querySelector('.preview-sheet-table tbody tr td:nth-child(3)')!.textContent).toBe('中文')
+  })
+
+  it('shows an empty state for a CSV without any records', async () => {
+    vi.stubGlobal('fetch', delimitedFetch(new TextEncoder().encode('\n\n')))
+    preview = mountPreview(root, 'data/empty.csv'); await flush()
+    expect(root.querySelector('.preview-sheet-table')).toBeNull()
+    expect(root.querySelector('#previewContent')!.textContent).toContain('空表格')
+    expect(root.querySelector('#previewStatus')!.textContent).toContain('为空')
   })
 })

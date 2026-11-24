@@ -145,3 +145,49 @@ func TestPluginEventRoutes(t *testing.T) {
 		t.Fatalf("missing action status = %d", recorder.Code)
 	}
 }
+
+func TestPluginSubroutesServed(t *testing.T) {
+	app, err := newServer(t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/plugins", "/plugins/installed", "/plugins/images", "/plugins/integration"} {
+		recorder := httptest.NewRecorder()
+		app.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("%s status = %d", path, recorder.Code)
+		}
+		if !strings.Contains(recorder.Body.String(), "插件服务") {
+			t.Fatalf("%s body = %s", path, recorder.Body.String())
+		}
+	}
+}
+
+func TestPluginRuntimeStartAllowsLANWithActionHeader(t *testing.T) {
+	server := &Server{plugins: &plugin.Manager{}}
+	request := httptest.NewRequest(http.MethodPost, "/api/plugins/runtime/start", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	recorder := httptest.NewRecorder()
+	server.startPluginRuntime(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("missing action header status = %d", recorder.Code)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/plugins/runtime/start", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	request.Header.Set("X-Lan-Copy-Action", pluginAction)
+	recorder = httptest.NewRecorder()
+	server.startPluginRuntime(recorder, request)
+	if recorder.Code == http.StatusForbidden {
+		t.Fatalf("LAN start with action header rejected: %s", recorder.Body.String())
+	}
+
+	dispatch := server.pluginDispatch()
+	request = httptest.NewRequest(http.MethodGet, "/api/plugins/runtime/start", nil)
+	request.RemoteAddr = "192.168.1.20:5555"
+	recorder = httptest.NewRecorder()
+	dispatch.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET status = %d", recorder.Code)
+	}
+}

@@ -14,6 +14,7 @@ vi.mock('../api/plugins', async importOriginal => {
     waitForTask: vi.fn(),
     uninstallPlugin: vi.fn(),
     deletePluginImage: vi.fn(),
+    startPluginRuntime: vi.fn(),
     uploadPluginImage: vi.fn(),
     getPluginEventCatalog: vi.fn(),
     getPluginEvents: vi.fn(),
@@ -24,6 +25,8 @@ vi.mock('../api/plugins', async importOriginal => {
 const runtime = {
   type: 'docker', available: true, version: '29.0', os: 'linux', architecture: 'arm64',
   networkMode: 'loopback' as const, network: 'plugin-network', dataRoots: ['/tmp/plugins'],
+  apiBaseUrl: 'http://host.docker.internal:8080',
+  apiBaseUrlReason: 'Docker 使用 host.docker.internal',
 }
 const manifest = {
   schemaVersion: 1, id: 'demo', name: 'Demo', version: '1.0.0', protocolVersion: '1.0',
@@ -59,6 +62,7 @@ const pluginView = {
 let wrapper: ReturnType<typeof mount>
 
 beforeEach(() => {
+  history.replaceState(null, '', '/plugins')
   Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true } })
   Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; this.dispatchEvent(new Event('close')) } })
   vi.mocked(api.getPluginRuntime).mockResolvedValue(runtime)
@@ -68,19 +72,88 @@ beforeEach(() => {
 
 afterEach(() => {
   wrapper?.unmount()
+  history.replaceState(null, '', '/')
   vi.clearAllMocks()
 })
 
 describe('PluginManager', () => {
-  it('shows Docker degradation and disables management', async () => {
-    vi.mocked(api.getPluginRuntime).mockResolvedValue({ ...runtime, available: false, error: '无法连接 Docker Engine' })
+  it('shows runtime degradation and disables management', async () => {
+    vi.mocked(api.getPluginRuntime).mockResolvedValue({ ...runtime, available: false, error: '无法连接容器运行时' })
     vi.mocked(api.listPlugins).mockResolvedValue({ plugins: [] })
     vi.mocked(api.listPluginImages).mockResolvedValue({ images: [] })
     wrapper = mount(PluginManager)
     await flushPromises()
-    expect(wrapper.text()).toContain('Docker 不可用')
+    expect(wrapper.text()).toContain('容器运行时不可用')
+    expect(wrapper.text()).toContain('无法连接容器运行时')
     expect(wrapper.text()).toContain('还没有安装插件')
     expect(wrapper.get('.plugins-heading-actions .primary').attributes('disabled')).toBeDefined()
+  })
+
+  it('labels the detected runtime', async () => {
+    vi.mocked(api.getPluginRuntime).mockResolvedValue({ ...runtime, type: 'podman', version: '5.2.2' })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Podman 5.2.2')
+    expect(wrapper.text()).not.toContain('Docker 5.2.2')
+    expect(wrapper.text()).toContain('插件 API 地址')
+    expect(wrapper.text()).toContain('http://host.docker.internal:8080')
+    expect(wrapper.text()).toContain('Docker 使用 host.docker.internal')
+  })
+
+  it('links to a running plugin interface', async () => {
+    const runningView = {
+      ...pluginView,
+      image: { ...image, manifest: { ...manifest, ui: { path: '/' } } },
+      instance: { ...pluginView.instance, status: 'running' as const, healthStatus: 'healthy' as const },
+    }
+    vi.mocked(api.listPlugins).mockResolvedValue({ plugins: [runningView] })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    const link = wrapper.get('a.plugin-ui-link')
+    expect(link.text()).toBe('打开界面')
+    expect(link.attributes('href')).toBe('/plugin-app/demo/')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('aria-disabled')).toBe('false')
+  })
+
+  it('disables the plugin interface link while stopped', async () => {
+    const stoppedView = {
+      ...pluginView,
+      image: { ...image, manifest: { ...manifest, ui: {} } },
+    }
+    vi.mocked(api.listPlugins).mockResolvedValue({ plugins: [stoppedView] })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    const link = wrapper.get('a.plugin-ui-link')
+    expect(link.attributes('aria-disabled')).toBe('true')
+    expect(link.classes()).toContain('disabled')
+  })
+
+  it('hides the interface link for plugins without a ui', async () => {
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(wrapper.find('a.plugin-ui-link').exists()).toBe(false)
+  })
+
+  it('starts Podman from the unavailable banner', async () => {
+    const unavailable = { ...runtime, available: false, startAvailable: true, error: '未找到可用的 Docker 或 Podman API 端点' }
+    vi.mocked(api.getPluginRuntime).mockResolvedValueOnce(unavailable).mockResolvedValue(runtime)
+    vi.mocked(api.listPlugins).mockResolvedValue({ plugins: [] })
+    vi.mocked(api.listPluginImages).mockResolvedValue({ images: [] })
+    vi.mocked(api.startPluginRuntime).mockResolvedValue({ taskId: 'task-start' })
+    vi.mocked(api.waitForTask).mockResolvedValue({
+      id: 'task-start', kind: 'runtime-start', status: 'succeeded', progress: 100,
+      message: '完成', createdAt: '2026-11-17T00:00:00Z', updatedAt: '2026-11-17T00:00:00Z',
+    })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(wrapper.text()).toContain('容器运行时不可用')
+    const button = wrapper.findAll('button').find(item => item.text() === '启动 Podman')
+    expect(button).toBeTruthy()
+    await button!.trigger('click')
+    await flushPromises()
+    expect(api.startPluginRuntime).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('Docker 29.0')
   })
 
   it('lists plugins and starts one through a task', async () => {
@@ -154,11 +227,17 @@ describe('PluginManager', () => {
     vi.mocked(api.sendPluginTestEvent).mockResolvedValue({ eventId: 'evt-1' })
     wrapper = mount(PluginManager)
     await flushPromises()
-    const eventsTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('生命周期'))!
+    const eventsTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('对接'))!
     await eventsTab.trigger('click')
     await flushPromises()
     expect(api.getPluginEventCatalog).toHaveBeenCalledTimes(1)
     expect(api.getPluginEvents).toHaveBeenCalledWith('demo', expect.anything())
+    expect(wrapper.text()).toContain('智能表格 API')
+    expect(wrapper.text()).toContain('LAN_COPY_API_TOKEN')
+    expect(wrapper.text()).toContain('lock-and-update')
+    expect(wrapper.text()).toContain('插件 Web 界面')
+    expect(wrapper.text()).toContain('/plugin-app/')
+    expect(wrapper.text()).toContain('X-Forwarded-Prefix')
     expect(wrapper.text()).toContain('事件目录')
     expect(wrapper.text()).toContain('file.uploaded')
     expect(wrapper.text()).toContain('LAN_COPY_EVENT_TOKEN')
@@ -169,5 +248,39 @@ describe('PluginManager', () => {
     await testButton.trigger('click')
     await flushPromises()
     expect(api.sendPluginTestEvent).toHaveBeenCalledWith('demo')
+  })
+
+  it('uses a URL subroute for each tab and restores it on popstate', async () => {
+    vi.mocked(api.getPluginEventCatalog).mockResolvedValue({ events: [] })
+    vi.mocked(api.getPluginEvents).mockResolvedValue({
+      endpoint: '/events', subscriptions: [],
+      stats: { queued: 0, delivered: 0, failed: 0, dropped: 0 }, deliveries: [],
+    })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(location.pathname).toBe('/plugins/installed')
+    const imageTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('镜像'))!
+    await imageTab.trigger('click')
+    expect(location.pathname).toBe('/plugins/images')
+    const integrationTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('对接'))!
+    await integrationTab.trigger('click')
+    expect(location.pathname).toBe('/plugins/integration')
+    history.pushState(null, '', '/plugins/installed')
+    window.dispatchEvent(new PopStateEvent('popstate'))
+    await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('插件'))!.attributes('aria-selected')).toBe('true')
+  })
+
+  it('opens the integration subroute directly', async () => {
+    history.replaceState(null, '', '/plugins/integration')
+    vi.mocked(api.getPluginEventCatalog).mockResolvedValue({ events: [] })
+    vi.mocked(api.getPluginEvents).mockResolvedValue({
+      endpoint: '/events', subscriptions: [],
+      stats: { queued: 0, delivered: 0, failed: 0, dropped: 0 }, deliveries: [],
+    })
+    wrapper = mount(PluginManager)
+    await flushPromises()
+    expect(wrapper.findAll('[role="tab"]').find(tab => tab.text().startsWith('对接'))!.attributes('aria-selected')).toBe('true')
+    expect(wrapper.text()).toContain('生命周期事件、智能表格 API 与 Web 界面')
   })
 })

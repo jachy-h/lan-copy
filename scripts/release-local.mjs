@@ -20,13 +20,13 @@ export function release(args = process.argv.slice(2), env = process.env, run = s
     help: { type: 'boolean', short: 'h' },
   }});
   if (values.help) {
-    console.log('node scripts/release-local.mjs --package <目标平台压缩包> [--version x.y.z] [--skip-build] [--url URL] [--dry-run]');
-    console.log('默认先 make build，再上传并确认重启。使用 VERSION 中的版本，不递增、不提交、不推送 Git。');
+    console.log('node scripts/release-local.mjs --package <目标平台压缩包> [--version x.y.z[-buildN]] [--skip-build] [--url URL] [--dry-run]');
+    console.log('默认先 make build，再上传并确认重启。使用递增后的构建版本，不提交、不推送 Git。');
     return;
   }
   if (!values.package) throw new Error('请用 --package 指定目标平台的发布包');
-  if (values.version && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(values.version)) {
-    throw new Error('--version 必须为 MAJOR.MINOR.PATCH');
+  if (values.version && !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-build[1-9]\d*)?$/.test(values.version)) {
+    throw new Error('--version 必须为 x.y.z 或 x.y.z-buildN');
   }
   if (values['skip-build'] && values.version) throw new Error('--skip-build 不能与 --version 同时使用');
   const target = new URL(values.url);

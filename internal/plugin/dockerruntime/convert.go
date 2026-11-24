@@ -49,8 +49,9 @@ func buildCreateConfigs(req plugin.CreateInstanceRequest) (*container.Config, *c
 		if mount.HostPath == "" || mount.ContainerPath == "" || !filepath.IsAbs(mount.HostPath) {
 			return nil, nil, nil, fmt.Errorf("invalid mount")
 		}
-		if strings.HasSuffix(filepath.Clean(mount.HostPath), "docker.sock") {
-			return nil, nil, nil, fmt.Errorf("docker socket cannot be mounted")
+		if strings.HasSuffix(filepath.Clean(mount.HostPath), "docker.sock") ||
+			strings.HasSuffix(filepath.Clean(mount.HostPath), "podman.sock") {
+			return nil, nil, nil, fmt.Errorf("container runtime socket cannot be mounted")
 		}
 		bind := mount.HostPath + ":" + mount.ContainerPath
 		if mount.ReadOnly {
@@ -106,6 +107,15 @@ func buildCreateConfigs(req plugin.CreateInstanceRequest) (*container.Config, *c
 		AttachStdin:  false, AttachStdout: false, AttachStderr: false,
 		StopTimeout: &stopTimeout,
 	}
+	extraHosts := make([]string, 0, len(req.ExtraHosts))
+	for _, host := range req.ExtraHosts {
+		switch host {
+		case "host.docker.internal:host-gateway", "host.containers.internal:host-gateway":
+			extraHosts = append(extraHosts, host)
+		default:
+			return nil, nil, nil, fmt.Errorf("%w: unsupported extra host %q", plugin.ErrInvalidConfig, host)
+		}
+	}
 	hostConfig := &container.HostConfig{
 		Binds:           binds,
 		NetworkMode:     container.NetworkMode(req.NetworkName),
@@ -126,7 +136,7 @@ func buildCreateConfigs(req plugin.CreateInstanceRequest) (*container.Config, *c
 		CgroupnsMode:    container.CgroupnsMode("private"),
 		VolumesFrom:     nil,
 		Links:           nil,
-		ExtraHosts:      nil,
+		ExtraHosts:      extraHosts,
 		DNS:             nil,
 		DNSOptions:      nil,
 		DNSSearch:       nil,

@@ -27,10 +27,11 @@ lan-copy/
 │   ├── httpserver/       # 路由、HTTP 处理、SSE / routes, handlers, SSE
 │   ├── filestore/        # 文件操作与上传事务 / files and upload transactions
 │   ├── textstore/        # 文本持久化 / shared-text persistence
+│   ├── tablestore/       # 智能表格 CSV 解析、标记、查询与原子更新 / smart-table CSV marks, queries and atomic updates
 │   ├── printing/         # Windows 打印版面、测试页与文件任务 / layout, test pages and document jobs
 │   ├── updater/          # 更新验签、安装与回滚 / update verification, install, rollback
 │   ├── plugin/           # 插件注册、生命周期、事件推送、协议与 HTTP Client / registry, lifecycle, events, protocol and client
-│   │   └── dockerruntime/ # Docker Engine SDK 适配 / Docker Engine SDK adapter
+│   │   └── dockerruntime/ # Docker/Podman 运行时适配 / Docker and Podman runtime adapter
 │   └── desktop/          # 自启动与平台桌面能力 / autostart and desktop integration
 ├── web/                  # 前端资源，go:embed 内嵌 / Frontend assets embedded via go:embed
 ├── frontend/             # Vue/TypeScript 源工程 / Vue and TypeScript sources
@@ -136,12 +137,14 @@ npm run check-assets
 On macOS/Linux, Make builds Windows amd64 and macOS Apple Silicon packages plus checksums by default.
 
 ```bash
-make build          # 全部制品 + SHA256SUMS / all artifacts + SHA256SUMS
+make build          # 全部制品 + SHA256SUMS，构建号 +1 / all artifacts + SHA256SUMS, build +1
 make windows        # 仅 Windows / Windows only
 make macos          # 仅 macOS / macOS only
 make clean          # 清理制品 / clean artifacts
 make dist-clean     # 删除 release 目录 / remove release dir
 ```
+
+`VERSION` 使用 `x.y.z-build{c}`，例如 `0.8.1-build3`。`make build` 成功后把构建号加一并写回 `VERSION`；基础版本升级时重置为 `-build1`。`make windows`、`make macos` 和 `make artifacts` 只使用已保存版本，不递增。 / `VERSION` uses `x.y.z-build{c}`, for example `0.8.1-build3`. A successful `make build` increments and saves the build number; raising the base version resets it to `-build1`. `make windows`, `make macos`, and `make artifacts` use the saved version without incrementing.
 
 输出保存在 `release/` / Output lands in `release/`：
 
@@ -175,7 +178,24 @@ docker build -t lan-copy .
 docker run --rm -p 8080:8080 -v "$PWD/lan-copy-data:/data" lan-copy
 ```
 
-插件管理需要访问 Docker Engine。宿主机直接运行二进制时默认使用 `loopback` 模式；将 Lan Copy 本身放入容器时，必须加入插件专用网络并把 Docker Socket 交给主服务（不要交给插件）：
+插件管理需要访问 Docker 或 Podman Engine（启动时自动检测；优先 Docker，可用 `DOCKER_HOST` / `CONTAINER_HOST` 覆盖）。Podman 使用 Docker 兼容 API，Socket 通常为 `/run/podman/podman.sock`（rootful）、`$XDG_RUNTIME_DIR/podman/podman.sock`（rootless）或 `podman machine` 的 socket。
+
+Podman 安装后 Docker 兼容 API 的 socket 可能未启用。Lan Copy 自动探测失败且检测到 Podman 时，会按当前身份执行一次 `systemctl --user start podman.socket`（root 为 `systemctl start podman.socket`），只启动不设置开机自启；`LAN_COPY_DISABLE_PODMAN_AUTOSTART=1` 可关闭。自动启动失败时再手动启用：
+
+```bash
+systemctl --user enable --now podman.socket   # rootless
+sudo systemctl enable --now podman.socket     # rootful
+```
+
+如果自动检测失败，页面会列出已尝试的端点；也可以显式指定：
+
+```bash
+DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock ./lan-copy
+```
+
+运行时不可用时，插件页还提供“启动 Podman”按钮：Linux 执行 `systemctl` 启动 socket，Windows/macOS 执行 `podman machine start`；启动完成后自动重新探测，无需重启。该接口对局域网设备开放，仅依赖同源与动作头，请只在可信网络使用。
+
+宿主机直接运行二进制时默认使用 `loopback` 模式；将 Lan Copy 本身放入容器时，必须加入插件专用网络并把对应运行时 Socket 交给主服务（不要交给插件）：
 
 ```bash
 docker network create plugin-network
@@ -187,6 +207,8 @@ docker run -d --name lan-copy --network plugin-network -p 8080:8080 \
 
 协议、镜像构建、安全边界与 API 见 [插件服务协议](PLUGIN-PROTOCOL.md)。
 
+Podman 在 Windows/macOS 上通过 `podman machine` 运行。此时 `host.containers.internal` 只指向虚拟机，Lan Copy 会按固定规则选择宿主局域网 IPv4 注入 `LAN_COPY_API_URL`，并在插件页只读显示地址与理由；`-plugin-api-url` 仍可覆盖。重启插件会重建容器并重新注入，普通启动沿用已有容器。详见协议第 8.1 节。
+
 ## 命令行参数 / Command-line Flags
 
 ```text
@@ -194,6 +216,7 @@ docker run -d --name lan-copy --network plugin-network -p 8080:8080 \
 -dir string      文件存储目录 / storage directory（中文系统 / Chinese OS "共享文件夹-lancopy"，其他 / other "shared-folder-lancopy"）
 -max-gb int      单次上传总大小上限 GiB / max upload size per batch in GiB（默认 / default 10）
 -plugin-network-mode string  插件网络模式 loopback|container / plugin network mode（默认 / default "loopback"）
+-plugin-api-url string  注入插件的 Lan Copy API 地址 / API base URL injected into plugins（默认自动推断；Podman machine 使用宿主局域网 IPv4 / inferred by network mode and runtime）
 -plugin-network string      插件专用 Docker 网络名称 / plugin Docker network（默认 / default "plugin-network"）
 ```
 
@@ -203,7 +226,7 @@ docker run -d --name lan-copy --network plugin-network -p 8080:8080 \
 ./lan-copy -listen :9000 -dir "$HOME/Downloads/LanCopy" -max-gb 20
 ```
 
-上传资源限制可在设置 → 上传中由运行 Lan Copy 的本机修改，也可编辑共享目录同级应用数据目录中的 `upload-resources.json` 并重启服务。默认配置为 3 个并发上传、20 GiB 全局暂存空间和 60 秒读取空闲超时；范围分别为 1–32、1–1024 GiB、5–600 秒。配置文件只在网页保存后创建。单次上传总大小仍由 `-max-gb` 控制。目录上传先通过清单预检返回冲突，再传输文件；预检会话 15 分钟过期，最终提交仍会检查冲突。
+上传资源限制可在设置 → 资源中由运行 Lan Copy 的本机修改，也可编辑共享目录同级应用数据目录中的 `upload-resources.json` 并重启服务。默认配置为 3 个并发上传、20 GiB 全局暂存空间和 60 秒读取空闲超时；范围分别为 1–32、1–1024 GiB、5–600 秒。配置文件只在网页保存后创建。同一页面的“资源详情”显示共享文件、按类型聚合的空间占用、上传任务、暂存空间、下载任务、Lan Copy 进程和运行中插件的 CPU/内存；运行数据每 2 秒刷新，文件类型统计只在打开或手动刷新时扫描。访客可查看统计，但不能修改限制。Lan Copy 自身内存使用 Go 运行时 `MemStats.Sys`，CPU 按单核百分比显示；插件统计来自容器运行时。单次上传总大小仍由 `-max-gb` 控制。目录上传先通过清单预检返回冲突，再传输文件；预检会话 15 分钟过期，最终提交仍会检查冲突。
 
 ## Windows 控制台行为 / Windows Console Behavior
 
@@ -217,10 +240,12 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
 
 ## 架构说明 / Architecture
 
-- 单二进制：根目录将 `web/` 通过 `go:embed` 内嵌并传给 `internal/app`；`app` 组装组件和 `internal/httpserver`，后者在 `net/http.ServeMux` 注册路由。`filestore`、`textstore`、`updater`、`desktop`、`plugin` 不依赖 HTTP 层。`plugin` 通过 `Runtime` 接口隔离运行时，只有 `plugin/dockerruntime` 导入 Docker SDK。
+- 单二进制：根目录将 `web/` 通过 `go:embed` 内嵌并传给 `internal/app`；`app` 组装组件和 `internal/httpserver`，后者在 `net/http.ServeMux` 注册路由。`filestore`、`textstore`、`updater`、`desktop`、`plugin` 不依赖 HTTP 层。`plugin` 通过 `Runtime` 接口隔离运行时，只有 `plugin/dockerruntime` 导入 Docker SDK；该包在启动时探测 Docker 与 Podman 端点，Podman 复用同一 Docker 兼容 API。
 - API 一览：
   - `GET /api/files` 列表（文件与目录列表以 previewType 表示预览能力，不支持的格式为空字符串）。目录上传先用 `POST /api/upload-tree/preflight?path=...` 提交 JSON 清单（`entries: [{path, directory}]`），响应包含一次性会话和冲突列表；确认后使用 `POST /api/upload-tree?path=...&session=...` 以 multipart 提交，首项为 `manifest` JSON（`entries`、`replace`），文件体字段为对应下标的 `file-N`。会话 15 分钟过期，取消时可调用 `DELETE /api/upload-tree/session/{id}`。旧版 `POST /api/upload` 已移除。相对路径逐段使用共用规则校验，拒绝越界、内部保留名前缀（不区分大小写）、Windows 保留设备名、非法字符、文件/目录冲突和清单内大小写别名；最多 10000 项（含隐含父目录）、64 个路径组件、2 MiB 清单，请求总字节数仍受 `-max-gb` 限制。内容流式写入隐藏的 `.upload-txn-*` 事务目录；并发上传、全部暂存文件字节和请求体空闲时间分别受设置页配置约束。完成后在锁内以同文件系统改名提交，并重新校验目标。普通文件同名时自动生成编号名称；目录冲突需确认后整体替换。事务记录、暂存内容与替换备份同处一个目录，进程重启时回滚未完成提交。拖拽使用目录 API 循环读取所有分页并保留空目录，目录选择按钮受浏览器能力限制，可能不包含空目录
   - `GET/PUT /api/settings/upload-resources` 读取或修改上传全局资源限制；访客只读，PUT 仅接受本机同源请求并要求 `X-Lan-Copy-Action: upload-resources`。配置含 `concurrentUploads`、`stagingGiB`、`idleTimeoutSeconds`。
+  - `GET /api/resource-usage` 返回只读占用统计：`storage`（已占字节、文件数和按 `kind` 聚合的 `types`）、`uploads`（进行中与并发上限）、`staging`（已预留字节与配置上限）、`downloads`（进行中数量）。响应 `Cache-Control: no-store`，不含文件名和传输明细，局域网访客可读；共享存储统计失败时返回 500。
+  - `GET /api/system-usage` 返回 Lan Copy 进程与运行中插件容器的实时 CPU/内存：`app` 含 `cpuPercent`、`memoryBytes`、`cpuReady`、`sampledAt`；`plugins` 含合计、运行/失败数量和每个插件的 `items`。进程 CPU 由累计 CPU 时间差分计算，首次采样 `cpuReady=false`；插件聚合复用 2 秒 stats 缓存，HTTP 层限时 3 秒，单项失败只标记该项不可用。响应 `Cache-Control: no-store`，访客可读。
   - `GET /thumbnails/{name}` 图片缩略图：JPEG/PNG/GIF 按比例缩至最长边 128px，限制源文件大小、像素数和并发解码；其他图片格式使用浏览器图片展示。缩略图 URL 携带修改时间和大小以更新浏览器缓存
   - `GET /preview-files/{name}` 预览资源（类型白名单、固定 MIME、inline、Range/HEAD；SVG 以 image/svg+xml 提供并用 sandbox CSP 隔离）；`/preview.html?path=...` 为预览页，文本最多读取前 256 KiB。PDF 使用内嵌 PDF.js 6.4.299 单页渲染，支持翻页和缩放。DOCX 由浏览器端 `docx-preview` 转成 HTML 预览，限制源文件 32 MiB，禁用嵌入 HTML 部件、评论和修订；不支持旧版 `.doc` 预览，仍可下载原文件。XLS/XLSX 由 Web Worker 内的 SheetJS 0.20.3 解析，单文件限制 32 MiB，每张工作表最多显示 250 行、50 列，最多显示 20 个工作表；公式显示缓存值，宏不执行。DOCX、SheetJS 预览资源版本、来源、完整性和许可证分别见 `web/vendor/docx-preview/README.md`、`web/vendor/sheetjs/README.md`；PDF.js 资源见 `web/vendor/pdfjs/README.md`。
   - `GET /files/{name}` 下载、`DELETE /api/files/{name}` 删除（嵌套路径作为整体 URL 编码；列表递归包含子文件夹中的文件）
@@ -228,8 +253,10 @@ The logic lives in `internal/desktop/console_windows.go` (`console_other.go` is 
   - `POST /api/filesystem/{mkdir|move|rename|delete}` 目录操作，JSON 字段为 `path`、`destination`、`name`；不覆盖同名目标，禁止越界路径和符号链接，非空目录删除先返回 409 和 requiresConfirmation=true，经二次确认后以 recursive=true 重试递归删除，根目录不可删除
 
   - `/` 内网空间首页，`/transfer-text` 碎片快传页面（文字、图片碎片的发布、复制、转存和删除；文件上传与浏览统一在内网空间），`/transfer.html` 直接返回同一碎片快传页面；旧地址 `/filesystem.html` 已移除；文件夹对应存储目录中的真实目录，无额外索引数据库
-  - `/plugins` 插件服务页面：管理 Docker 插件镜像、安装与生命周期、配置、健康记录和日志，并在“生命周期”菜单查看事件目录、投递状态和发送测试事件。API 位于 `/api/plugins*`，局域网可访问；写操作要求 `X-Lan-Copy-Action: plugins`（镜像上传为 `plugins-image`）且浏览器调用必须同源。详见 [插件服务协议](PLUGIN-PROTOCOL.md)
+  - `/plugins` 插件服务页面：入口位于“设置 → 插件”，在新标签页打开。管理 Docker/Podman 插件镜像、安装与生命周期、配置、健康记录和日志，并在“对接”菜单查看事件目录、投递状态、发送测试事件和智能表格 API 接入方式。页面子路由为 `/plugins/installed`、`/plugins/images`、`/plugins/integration`，`/plugins` 默认进入插件列表。API 位于 `/api/plugins*`，局域网可访问；写操作要求 `X-Lan-Copy-Action: plugins`（镜像上传为 `plugins-image`）且浏览器调用必须同源。详见 [插件服务协议](PLUGIN-PROTOCOL.md)
   - `GET /api/plugins/event-catalog`、`GET /api/plugins/{id}/events`、`POST /api/plugins/{id}/events/test`：插件生命周期事件目录、每插件投递状态与最近记录、测试事件。上传、文件夹/文件操作和文本操作成功后异步推送；事件队列、重试和签名均不阻塞 HTTP 响应。
+  - `/plugin-app/{id}/...` 插件 Web 界面反向代理：Manifest 声明 `ui` 后，把局域网请求转发到运行中且健康的实例，转发 `X-Forwarded-Prefix`，改写根绝对路径的 `Location`，支持 SSE、上传下载和 WebSocket。停止或不健康返回 503，未声明界面返回 404。
+  - 智能表格内联视图：共享目录中的 CSV 默认是普通文件；在内网空间文件行菜单标记为智能表格后，文件行显示“表格”标记，点击或双击打开单文件内联视图，支持全文搜索（输入即搜并高亮匹配）、排序、分页、列顺序调整、列隐藏、行新增/编辑/删除。标记保存在应用数据目录的 `table-marks.json`，由 `POST /api/tables/mark` 切换，`GET /api/filesystem` 返回可选 `table` 字段。`POST /api/tables/query`、`POST /api/tables/create`、`POST /api/tables/lock-and-update` 保留；写操作要求 `X-Lan-Copy-Action: tables`。列顺序与隐藏偏好保存在 CSV 同目录的 `<完整表格文件名>.hidden.metadata.json`，浏览器 `POST /api/tables/query` 响应附带可选 `layout`，`POST /api/tables/layout` 保存（同样要求 `X-Lan-Copy-Action: tables`）。该侧车文件不改变 CSV 和版本，插件 API 响应不含 `layout`；所有文件列表、搜索、下载、预览、缩略图和容量统计都会过滤 `<文件名>.hidden.metadata.json`。插件通过 Bearer 令牌访问 `/api/plugin-api/tables*`，可按路径访问任意合法 CSV，查询和原子更新与内联视图共用同一版本校验逻辑。
   - `GET/POST /api/texts`、`POST /api/texts/fragments`、`DELETE /api/texts/{id}` 共享碎片保存在共享目录同级的 `.lan-copy-app-data-<共享目录名>/` 中；图片通过 `GET /api/texts/{id}/images/{index}` 读取。旧版本在共享目录内留下的文本库和上传事务会在启动时迁入该目录。
   - `GET /api/events` 统一 SSE 变更流，事件名为 `change`，JSON 数据含递增 `version` 及 `files` / `texts` 标记；25 秒心跳。浏览器按需刷新对应列表，断线时页面可见期间每分钟轮询恢复。`GET /api/access` 局域网地址探测
   - `GET /api/shutdown/status` 查询本机在途上传/下载数；`POST /api/shutdown` 网页关停服务（仅 localhost；有在途传输时需提交“强制关闭”确认）；系统信号与更新使用同一关停流程。`GET /healthz` 健康检查
@@ -259,9 +286,9 @@ The exe icon comes from the pre-generated `lan-copy.syso` in the repo root, whic
 
 ## 发布流程 / Release Process
 
-GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交版本，不执行自动递增。
+GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交的完整版本（含构建号），不执行自动递增。
 
-GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed version without incrementing it.
+GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed full version, including the build number, without incrementing it.
 
 1. 更新两个 README 与本文档 / update both READMEs and this doc
 2. `go vet ./... && go test ./...` 全部通过 / all green

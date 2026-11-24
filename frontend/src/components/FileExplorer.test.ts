@@ -55,6 +55,51 @@ describe('FileExplorer', () => {
     } finally { click.mockRestore() }
   })
 
+  it('marks a CSV and opens the inline table from its badge', async () => {
+    wrapper.unmount()
+    let marked = false
+    const csv = { name: 'orders.csv', path: 'data/orders.csv', directory: false, modified: '2026-11-19T00:00:00Z', size: 20, previewType: 'text/csv', table: false }
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/filesystem?')) return response({ entries: [{ ...csv, table: marked }] })
+      if (url === '/api/tables/mark') {
+        const body = JSON.parse(String(init?.body)) as { marked: boolean }
+        marked = body.marked
+        return response({ path: csv.path, marked })
+      }
+      if (url === '/api/tables/query') {
+        return response({ path: csv.path, version: 'sha256:v1', columns: ['id', 'status'], rows: [{ _row: 1, values: { id: 'A', status: 'new' } }], total: 1, offset: 0, limit: 50, modified: csv.modified })
+      }
+      return response({})
+    })
+    wrapper = mount(FileExplorer, { attachTo: document.body })
+    await flushPromises()
+
+    await wrapper.get(`.explorer-row[data-path="${csv.path}"] .row-menu-button`).trigger('click')
+    let actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    expect(actions.some(action => action.label === '标记为智能表格')).toBe(true)
+    expect(actions.some(action => action.label === '打开表格')).toBe(false)
+    await actions.find(action => action.label === '标记为智能表格')!.action!()
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledWith('/api/tables/mark', expect.objectContaining({ method: 'POST' }))
+    expect(wrapper.find(`.explorer-row[data-path="${csv.path}"] .table-tag`).exists()).toBe(true)
+
+    await wrapper.get(`.explorer-row[data-path="${csv.path}"] .table-tag`).trigger('click')
+    await flushPromises()
+    expect(wrapper.find('.tables-inline').exists()).toBe(true)
+    expect(wrapper.text()).toContain('A')
+
+    await wrapper.get('#tableBack').trigger('click')
+    expect(wrapper.find('.tables-inline').exists()).toBe(false)
+
+    await wrapper.get(`.explorer-row[data-path="${csv.path}"] .row-menu-button`).trigger('click')
+    actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]
+    expect(actions.some(action => action.label === '打开表格')).toBe(true)
+    expect(actions.some(action => action.label === '预览原文件')).toBe(true)
+    await actions.find(action => action.label === '取消表格标记')!.action!()
+    await flushPromises()
+    expect(wrapper.find(`.explorer-row[data-path="${csv.path}"] .table-tag`).exists()).toBe(false)
+  })
+
   it('does not offer a file download for folders', async () => {
     await wrapper.get('.explorer-row[data-path="beta"] .row-menu-button').trigger('click')
     const actions = vi.mocked(contextMenu.open).mock.calls.at(-1)![0]

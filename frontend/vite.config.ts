@@ -42,12 +42,18 @@ export default defineConfig(({ command }) => ({
         const query = (request.url || '').slice(pathname.length)
         if (pathname === '/transfer-text') request.url = `/transfer.html${query}`
         if (pathname === '/print-queue') request.url = `/print.html${query}`
-        if (pathname === '/plugins') request.url = `/plugins.html${query}`
+        if (pathname === '/plugins' || pathname.startsWith('/plugins/')) request.url = `/plugins.html${query}`
+        if (pathname === '/tables' || pathname === '/tables.html') {
+          response.statusCode = 302
+          response.setHeader('Location', '/')
+          response.end()
+          return
+        }
         next()
       })
     },
   }],
-  server: { proxy: Object.fromEntries(['/api', '/files', '/preview-files', '/thumbnails', '/logo'].map(prefix => [prefix, proxyOptions])) },
+  server: { proxy: Object.fromEntries(['/api', '/plugin-app', '/files', '/preview-files', '/thumbnails', '/logo'].map(prefix => [prefix, proxyOptions])) },
   publicDir: resolve(root, 'public'),
   base: command === 'serve' ? '/' : '/_frontend/',
   build: {
@@ -63,7 +69,6 @@ export default defineConfig(({ command }) => ({
         preview: resolve(root, 'preview.html'),
         print: resolve(root, 'print.html'),
         plugins: resolve(root, 'plugins.html'),
-
       },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',

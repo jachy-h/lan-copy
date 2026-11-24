@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	goruntime "runtime"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,8 +24,18 @@ type Options struct {
 	AllowedDataRoots []string
 	StopOnExit       bool
 	MaxImageBytes    int64
-	Logger           *log.Logger
-	Now              func() time.Time
+	APIBaseURL       string
+	// Port is the local HTTP port used to derive the default plugin API URL
+	// when APIBaseURL is empty.
+	Port string
+	// HostOS is the operating system running Lan Copy. It defaults to
+	// runtime.GOOS and is injectable for tests.
+	HostOS string
+	// HostAddresses supplies candidate LAN IPv4 addresses for Podman machine.
+	// It defaults to the system interfaces and is injectable for tests.
+	HostAddresses func() []HostAddress
+	Logger        *log.Logger
+	Now           func() time.Time
 }
 
 // Manager owns the persisted registry and coordinates the runtime. Mutable
@@ -34,8 +47,16 @@ type Manager struct {
 	roots         []string
 	stopExit      bool
 	maxImageBytes int64
+	apiBaseURL    string
+	port          string
+	hostOS        string
+	hostAddresses func() []HostAddress
 	logger        *log.Logger
 	now           func() time.Time
+
+	// runtimeType can change if the plugin page starts Podman after startup
+	// discovery failed. It is read from lifecycle and info paths without m.mu.
+	runtimeType atomic.Value
 
 	mu               sync.Mutex
 	state            State
@@ -83,6 +104,14 @@ func NewManager(store *Store, runtime Runtime, opts Options) (*Manager, error) {
 	if maxImageBytes <= 0 {
 		maxImageBytes = MaxImageUploadBytes
 	}
+	hostOS := opts.HostOS
+	if hostOS == "" {
+		hostOS = goruntime.GOOS
+	}
+	hostAddresses := opts.HostAddresses
+	if hostAddresses == nil {
+		hostAddresses = collectHostAddresses
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	manager := &Manager{
 		store:         store,
@@ -93,6 +122,10 @@ func NewManager(store *Store, runtime Runtime, opts Options) (*Manager, error) {
 		logger:        opts.Logger,
 		now:           opts.Now,
 		maxImageBytes: maxImageBytes,
+		apiBaseURL:    strings.TrimRight(opts.APIBaseURL, "/"),
+		port:          opts.Port,
+		hostOS:        hostOS,
+		hostAddresses: hostAddresses,
 		state:         state,
 		locks:         make(map[string]*sync.Mutex),
 		metrics:       make(map[string]*CallMetrics),
@@ -108,6 +141,7 @@ func NewManager(store *Store, runtime Runtime, opts Options) (*Manager, error) {
 		ctx:          ctx,
 		cancel:       cancel,
 	}
+	manager.runtimeType.Store(manager.settings.Type)
 	if changed {
 		if err := manager.persist(); err != nil {
 			manager.logger.Printf("插件任务恢复写盘失败: %v", err)
@@ -193,13 +227,16 @@ func (m *Manager) stopAll(ctx context.Context) {
 }
 
 func (m *Manager) RuntimeInfo(ctx context.Context) RuntimeInfo {
+	address := m.resolveAPIAddress()
 	info, err := m.runtime.Info(ctx)
 	settings := m.settings
 	info.NetworkMode = settings.NetworkMode
 	info.Network = settings.Network
+	info.APIBaseURL = address.URL
+	info.APIBaseURLReason = address.Reason
 	info.DataRoots = append([]string(nil), m.roots...)
 	if err != nil {
-		info.Type = settings.Type
+		info.Type = m.currentRuntimeType()
 		info.Available = false
 		info.Error = friendlyRuntimeError(err)
 		return info
@@ -208,6 +245,44 @@ func (m *Manager) RuntimeInfo(ctx context.Context) RuntimeInfo {
 	info.Orphans = append([]string(nil), m.orphans...)
 	m.mu.Unlock()
 	return info
+}
+
+// resolveAPIAddress applies the explicit flag first, then derives an address
+// for the current network mode and runtime. It is called for every container
+// creation and for the read-only runtime display.
+func (m *Manager) resolveAPIAddress() APIAddress {
+	if m.apiBaseURL != "" {
+		return APIAddress{URL: m.apiBaseURL, Reason: "使用 -plugin-api-url 显式指定"}
+	}
+	return DefaultAPIBaseURL(
+		m.settings.NetworkMode, m.port, m.currentRuntimeType(), m.hostOS, m.hostAddresses(),
+	)
+}
+
+// currentRuntimeType reflects a runtime started after startup detection failed.
+func (m *Manager) currentRuntimeType() string {
+	if value, ok := m.runtimeType.Load().(string); ok && value != "" {
+		return value
+	}
+	return m.settings.Type
+}
+
+// StartRuntime brings the local container runtime up and records its actual
+// type, so later installs use the right host mapping and API URL.
+func (m *Manager) StartRuntime(ctx context.Context, progress func(percent int, message string)) error {
+	starter, ok := m.runtime.(RuntimeStarter)
+	if !ok {
+		return fmt.Errorf("%w: 当前运行时无法从这里启动", ErrUnsupported)
+	}
+	if err := starter.StartRuntime(ctx, progress); err != nil {
+		return err
+	}
+	info, err := m.runtime.Info(ctx)
+	if err != nil {
+		return err
+	}
+	m.runtimeType.Store(info.Type)
+	return nil
 }
 
 func (m *Manager) Plugins() []PluginView {
@@ -282,6 +357,34 @@ func (m *Manager) Manifest(pluginID string) (Manifest, error) {
 		return image.Manifest, nil
 	}
 	return Manifest{}, fmt.Errorf("%w: plugin %s", ErrNotFound, pluginID)
+}
+
+// ProxyTarget resolves the upstream address for a plugin browser interface.
+// The lookup is per request because loopback host ports change after restart.
+func (m *Manager) ProxyTarget(pluginID string) (ProxyTarget, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.pluginLocked(pluginID); !ok {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin %s", ErrPluginNotInstalled, pluginID)
+	}
+	instance, ok := instanceForPlugin(m.state.Instances, pluginID)
+	if !ok {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin %s", ErrPluginNotInstalled, pluginID)
+	}
+	image, ok := imageByID(m.state.Images, instance.ImageID)
+	if !ok {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin image record is missing", ErrPluginNotInstalled)
+	}
+	if image.Manifest.UI == nil {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin %s", ErrPluginNoUI, pluginID)
+	}
+	if instance.InternalAddress == "" || (instance.Status != StatusRunning && instance.Status != StatusUnhealthy) {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin %s", ErrPluginNotRunning, pluginID)
+	}
+	if instance.HealthStatus != HealthHealthy {
+		return ProxyTarget{}, fmt.Errorf("%w: plugin %s", ErrPluginUnhealthy, pluginID)
+	}
+	return ProxyTarget{BaseURL: instance.InternalAddress, UIPath: image.Manifest.UI.Path}, nil
 }
 
 func (m *Manager) Capabilities(pluginID string) ([]string, error) {
@@ -602,7 +705,22 @@ func friendlyRuntimeError(err error) string {
 		return ""
 	}
 	if errors.Is(err, ErrRuntimeUnavailable) {
-		return "无法连接 Docker Engine，请确认 Docker 已安装并正在运行"
+		if detail := runtimeErrorDetail(err); detail != "" {
+			return detail
+		}
+		return "无法连接容器运行时（Docker 或 Podman）。请确认 Docker 服务已启动；使用 Podman 时请启用 Docker 兼容 API（rootless：systemctl --user enable --now podman.socket，rootful：sudo systemctl enable --now podman.socket），或设置 DOCKER_HOST 指向 podman.sock"
 	}
 	return err.Error()
+}
+
+// runtimeErrorDetail returns the explanatory text wrapped around
+// ErrRuntimeUnavailable, if any.
+func runtimeErrorDetail(err error) string {
+	message := err.Error()
+	detail := strings.TrimSpace(strings.TrimPrefix(message, ErrRuntimeUnavailable.Error()))
+	detail = strings.TrimSpace(strings.TrimPrefix(detail, ":"))
+	if detail == "" || detail == message {
+		return ""
+	}
+	return detail
 }

@@ -59,8 +59,8 @@ export async function deployTarget(args = process.argv.slice(2), env = process.e
     console.log('make deploy                    # 构建并部署到默认目标')
     console.log('make deploy DEPLOY_URL=…       # 部署到其他目标')
     console.log('make deploy DEPLOY_PACKAGE=…   # 指定目标平台发布包')
-    console.log('make deploy VERSION=x.y.z      # 使用指定版本构建')
-    console.log('node scripts/deploy-target.mjs [--url URL] [--package 包] [--version x.y.z] [--skip-build] [--dry-run]')
+    console.log('make deploy VERSION=x.y.z[-buildN]  # 使用指定版本构建')
+    console.log('node scripts/deploy-target.mjs [--url URL] [--package 包] [--version x.y.z[-buildN]] [--skip-build] [--dry-run]')
     return
   }
   const packagePath = values.package || packageFor(await platformOf(values.url, fetchImpl))

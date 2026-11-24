@@ -82,6 +82,14 @@ func (s *Server) pluginDispatch() http.Handler {
 			}
 			return
 		}
+		if len(segments) == 2 && segments[0] == "runtime" && segments[1] == "start" {
+			if r.Method != http.MethodPost {
+				methodNotAllowed(w, "POST")
+				return
+			}
+			s.startPluginRuntime(w, r)
+			return
+		}
 		if len(segments) == 2 && segments[0] == "images" && segments[1] == "upload" {
 			if r.Method != http.MethodPost {
 				methodNotAllowed(w, "POST")
@@ -193,6 +201,28 @@ func (s *Server) pluginRuntime(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	writeJSON(w, http.StatusOK, s.plugins.RuntimeInfo(ctx))
+}
+
+// startPluginRuntime lets any device that can manage plugins ask the host to
+// start Podman. The operation runs as a task so long machine boots do not hold
+// an HTTP request open.
+func (s *Server) startPluginRuntime(w http.ResponseWriter, r *http.Request) {
+	if !s.requirePlugins(w, r, pluginAction) {
+		return
+	}
+	task, err := s.plugins.RunTask("runtime-start", "", func(ctx context.Context, progress func(int, string)) (any, error) {
+		if err := s.plugins.StartRuntime(ctx, progress); err != nil {
+			return nil, err
+		}
+		infoCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+		defer cancel()
+		return s.plugins.RuntimeInfo(infoCtx), nil
+	})
+	if err != nil {
+		pluginHTTPError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"taskId": task.ID})
 }
 
 func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {

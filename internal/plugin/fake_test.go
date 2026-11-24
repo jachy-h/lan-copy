@@ -11,15 +11,18 @@ import (
 )
 
 type fakeRuntime struct {
-	mu         sync.Mutex
-	info       RuntimeInfo
-	imported   []ImageInfo
-	containers map[string]*InstanceInfo
-	created    []CreateInstanceRequest
-	address    string
-	nextID     int
-	failNext   error
-	logs       string
+	mu           sync.Mutex
+	info         RuntimeInfo
+	imported     []ImageInfo
+	containers   map[string]*InstanceInfo
+	created      []CreateInstanceRequest
+	address      string
+	nextID       int
+	failNext     error
+	startErr     error
+	statsErr     error
+	statsErrByID map[string]error
+	logs         string
 }
 
 func newFakeRuntime() *fakeRuntime {
@@ -32,7 +35,30 @@ func newFakeRuntime() *fakeRuntime {
 	}
 }
 
-func (f *fakeRuntime) Info(context.Context) (RuntimeInfo, error) { return f.info, nil }
+func (f *fakeRuntime) Info(context.Context) (RuntimeInfo, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.info, nil
+}
+
+// StartRuntime simulates the plugin page bringing Podman up.
+func (f *fakeRuntime) StartRuntime(_ context.Context, progress func(int, string)) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if progress != nil {
+		progress(50, "starting podman")
+	}
+	if f.startErr != nil {
+		err := f.startErr
+		f.startErr = nil
+		return err
+	}
+	f.info.Type = "podman"
+	f.info.Available = true
+	f.info.Error = ""
+	f.info.StartAvailable = false
+	return nil
+}
 
 func (f *fakeRuntime) PullImage(context.Context, PullImageRequest) (ImageInfo, error) {
 	return ImageInfo{}, ErrUnsupported
@@ -171,7 +197,15 @@ func (f *fakeRuntime) Logs(context.Context, string, LogOptions) (io.ReadCloser, 
 	return io.NopCloser(strings.NewReader(f.logs)), nil
 }
 
-func (f *fakeRuntime) Stats(context.Context, string) (*Stats, error) {
+func (f *fakeRuntime) Stats(_ context.Context, runtimeID string) (*Stats, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.statsErr != nil {
+		return nil, f.statsErr
+	}
+	if err := f.statsErrByID[runtimeID]; err != nil {
+		return nil, err
+	}
 	return &Stats{CPUPercent: 1.5, MemoryBytes: 1024, MemoryLimitBytes: 2048, PIDs: 3}, nil
 }
 

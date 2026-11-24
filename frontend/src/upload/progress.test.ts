@@ -1,6 +1,6 @@
 import { nextTick } from 'vue'
 import { afterEach, describe, expect, it } from 'vitest'
-import { beginUpload, cancelUpload, completeUpload, dismissUpload, failUpload, minimizeUpload, openUpload, prepareUpload, startUpload, updateReading, updateUploadProgress, uploadProgress } from './progress'
+import { beginUpload, cancelUpload, completeUpload, dismissUpload, failUpload, minimizeUpload, openUpload, prepareUpload, startUpload, updateReading, updateUploadProgress, uploadProgress, waitForPlugin } from './progress'
 
 afterEach(() => dismissUpload())
 
@@ -37,6 +37,10 @@ describe('upload progress state', () => {
     expect(uploadProgress.progress).toBe(90)
     updateUploadProgress(1000, 1000)
     expect(uploadProgress.progress).toBe(99)
+
+    waitForPlugin('文件已上传，正在等待插件处理…')
+    expect(uploadProgress).toMatchObject({ phase: 'processing', progress: null, speed: 0 })
+    expect(uploadProgress.label).toContain('等待插件处理')
 
     startUpload('正在重试上传')
     expect(uploadProgress).toMatchObject({ progress: 0, loaded: 0, total: 0, speed: 0 })

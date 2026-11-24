@@ -9,7 +9,7 @@ VERSION ?=
 PUBLISH_REMOTE ?= origin
 DEPLOY_URL ?= http://192.168.2.88:8080/
 DEPLOY_PACKAGE ?=
-# Builds and packaging use VERSION_FILE unless VERSION is explicitly supplied.
+# VERSION_FILE holds the current x.y.z-buildN version; a successful build advances it.
 BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
 UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
 UPDATE_SIGNING_KEY_FILE ?= .config/update.key

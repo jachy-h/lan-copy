@@ -57,9 +57,9 @@ func (s *Server) publishMutation(result filestore.MutationResult) {
 	})
 }
 
-// publishUpload sends one batch event per committed upload. Large folder
-// uploads are truncated at a fixed item limit so the payload stays bounded.
-func (s *Server) publishUpload(destination string, files []fileInfo, directories []string) {
+// uploadEventData builds the bounded payload shared by the asynchronous
+// lifecycle event and the synchronous upload hook.
+func uploadEventData(destination string, files []fileInfo, directories []string) plugin.FileUploadedData {
 	data := plugin.FileUploadedData{
 		Destination: destination,
 		Files:       make([]plugin.UploadedFile, 0, len(files)),
@@ -83,7 +83,13 @@ func (s *Server) publishUpload(destination string, files []fileInfo, directories
 		data.Directories = append(data.Directories, directory)
 		remaining--
 	}
-	s.publishEvent("file.uploaded", data)
+	return data
+}
+
+// publishUpload sends one batch event per committed upload. Large folder
+// uploads are truncated at a fixed item limit so the payload stays bounded.
+func (s *Server) publishUpload(destination string, files []fileInfo, directories []string) {
+	s.publishEvent("file.uploaded", uploadEventData(destination, files, directories))
 }
 
 func (s *Server) publishTextEvent(eventType string, item textstore.Fragment) {

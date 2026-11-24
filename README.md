@@ -12,6 +12,15 @@
 
 ## 开始使用
 
+**macOS（Apple Silicon）可以用 Homebrew 安装**，跳过手动解压：
+
+```bash
+brew install jachy-h/jachy-h/lan-copy
+brew services start lan-copy   # 后台常驻，随后打开 http://localhost:8080
+```
+
+Homebrew 安装后请用 `brew upgrade lan-copy` 升级；应用内更新会改写 Homebrew 管理的文件，不建议使用。暂不支持 Intel Mac。
+
 1. 到 [下载页面](https://github.com/jachy-h/lan-copy/releases/latest) 获取对应系统的压缩包并解压。目前提供 Windows x64 和 macOS Apple Silicon 版本。
 2. 启动程序：
    - **Windows**：双击 `lan-copy.exe`，会自动打开浏览器。
@@ -27,9 +36,13 @@
 
 **打印（Windows 主机）**：点击分享按钮左侧的打印图标，选择主机已安装的打印机，再选择本地 PDF、JPG/JPEG 或 PNG。可翻页、放大预览，确认后发送到主机打印；也可在内网空间中点击支持文件右侧的 **⋯ → 打印**，自动进入该文件的打印预览；点击文件名仍然打开普通预览。也可先打印测试页。当前按主机默认纸张与方向打印，固定 1 份、单面；单个文件最多 50 MiB，PDF 最多 50 页。任务“已提交”表示进入 Windows 队列，实际出纸请在设备处确认。
 
-**插件服务（局域网可管理）**：顶栏“插件服务”页面可通过 Docker 导入、安装、启动、停止和查看本地插件，上传 `docker save` 生成的镜像包即可。插件以受限容器运行，服务本身对局域网可达；任何能访问 Lan Copy 的设备都可管理插件，请只安装可信镜像。需要运行 Lan Copy 的电脑已安装 Docker。插件可在 Manifest 中订阅上传、文件夹/文件操作和文本变化等生命周期事件，“生命周期”菜单展示事件目录、投递状态并可发送测试事件。协议、镜像构建与安全边界见 [插件服务协议](docs/PLUGIN-PROTOCOL.md)。
+**智能表格**：共享目录中的 CSV 默认仍是普通文件；直接点击 CSV/TSV 文件名会以只读表格预览，首行为表头，表格与原始文本可在工具栏切换。需要编辑、查询或插件读写时，在内网空间的文件行菜单中选择“标记为智能表格”，文件会显示“表格”标记，点击即可浏览、搜索、排序和编辑。搜索框会同时搜索全部列，输入后自动查询并高亮匹配文字。表格工具栏的“列设置”可以调整列的显示顺序、隐藏或显示指定列；偏好保存在 CSV 同目录的 `<表格文件名>.hidden.metadata.json` 中，只影响当前视图，不修改 CSV，也不改变插件 API 的列顺序和版本。该元数据文件不会出现在 Lan Copy 的文件列表、搜索、下载或预览中。插件通过 `LAN_COPY_API_URL`/`LAN_COPY_API_TOKEN` 调用查询与 `lock_and_update` 原子更新，使用版本校验避免并发覆盖。
+
+**插件服务（局域网可管理）**：在“设置 → 插件”中点击“在新标签页打开插件服务”，即可通过 Docker 或 Podman 导入、安装、启动、停止和查看本地插件，上传 `docker save` / `podman save` 生成的镜像包即可。插件以受限容器运行，服务本身对局域网可达；任何能访问 Lan Copy 的设备都可管理插件，请只安装可信镜像。启动时会自动检测可用的 Docker 或 Podman（默认优先 Docker），运行时不可用时可在插件页点击“启动 Podman”。需要运行 Lan Copy 的电脑已安装其中之一。插件可在 Manifest 中订阅上传、文件夹/文件操作和文本变化等生命周期事件，“对接”菜单展示事件目录、投递状态、测试事件和智能表格 API 接入方式。Manifest 声明 `ui` 的插件会自动获得局域网可访问的界面入口 `http://<lan-copy>/plugin-app/<插件ID>/`，插件按 `X-Forwarded-Prefix` 适配子路径即可。需要在上传后弹窗确认的插件可声明 `uploadHook`：上传成功后 Lan Copy 调用插件 Hook，并把插件返回的页面显示在同源弹窗中；Hook 失败或超时不会影响上传。协议、镜像构建与安全边界见 [插件服务协议](docs/PLUGIN-PROTOCOL.md)。
 
 **其他设备打不开？** 确认连接同一局域网，并允许 Lan Copy 通过系统防火墙；访客 Wi-Fi 可能隔离设备。
+
+**插件连不上 Lan Copy？** Windows/macOS 上的 Podman 运行在 `podman machine` 虚拟机里，容器中的 `host.containers.internal` 指向虚拟机而不是宿主机。Lan Copy 会自动改用宿主局域网 IPv4，并在“设置 → 插件”顶部只读显示“插件 API 地址”和选择理由。若地址不正确，请确认宿主机防火墙放行监听端口，或用 `-plugin-api-url http://<可达地址>:<端口>` 显式指定；修改后重启插件（会重建容器）或重新安装，使新地址注入容器。Linux 原生 Podman 和 Docker 不受影响。
 
 **更新软件**：打开齿轮图标 → **更新**，自动检查 GitHub 最新正式版；发现新版后，本机用户和局域网访客均可选择 **下载并更新**，更新运行 Lan Copy 的电脑；也可选择 **前往查看**。还可手动下载对应系统的新版发布包，拖入完整压缩包。签名验证通过后会自动安装、重启并刷新页面，保留共享内容。请先完成其他文件传输。
 
@@ -62,20 +75,24 @@ go run .
 
 ```bash
 make test                    # 运行构建脚本与 Go 测试
-make build                   # 使用 VERSION 中的版本构建，不自动递增
-make build VERSION=1.2.3     # 指定版本构建
-make publish                 # 干净的 main 分支：构建、提交版本、打标签并推送发布
+make build                   # 递增构建号，例如 0.8.1-build3 → 0.8.1-build4
+make build VERSION=0.8.2     # 升级基础版本，首次构建为 0.8.2-build1
+make publish                 # 干净的 main 分支：递增构建号、提交版本、打标签并推送发布
 make deploy                  # 构建并部署到默认目标（自动选择平台包）
 ```
 
-构建默认直接使用 `VERSION` 中的版本（文件不存在时使用 `0.1.0`），不自动递增；显式传入 `VERSION=x.y.z` 时使用该版本。构建成功后才保存所用版本到 `VERSION`，失败时不改版本。分发 `release/` 中对应系统的压缩包。`VERSION` 应随发布代码提交，`.config/` 和 `release/` 已被 Git 忽略。
+版本格式为 `x.y.z-build{c}`，例如 `0.8.1-build3` 表示 `0.8.1` 的第 3 次构建；文件不存在时从 `0.1.0-build1` 开始。每次 `make build` 在成功打包后把构建号 `+1` 写回 `VERSION`，失败时不改版本；基础版本升级（例如 `0.8.1` → `0.8.2`）时构建号归零，首次构建为 `0.8.2-build1`。显式 `VERSION=x.y.z-build{c}` 会原样使用，CI 和重跑依赖这一行为。分发 `release/` 中对应系统的压缩包。`VERSION` 应随发布代码提交，`.config/` 和 `release/` 已被 Git 忽略。
 
-`make publish` 要求先提交所有代码，并输入 `y` 确认目标版本（`n` 取消），自动递增版本并仅提交 `VERSION`，创建版本标签后推送到 `origin`，由 Actions 完成正式发布。
+`make publish` 要求先提交所有代码，并输入 `y` 确认完整目标版本（`n` 取消）；默认在同一基础版本上递增构建号，并仅提交 `VERSION`，创建 `v0.8.1-build4` 形式的标签后推送到 `origin`，由 Actions 完成正式发布。升级基础版本使用 `make publish VERSION=0.9.0`，首次为 `0.9.0-build1`。
 
 支持通过 `scripts/deploy.py` 将签名包上传到目标机器并确认重启结果，替代浏览器拖拽；配置和命令见[本地脚本自动部署](docs/UPDATING.md#本地脚本自动部署cd)。
 
-推送 `main` 后，GitHub Actions 自动测试并构建签名包；推送与 `VERSION` 一致的 `v版本号` 标签后发布 GitHub Release。首次需配置仓库签名密钥，见[自动构建与发布](docs/GITHUB-ACTIONS.md)。
+推送 `main` 后，GitHub Actions 自动测试并构建签名包；推送与 `VERSION` 完全一致的 `vx.y.z-build{c}` 标签后发布 GitHub Release。首次需配置仓库签名密钥，见[自动构建与发布](docs/GITHUB-ACTIONS.md)。
 
 - [开发者文档](docs/DEVELOPING.md)：架构、命令行参数、测试、Docker 和跨平台构建。
 - [更新发布说明](docs/UPDATING.md)：签名密钥、版本管理、更新包格式和失败恢复。
 - [Windows 安全与签名发布](docs/WINDOWS-SECURITY.md)：系统拦截提示及 Windows 代码签名。
+
+## 许可证
+
+[MIT](LICENSE)

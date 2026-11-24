@@ -47,6 +47,11 @@ func (s *Store) EventToken(instanceID string) (string, error) {
 	return s.box.EventToken(instanceID)
 }
 
+// APIToken derives the table API token for one instance.
+func (s *Store) APIToken(instanceID string) (string, error) {
+	return s.box.APIToken(instanceID)
+}
+
 func (s *Store) Load() (State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

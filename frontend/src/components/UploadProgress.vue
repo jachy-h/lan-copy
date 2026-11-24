@@ -3,12 +3,14 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { dismissUpload, minimizeUpload, uploadProgress as transfer } from '../upload/progress'
 
 const dialog = ref<HTMLElement | null>(null)
-const active = computed(() => transfer.phase === 'reading' || transfer.phase === 'uploading')
-const titles = { idle: '', reading: '准备上传', uploading: '正在传输文件', complete: '上传完成', error: '上传失败', cancelled: '上传已取消' } as const
+const active = computed(() => transfer.phase === 'reading' || transfer.phase === 'uploading' || transfer.phase === 'processing')
+const titles = { idle: '', reading: '准备上传', uploading: '正在传输文件', processing: '处理上传结果', complete: '上传完成', error: '上传失败', cancelled: '上传已取消' } as const
 const title = computed(() => titles[transfer.phase])
 const percent = computed(() => transfer.progress === null ? '' : `${transfer.progress}%`)
 const status = computed(() => {
   if (transfer.phase === 'reading') return '准备中'
+  if (transfer.phase === 'uploading') return percent.value
+  if (transfer.phase === 'processing') return '等待插件'
   if (transfer.phase === 'complete') return '已刷新列表'
   if (transfer.phase === 'error') return '失败'
   if (transfer.phase === 'cancelled') return '已取消'
@@ -20,6 +22,7 @@ const meta = computed(() => {
     const amount = transfer.total > 0 ? `${formatBytes(transfer.loaded)} / ${formatBytes(transfer.total)}` : '正在计算文件大小…'
     return transfer.speed > 0 ? `${amount} · ${formatBytes(transfer.speed)}/s` : amount
   }
+  if (transfer.phase === 'processing') return '文件已上传，正在等待插件处理…'
   if (transfer.phase === 'complete') return transfer.total > 0 ? `共 ${formatBytes(transfer.total)} · 文件列表已更新` : '文件列表已更新'
   if (transfer.phase === 'error') return '请检查网络或权限后重新拖入文件'
   if (transfer.phase === 'cancelled') return '原有内容已保留'

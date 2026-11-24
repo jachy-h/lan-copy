@@ -3,6 +3,7 @@ package httpserver
 import (
 	"errors"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"strings"
 
 	"lan-copy/internal/desktop"
+	"lan-copy/internal/filestore"
 	"lan-copy/internal/plugin"
 )
 
@@ -40,6 +42,10 @@ func (s *Server) previewFile(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) serveSharedFile(w http.ResponseWriter, r *http.Request, preview bool) {
 	name := r.PathValue("name")
+	if filestore.IsHiddenMetadata(name) {
+		writeError(w, http.StatusNotFound, "文件不存在")
+		return
+	}
 	_, pathErr := s.files.Path(name)
 	if pathErr != nil || name == "" {
 		filesystemError(w, errOrInvalid(pathErr))
@@ -87,6 +93,10 @@ func (s *Server) handleLocalFileAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
+	if filestore.IsHiddenMetadata(name) {
+		writeError(w, http.StatusNotFound, "文件不存在")
+		return
+	}
 	_, err := s.files.Path(name)
 	if err != nil || name == "" {
 		filesystemError(w, errOrInvalid(err))
@@ -171,6 +181,10 @@ func openLocalPath(filePath, action string) error {
 
 func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	if filestore.IsHiddenMetadata(name) {
+		writeError(w, http.StatusNotFound, "文件不存在")
+		return
+	}
 	_, err := s.files.Path(name)
 	if err != nil || name == "" {
 		filesystemError(w, errOrInvalid(err))
@@ -190,6 +204,11 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 500, "无法删除文件")
 		}
 		return
+	}
+	if s.tables != nil {
+		if layoutErr := s.tables.RemoveLayout(name); layoutErr != nil {
+			log.Printf("删除表格列偏好失败: path=%s: %v", name, layoutErr)
+		}
 	}
 	s.notifyFilesChanged()
 	s.publishEvent("file.deleted", plugin.EntryEventData{Path: name, Name: path.Base(name), Size: size})

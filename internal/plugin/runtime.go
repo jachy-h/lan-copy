@@ -30,8 +30,14 @@ type Runtime interface {
 	Stats(ctx context.Context, runtimeID string) (*Stats, error)
 }
 
+// RuntimeStarter is an optional capability implemented by runtimes that can
+// bring the local container runtime up from the plugin page.
+type RuntimeStarter interface {
+	StartRuntime(ctx context.Context, progress func(percent int, message string)) error
+}
+
 // RuntimeSettings are the deployment-specific choices shared by the manager
-// and the Docker implementation.
+// and the container runtime implementation. Type is "docker" or "podman".
 type RuntimeSettings struct {
 	Type        string
 	NetworkMode string // loopback | container

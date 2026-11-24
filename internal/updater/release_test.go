@@ -20,7 +20,11 @@ func TestCompareReleaseVersions(t *testing.T) {
 		bad  bool
 	}{
 		{"v1.10.0", "1.9.9", 1, false}, {"0.1.10", "v0.1.10", 0, false}, {"1.0.0", "2.0.0", -1, false},
+		{"0.8.1-build3", "0.8.1-build2", 1, false}, {"0.8.1-build2", "0.8.2-build1", -1, false},
+		{"0.8.1", "0.8.1-build1", -1, false}, {"v0.8.1-build3", "0.8.1-build3", 0, false},
+		{"0.8.1-build10", "0.8.1-build9", 1, false}, {"0.8.2-build1", "0.8.1-build99", 1, false},
 		{"dev", "1.0.0", 0, true}, {"1.0.0-beta", "1.0.0", 0, true}, {"01.2.3", "1.2.3", 0, true},
+		{"1.0.0-build0", "1.0.0", 0, true}, {"1.0.0-build01", "1.0.0", 0, true}, {"1.0.0-build", "1.0.0", 0, true},
 	} {
 		got, err := CompareVersions(tc.a, tc.b)
 		if got != tc.want || (err != nil) != tc.bad {
@@ -65,6 +69,17 @@ func TestReleaseWindowsAssetNames(t *testing.T) {
 		})
 	}
 }
+func TestReleaseLatestAcceptsBuildVersion(t *testing.T) {
+	s := NewReleaseService()
+	s.client.Transport = releaseTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"tag_name":"v1.0.0-build3"}`))}, nil
+	})
+	release, err := s.Latest(context.Background())
+	if err != nil || release.Tag != "v1.0.0-build3" {
+		t.Fatalf("build release: %+v, %v", release, err)
+	}
+}
+
 func TestReleaseFailures(t *testing.T) {
 	for _, tc := range []struct {
 		code int

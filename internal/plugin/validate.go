@@ -32,6 +32,8 @@ var rejectedEnvNames = map[string]struct{}{
 	"LD_PRELOAD":      {},
 	"LD_LIBRARY_PATH": {},
 	EventTokenEnv:     {},
+	APIBaseURLEnv:     {},
+	APITokenEnv:       {},
 }
 
 var rejectedContainerPaths = []string{
@@ -229,6 +231,12 @@ func ValidateContainerPath(path string) error {
 	return nil
 }
 
+// isRuntimeSocket rejects Docker and Podman control sockets alike: mounting
+// either one hands the container control over the host runtime.
+func isRuntimeSocket(path string) bool {
+	return strings.HasSuffix(path, "docker.sock") || strings.HasSuffix(path, "podman.sock")
+}
+
 // PrepareHostMount creates the directory if needed, resolves symlinks and
 // verifies that the final path is a strict child of an allowed root.
 func PrepareHostMount(hostPath string, allowedRoots []string) (string, error) {
@@ -236,8 +244,8 @@ func PrepareHostMount(hostPath string, allowedRoots []string) (string, error) {
 		return "", fmt.Errorf("%w: host path must be absolute", ErrInvalidConfig)
 	}
 	cleaned := filepath.Clean(hostPath)
-	if strings.HasSuffix(cleaned, "docker.sock") {
-		return "", fmt.Errorf("%w: docker socket cannot be mounted", ErrInvalidConfig)
+	if isRuntimeSocket(cleaned) {
+		return "", fmt.Errorf("%w: container runtime socket cannot be mounted", ErrInvalidConfig)
 	}
 	if err := os.MkdirAll(cleaned, 0o750); err != nil {
 		return "", fmt.Errorf("%w: cannot create plugin data directory: %v", ErrInvalidConfig, err)

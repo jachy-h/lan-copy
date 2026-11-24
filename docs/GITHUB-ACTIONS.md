@@ -5,7 +5,7 @@
 | 操作 | 结果 |
 | --- | --- |
 | 推送 `main` | 在 Linux、Windows、macOS 上测试，通过后交叉构建带更新签名的 Windows amd64 和 macOS Apple Silicon 发布包 |
-| 推送 `v版本号` 标签 | 完成相同的测试与构建，并发布 GitHub Release |
+| 推送 `vx.y.z-build{c}` 标签 | 完成相同的测试与构建，发布 GitHub Release，并把公式更新推送到 `jachy-h/homebrew-jachy-h` |
 | 在 Actions 手动运行 | 构建所选分支；选择版本标签时也会进入发布流程 |
 
 普通分支推送不会发布正式 Release。`main` 的构建产物可在对应 Actions 运行的 **Artifacts** 中下载，保留 14 天；包含两个压缩包和 `SHA256SUMS`。正式标签会将相同的三个文件上传为 Release 附件。
@@ -32,6 +32,18 @@ gh variable set LAN_COPY_UPDATE_PUBLIC_KEY --repo jachy-h/lan-copy < .config/upd
 
 GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代码签名或 macOS 签名公证。Windows 系统代码签名仍按 [WINDOWS-SECURITY.md](WINDOWS-SECURITY.md) 单独处理。
 
+## 一次性配置 Homebrew Tap 令牌
+
+tag 发布成功后，`homebrew` job 会更新 Tap 仓库 `jachy-h/homebrew-jachy-h` 的 `Formula/lan-copy.rb`：从本次 Release 的 `SHA256SUMS` 读取 macOS 归档校验值，仅改写 `url` 与 `sha256`，然后在 macOS runner 上执行 `ruby -c`、`brew style` 与 `brew audit --strict --online`，全部通过才以 `github-actions[bot]` 身份提交并推送。Tap 仓库自己的 `validate` 工作流会在推送后再校验一次。
+
+需要一个只对 Tap 仓库有写权限的 fine-grained personal access token（Repository access 仅选 `jachy-h/homebrew-jachy-h`，Permissions 选 `Contents: Read and write`），保存为 `jachy-h/lan-copy` 的 Repository secret：
+
+```bash
+gh secret set HOMEBREW_TAP_TOKEN --repo jachy-h/lan-copy
+```
+
+缺少该 Secret 时 `homebrew` job 跳过并在 Step Summary 告警，不影响 Release 发布；令牌过期或权限不足时 job 会在推送步骤显式失败。`homebrew` job 只声明 `contents: read`，写 Tap 完全依赖该令牌。
+
 ## 一键发布：make publish
 
 本地代码全部提交后，在 `main` 分支执行：
@@ -40,28 +52,28 @@ GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代
 make publish
 ```
 
-构建前会提示 `请确认是否发布 x.y.z 版本 [y/n]:`。输入 `y` 后继续；输入 `n`、按 Ctrl+C 或关闭输入会取消，不构建、不修改版本、不提交、不创建标签或推送。其他输入会重新提示。
+构建前会提示 `请确认是否发布 0.8.1-build4 版本 [y/n]:`（显示完整版本）。输入 `y` 后继续；输入 `n`、按 Ctrl+C 或关闭输入会取消，不构建、不修改版本、不提交、不创建标签或推送。其他输入会重新提示。
 
 命令会依次完成：
 
 1. 检查暂存区、工作区和未跟踪文件；有未提交改动就提示先 `git commit` 并停止。已忽略的 `.config/` 和 `release/` 不算未提交改动。
 2. 检查当前分支为 `main`、远端可访问、没有落后或分叉，以及目标版本标签在本地和远端都不存在。
-3. 调用签名构建，默认递增 patch；也可用 `make publish VERSION=1.2.3` 指定更高版本。
-4. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v版本号`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
+3. 调用签名构建，默认在同一基础版本上把构建号加一；`make publish VERSION=0.9.0` 开始新基础版本并重置为 `0.9.0-build1`，也可用 `VERSION=0.9.0-build3` 指定更高完整版本。
+4. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v0.8.1-build4`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
 5. 将发布提交和版本标签通过一次 `git push --atomic` 推送至 `origin`，两者全部成功或全部拒绝。可通过 `PUBLISH_REMOTE` 指定其他远端。
 6. GitHub Actions 在远端重新测试、构建签名包，全部通过后公开 Release。命令在推送后返回，最终发布状态在 Actions 页面查看。
 
 该命令会实际创建 Git 提交、标签并推送。可以先执行 `make -n publish` 查看计划，预览不会构建或修改版本、提交、标签及远端。
 
-构建失败时不创建版本提交或标签。若推送失败，本地已生成的版本提交和标签会保留，脚本打印精确的推送重试命令；先解决网络、权限或远端冲突，再使用该命令重试。不要直接再次执行 `make publish`，以免生成下一个版本。Git 服务不支持原子推送时命令会失败，不会退回分别推送。
+构建失败时不创建版本提交或标签。若推送失败，本地已生成的版本提交和标签会保留，脚本打印精确的推送重试命令；先解决网络、权限或远端冲突，再使用该命令重试。不要直接再次执行 `make publish`，以免生成下一个构建号。Git 服务不支持原子推送时命令会失败，不会退回分别推送。
 
 首次加入发布脚本时，脚本及文档本身也需要先提交，才能使用 `make publish`。
 
 ## 手动构建与发布
 
-本地 `make build` 直接使用 `VERSION`，不自动递增。`make publish` 默认递增 patch 并自动提交版本。CI 使用已提交的 `VERSION`，不递增、不自动提交，也不推送版本改动。这样分支构建、标签构建及失败重跑都使用同一个版本。
+本地 `make build` 在已保存版本上递增构建号；`make publish` 默认在同一基础版本上递增构建号并自动提交版本。CI 使用已提交的完整 `VERSION`，不递增、不自动提交，也不推送版本改动。这样分支构建、标签构建及失败重跑都使用同一个版本。
 
-1. 本地确认 `VERSION` 是要发布的版本；如需修改版本，先更新 `VERSION`，或用 `make build VERSION=1.2.3` 显式选择构建版本。`make build` 本身不会递增版本。
+1. 本地确认 `VERSION` 是要发布的完整版本；如需升级基础版本，先更新 `VERSION` 为 `0.9.0`，或执行 `make build VERSION=0.9.0` 开始 `0.9.0-build1`；CI/重跑可用 `VERSION=0.9.0-build3` 原样指定。
 2. 提交代码和 `VERSION`，推送 `main`。等待 Actions 构建成功，可先下载 Artifacts 验证。
 3. 给对应提交添加同名版本标签并推送：
 
@@ -70,9 +82,9 @@ make publish
    git push origin "v$(cat VERSION)"
    ```
 
-标签必须严格等于该提交的 `v` + `VERSION`，例如 `VERSION` 为 `0.1.4` 时，标签必须是 `v0.1.4`。标签不匹配会提前失败，防止附件版本与 Release 名称不一致。
+标签必须严格等于该提交的 `v` + `VERSION`，例如 `VERSION` 为 `0.8.1-build4` 时，标签必须是 `v0.8.1-build4`。标签不匹配会提前失败，防止附件版本与 Release 名称不一致。
 
-发布 job 先核对下载包的校验和，再创建草稿、上传全部附件，最后公开 Release；上传失败时保留草稿以便重跑。已公开的 Release 不会在重跑时覆盖。只有发布 job 拥有 `contents: write` 权限，测试与构建 job 使用只读权限。
+发布 job 先核对下载包的校验和，再创建草稿、上传全部附件，最后公开 Release；上传失败时保留草稿以便重跑。已公开的 Release 不会在重跑时覆盖。只有发布 job 拥有 `contents: write` 权限，测试、构建与 Homebrew 更新 job 使用只读权限。
 
 ## 工作流启用
 
