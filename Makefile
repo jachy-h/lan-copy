@@ -9,6 +9,7 @@ VERSION ?=
 PUBLISH_REMOTE ?= origin
 DEPLOY_URL ?= http://192.168.2.88:8080/
 DEPLOY_PACKAGE ?=
+# shellcheck disable=SC1073,SC1050,SC1072
 # VERSION_FILE holds the current x.y.z-buildN version; a successful build advances it.
 BUILD_VERSION = $(if $(strip $(VERSION)),$(strip $(VERSION)),$(shell cat "$(VERSION_FILE)" 2>/dev/null || printf '0.1.0'))
 UPDATE_PUBLIC_KEY_FILE ?= .config/update.pub
@@ -22,7 +23,7 @@ WINDOWS_ARTIFACTS := $(addprefix $(DIST_DIR)/Lan-Copy-Windows-,$(addsuffix .zip,
 MACOS_ARTIFACTS := $(DIST_DIR)/Lan-Copy-macOS-Apple-Silicon.tar.gz
 SOURCES := Makefile go.mod go.sum $(wildcard *.go) $(shell find internal -type f) $(shell find web -type f) $(shell find frontend -type f ! -path 'frontend/node_modules/*') $(wildcard docs/*) $(wildcard scripts/*) $(wildcard scripts/update-manifest/*) README.md README.en.md $(wildcard release-assets/*) $(wildcard release-assets/*/*)
 
-.PHONY: all build publish deploy artifacts windows macos checksums test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
+.PHONY: all build publish deploy artifacts windows macos checksums release-test test frontend-check frontend-build frontend-sync frontend-release frontend-dev deploytoken clean dist-clean FORCE
 
 FORCE:
 
@@ -33,9 +34,10 @@ build:
 		$(foreach artifact,$(WINDOWS_ARTIFACTS) $(MACOS_ARTIFACTS),--artifact "$(artifact)") \
 		--artifact "$(DIST_DIR)/SHA256SUMS" -- $(MAKE) --no-print-directory artifacts
 
+# CI 只测 Linux 与 Windows，macOS 由本机在构建发布包前跑完整测试。
 publish:
 	+@PYTHONDONTWRITEBYTECODE=1 python3 scripts/publish_release.py --version-file "$(VERSION_FILE)" --version "$(VERSION)" \
-		--remote "$(PUBLISH_REMOTE)" -- $(MAKE) --no-print-directory build
+		--remote "$(PUBLISH_REMOTE)" -- $(MAKE) --no-print-directory release-test build
 
 deploy:
 	@node scripts/deploy-target.mjs --url "$(DEPLOY_URL)" \
@@ -90,6 +92,16 @@ checksums: windows macos
 		shasum -a 256 "$${@}" > SHA256SUMS; \
 	fi; \
 	echo "Checksums written to $(DIST_DIR)/SHA256SUMS"
+
+# macOS 测试已从 GitHub Actions 移到本地发布前执行，这里先确认平台再跑与 CI 相同的检查。
+release-test:
+	@test "$$(uname -s)" = Darwin || { \
+		echo 'make publish 必须在 macOS 上执行：macOS 测试只在本地发布前运行。'; \
+		exit 1; \
+	}
+	$(GO) vet ./...
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
+	$(GO) test ./...
 
 test:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'

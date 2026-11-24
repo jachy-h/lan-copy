@@ -55,6 +55,7 @@ The frontend migration source pins Node.js 24.18.0 and npm 11.16.0. Dependency i
 ```bash
 go run .            # 运行 / run
 make test           # Python 与 Go 测试 / Python and Go tests
+make release-test   # 发布前在 macOS 本机跑 CI 同款检查（含 darwin 测试）/ local macOS checks before publishing
 go vet ./...        # 静态检查 / static check
 make frontend-check # npm ci、类型检查、前端测试、Vite 构建与产物校验 / npm ci, typecheck, frontend tests, Vite build and bundle check
 make frontend-sync # 重新生成前端 bundle 并同步到 web/ / rebuild and sync the frontend bundle into web/
@@ -286,9 +287,9 @@ The exe icon comes from the pre-generated `lan-copy.syso` in the repo root, whic
 
 ## 发布流程 / Release Process
 
-GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交的完整版本（含构建号），不执行自动递增。
+GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交的完整版本（含构建号），不执行自动递增。CI 测试只跑 Linux 与 Windows，macOS 测试由 `make publish` 在发布前用 `make release-test` 在本机执行。
 
-GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed full version, including the build number, without incrementing it.
+GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed full version, including the build number, without incrementing it. CI tests run on Linux and Windows only; `make publish` runs `make release-test` on macOS first.
 
 1. 更新两个 README 与本文档 / update both READMEs and this doc
 2. `go vet ./... && go test ./...` 全部通过 / all green

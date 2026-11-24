@@ -4,9 +4,11 @@
 
 | 操作 | 结果 |
 | --- | --- |
-| 推送 `main` | 在 Linux、Windows、macOS 上测试，通过后交叉构建带更新签名的 Windows amd64 和 macOS Apple Silicon 发布包 |
+| 推送 `main` | 在 Linux、Windows 上测试，通过后交叉构建带更新签名的 Windows amd64 和 macOS Apple Silicon 发布包 |
 | 推送 `vx.y.z-build{c}` 标签 | 完成相同的测试与构建，发布 GitHub Release，并把公式更新推送到 `jachy-h/homebrew-jachy-h` |
 | 在 Actions 手动运行 | 构建所选分支；选择版本标签时也会进入发布流程 |
+
+CI 不使用 macOS runner：`test` job 的矩阵只有 `ubuntu-latest` 和 `windows-latest`，macOS 测试改由发布者在本机 macOS 上执行（见下文 `make publish` 与 `make release-test`）。标签构建仍会用一台 macOS runner 更新 Homebrew Tap 公式。
 
 普通分支推送不会发布正式 Release。`main` 的构建产物可在对应 Actions 运行的 **Artifacts** 中下载，保留 14 天；包含两个压缩包和 `SHA256SUMS`。正式标签会将相同的三个文件上传为 Release 附件。
 
@@ -58,14 +60,15 @@ make publish
 
 1. 检查暂存区、工作区和未跟踪文件；有未提交改动就提示先 `git commit` 并停止。已忽略的 `.config/` 和 `release/` 不算未提交改动。
 2. 检查当前分支为 `main`、远端可访问、没有落后或分叉，以及目标版本标签在本地和远端都不存在。
-3. 调用签名构建，默认在同一基础版本上把构建号加一；`make publish VERSION=0.9.0` 开始新基础版本并重置为 `0.9.0-build1`，也可用 `VERSION=0.9.0-build3` 指定更高完整版本。
-4. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v0.8.1-build4`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
-5. 将发布提交和版本标签通过一次 `git push --atomic` 推送至 `origin`，两者全部成功或全部拒绝。可通过 `PUBLISH_REMOTE` 指定其他远端。
-6. GitHub Actions 在远端重新测试、构建签名包，全部通过后公开 Release。命令在推送后返回，最终发布状态在 Actions 页面查看。
+3. 在 macOS 上运行 `make release-test`：先确认平台是 macOS，再执行 `go vet ./...`、脚本测试与 `go test ./...`。这一步覆盖 CI 不再运行的 darwin 专属测试。
+4. 调用签名构建，默认在同一基础版本上把构建号加一；`make publish VERSION=0.9.0` 开始新基础版本并重置为 `0.9.0-build1`，也可用 `VERSION=0.9.0-build3` 指定更高完整版本。测试失败时不会开始构建。
+5. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v0.8.1-build4`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
+6. 将发布提交和版本标签通过一次 `git push --atomic` 推送至 `origin`，两者全部成功或全部拒绝。可通过 `PUBLISH_REMOTE` 指定其他远端。
+7. GitHub Actions 在远端重新测试（Linux、Windows）、构建签名包，全部通过后公开 Release。命令在推送后返回，最终发布状态在 Actions 页面查看。
 
 该命令会实际创建 Git 提交、标签并推送。可以先执行 `make -n publish` 查看计划，预览不会构建或修改版本、提交、标签及远端。
 
-构建失败时不创建版本提交或标签。若推送失败，本地已生成的版本提交和标签会保留，脚本打印精确的推送重试命令；先解决网络、权限或远端冲突，再使用该命令重试。不要直接再次执行 `make publish`，以免生成下一个构建号。Git 服务不支持原子推送时命令会失败，不会退回分别推送。
+构建失败时不创建版本提交或标签。`make publish` 必须在 macOS 上执行，其他系统会在 `release-test` 阶段直接停止。若推送失败，本地已生成的版本提交和标签会保留，脚本打印精确的推送重试命令；先解决网络、权限或远端冲突，再使用该命令重试。不要直接再次执行 `make publish`，以免生成下一个构建号。Git 服务不支持原子推送时命令会失败，不会退回分别推送。
 
 首次加入发布脚本时，脚本及文档本身也需要先提交，才能使用 `make publish`。
 

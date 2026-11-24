@@ -80,7 +80,7 @@ def publish(root, version_file, override, remote, branch, command):
         print(f"Publishing Lan Copy {version}: building signed packages…", flush=True)
         result = subprocess.run([*command, f"VERSION={version}"], cwd=root, close_fds=False)
         if result.returncode:
-            print("构建失败，未创建版本提交、标签或推送。", flush=True)
+            print("本地测试或构建失败，未创建版本提交、标签或推送。", flush=True)
             return result.returncode
         if version_file.read_text().strip() != version:
             raise ValueError("构建后的 VERSION 与目标版本不一致，停止发布。")
