@@ -121,6 +121,16 @@ def verify_formula(tap, formula, path, run=execute, echo=emit, online=True):
         echo(f"{label} 通过")
 
 
+def push_hint(tap_dir):
+    tap = str(tap_dir)
+    return (
+        "推送 Tap 仓库失败，提交已保留在本地。HTTPS remote 需要凭据，两种修法任选：\n"
+        f"  1) gh auth setup-git（让 git 复用 GitHub CLI 的凭据）\n"
+        f"  2) git -C {tap} remote set-url origin git@github.com:jachy-h/homebrew-jachy-h.git（改用 SSH）\n"
+        f"然后重试：git -C {tap} push origin HEAD:main"
+    )
+
+
 def commit_and_push(tap_dir, branch, formula, version, run=execute, echo=emit, push=True):
     relative = f"Formula/{formula}.rb"
     require_git(tap_dir, "add", "--", relative, run=run, message=f"无法暂存 {relative}")
@@ -134,7 +144,7 @@ def commit_and_push(tap_dir, branch, formula, version, run=execute, echo=emit, p
         return
     require_git(
         tap_dir, "push", "--quiet", "origin", f"HEAD:{branch}", run=run,
-        message="推送 Tap 仓库失败；修复凭据或网络后执行 git -C <tap> push origin HEAD:" + branch,
+        message=push_hint(tap_dir),
     )
     echo(f"已推送到 Tap 仓库 {branch} 分支")
 

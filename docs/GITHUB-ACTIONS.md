@@ -47,7 +47,7 @@ GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代
 5. 依次执行 `ruby -c`、`brew style`、`brew audit --strict --online --formula jachy-h/jachy-h/lancopy`（`HOMEBREW_AUDIT_ONLINE=0` 时只跑 `--strict`）；任一失败就恢复公式原文，工作区不留脏改动；
 6. 校验通过后提交 `chore: update lancopy v<version>` 并推送。
 
-前置条件：Homebrew 可用、已执行 `brew tap jachy-h/jachy-h`、本机 `git` 对该仓库有推送权限（当前使用 GitHub CLI 的凭据）。旧工作流的 `HOMEBREW_TAP_TOKEN` secret 已作废：它只被 CI 的 `homebrew` job 使用，删除该 job 后不再有任何读取方，可在仓库 Settings 中手动删除。
+前置条件：Homebrew 可用、已执行 `brew tap jachy-h/jachy-h`、本机 `git` 对该仓库有推送权限。`brew tap` 默认克隆 HTTPS remote，因此需要预先配好凭据：执行 `gh auth setup-git`，或把 Tap 的 remote 改为 SSH（`git -C "$(brew --repository)/Library/Taps/jachy-h/homebrew-jachy-h" remote set-url origin git@github.com:jachy-h/homebrew-jachy-h.git`）。推送失败时脚本会保留本地提交并打印这两种修法。旧工作流的 `HOMEBREW_TAP_TOKEN` secret 已作废：它只被 CI 的 `homebrew` job 使用，删除该 job 后不再有任何读取方，已在仓库 Settings 中删除。
 
 ```bash
 make homebrew-check                          # 只读校验当前 Tap 公式，不提交

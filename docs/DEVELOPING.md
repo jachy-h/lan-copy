@@ -312,7 +312,7 @@ macOS 专属步骤全部在本机执行，CI 不再消耗 macOS runner（托管 
 | `make homebrew` | 按已发布 Release 的 `SHA256SUMS` 改写 Tap 公式、校验、提交并推送；支持 `DRY_RUN=1`、`NO_PUSH=1`、`CHECKSUMS=<file>`、`HOMEBREW_WAIT=<秒>`，网络受限时用 `HOMEBREW_AUDIT_ONLINE=0` 跳过 `brew audit` 的在线 URL 检查 |
 | `make browser-test` | 可选：本机跑 Playwright 浏览器集成测试（macOS 上的 webkit 是原生构建）。常规门禁仍在 CI 的 ubuntu job，发布链路不依赖它 |
 
-前置条件：macOS、可用的 Homebrew、已执行 `brew tap jachy-h/jachy-h`、`gh` 已登录（Tap 推送使用本机 git 凭据）、Go 与 Node 按上面的环境要求就绪。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md) 的“Homebrew Tap 由本机更新”一节。
+前置条件：macOS、可用的 Homebrew、已执行 `brew tap jachy-h/jachy-h`、Go 与 Node 按上面的环境要求就绪。Tap 推送使用本机 git 凭据：`brew tap` 默认克隆 HTTPS remote，需要 `gh auth setup-git` 或把该 remote 改为 SSH，否则推送会失败（脚本会保留本地提交并提示修法）。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md) 的“Homebrew Tap 由本机更新”一节。
 
 All macOS-only steps run locally; CI no longer uses a macOS runner. `make release-test` runs the darwin test suite (already wired into `make publish`), `make homebrew-check` validates the local tap formula, `make homebrew` rewrites the formula from the published release checksums, verifies it, and pushes it, and `make browser-test` is an optional local Playwright run (the release pipeline does not depend on it).
 

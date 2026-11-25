@@ -3,7 +3,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from publish_homebrew import commit_and_push, prepare_tap, publish, release_checksums
+from publish_homebrew import (
+    commit_and_push,
+    prepare_tap,
+    publish,
+    push_hint,
+    release_checksums,
+)
 
 ASSET = "Lan-Copy-macOS-Apple-Silicon.tar.gz"
 OLD_SHA = "fe6cb38a213708405f9051c78f17bbca426053397003862953757eee001c9f37"
@@ -237,6 +243,14 @@ class PublishTests(TapTestCase):
         audits = run.matching("audit", "--strict")
         self.assertEqual(len(audits), 1)
         self.assertNotIn("--online", audits[0])
+
+    def test_push_failure_suggests_credential_fixes(self):
+        run = Recorder(responses={"push": Result(1, "", "could not read Username for 'https://github.com'")})
+        with self.assertRaises(ValueError) as caught:
+            commit_and_push(self.tap, "main", "lancopy", VERSION, run=run, echo=lambda message: None)
+        self.assertIn("gh auth setup-git", str(caught.exception))
+        self.assertIn("set-url origin", str(caught.exception))
+        self.assertEqual(push_hint(self.tap), push_hint(Path(self.tap)))
 
     def test_missing_formula_is_rejected(self):
         self.formula.unlink()
