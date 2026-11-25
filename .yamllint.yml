@@ -1,0 +1,10 @@
+# Workflows pin actions to a full commit SHA and note the version on the same
+# line, which cannot fit in 80 columns; 120 matches the rest of this file.
+extends: default
+
+rules:
+  line-length:
+    max: 120
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation: disable

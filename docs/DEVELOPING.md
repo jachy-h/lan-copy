@@ -297,9 +297,24 @@ The exe icon comes from the pre-generated `lan-copy.syso` in the repo root, whic
 
 ## 发布流程 / Release Process
 
-GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交的完整版本（含构建号），不执行自动递增。CI 测试只跑 Linux 与 Windows，macOS 测试由 `make publish` 在发布前用 `make release-test` 在本机执行。
+GitHub Actions 已支持推送 `main` 自动构建、推送版本标签后发布 Release；一次性签名配置及版本规则见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md)。CI 使用已提交的完整版本（含构建号），不执行自动递增。CI 没有任何 macOS runner，只跑 Linux 与 Windows；macOS 专属验证与 Homebrew 更新由本机 `make` 目标完成。
 
-GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed full version, including the build number, without incrementing it. CI tests run on Linux and Windows only; `make publish` runs `make release-test` on macOS first.
+GitHub Actions builds on pushes to `main` and publishes releases on matching version tags. See [automated builds and releases](GITHUB-ACTIONS.md) for signing configuration and version rules. CI uses the committed full version, including the build number, without incrementing it. CI has no macOS runner and runs on Linux and Windows only; macOS-specific verification and the Homebrew tap update run locally through `make` targets.
+
+### 本地 macOS 验证与 Homebrew 发布 / Local macOS verification and Homebrew
+
+macOS 专属步骤全部在本机执行，CI 不再消耗 macOS runner（托管 arm64 机器容量不足时会长时间排队并被取消）：
+
+| 目标 | 用途 |
+| --- | --- |
+| `make release-test` | 确认 macOS 后运行 `go vet ./...`、脚本测试与 `go test ./...`，覆盖 darwin 专属测试；`make publish` 已自动调用 |
+| `make homebrew-check` | 只读校验本地 Tap 公式：`ruby -c`、`brew style`、`brew audit --strict --online --formula jachy-h/jachy-h/lancopy` |
+| `make homebrew` | 按已发布 Release 的 `SHA256SUMS` 改写 Tap 公式、校验、提交并推送；支持 `DRY_RUN=1`、`NO_PUSH=1`、`CHECKSUMS=<file>`、`HOMEBREW_WAIT=<秒>`，网络受限时用 `HOMEBREW_AUDIT_ONLINE=0` 跳过 `brew audit` 的在线 URL 检查 |
+| `make browser-test` | 可选：本机跑 Playwright 浏览器集成测试（macOS 上的 webkit 是原生构建）。常规门禁仍在 CI 的 ubuntu job，发布链路不依赖它 |
+
+前置条件：macOS、可用的 Homebrew、已执行 `brew tap jachy-h/jachy-h`、`gh` 已登录（Tap 推送使用本机 git 凭据）、Go 与 Node 按上面的环境要求就绪。详见 [GitHub 自动构建与发布](GITHUB-ACTIONS.md) 的“Homebrew Tap 由本机更新”一节。
+
+All macOS-only steps run locally; CI no longer uses a macOS runner. `make release-test` runs the darwin test suite (already wired into `make publish`), `make homebrew-check` validates the local tap formula, `make homebrew` rewrites the formula from the published release checksums, verifies it, and pushes it, and `make browser-test` is an optional local Playwright run (the release pipeline does not depend on it).
 
 1. 更新两个 README 与本文档 / update both READMEs and this doc
 2. `go vet ./... && go test ./...` 全部通过 / all green

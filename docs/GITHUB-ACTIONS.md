@@ -5,10 +5,12 @@
 | 操作 | 结果 |
 | --- | --- |
 | 推送 `main` | 在 Linux、Windows 上测试，通过后交叉构建带更新签名的 Windows amd64 和 macOS Apple Silicon 发布包 |
-| 推送 `vx.y.z-build{c}` 标签 | 完成相同的测试与构建，发布 GitHub Release，并把公式更新推送到 `jachy-h/homebrew-jachy-h` |
+| 推送 `vx.y.z-build{c}` 标签 | 完成相同的测试与构建并发布 GitHub Release；Homebrew 公式由本机 `make publish` 在 Release 就绪后更新 |
 | 在 Actions 手动运行 | 构建所选分支；选择版本标签时也会进入发布流程 |
 
-CI 不使用 macOS runner：`test` job 的矩阵只有 `ubuntu-latest` 和 `windows-latest`，macOS 测试改由发布者在本机 macOS 上执行（见下文 `make publish` 与 `make release-test`）。标签构建仍会用一台 macOS runner 更新 Homebrew Tap 公式。
+CI 完全没有 macOS runner：`test` job 的矩阵只有 `ubuntu-latest` 和 `windows-latest`，`browser`、`build`、`release` 也都在 Ubuntu 上。所有 macOS 专属工作——darwin `go test`、`ruby -c`、`brew style`、`brew audit --strict --online` 与 Tap 公式更新——都在发布者本机完成（见下文 `make release-test`、`make homebrew-check`、`make homebrew`）。
+
+这样做的原因：GitHub 托管的 macOS arm64 runner 容量极小。发布 `v0.16.0-build1` 时 `Update Homebrew tap` job 排队 15 分钟仍未获得机器（`The job was not acquired by Runner of type hosted even after multiple attempts`），最终被平台取消，Release 已公开而 Tap 公式停在旧版本。同一次运行的 ubuntu/windows job 都在 1.5~3 分钟内启动。
 
 普通分支推送不会发布正式 Release。`main` 的构建产物可在对应 Actions 运行的 **Artifacts** 中下载，保留 14 天；包含两个压缩包和 `SHA256SUMS`。正式标签会将相同的三个文件上传为 Release 附件。
 
@@ -34,17 +36,29 @@ gh variable set LAN_COPY_UPDATE_PUBLIC_KEY --repo jachy-h/lan-copy < .config/upd
 
 GitHub 的更新包签名是 Ed25519 签名，不包含 Windows Authenticode 代码签名或 macOS 签名公证。Windows 系统代码签名仍按 [WINDOWS-SECURITY.md](WINDOWS-SECURITY.md) 单独处理。
 
-## 一次性配置 Homebrew Tap 令牌
+## Homebrew Tap 由本机更新
 
-tag 发布成功后，`homebrew` job 会更新 Tap 仓库 `jachy-h/homebrew-jachy-h` 的 `Formula/lancopy.rb`：从本次 Release 的 `SHA256SUMS` 读取 macOS 归档校验值，仅改写 `url` 与 `sha256`，然后在 macOS runner 上执行 `ruby -c`、`brew style` 与 `brew audit --strict --online`，全部通过才以 `github-actions[bot]` 身份提交并推送。Tap 仓库自己的 `validate` 工作流会在推送后再校验一次。
+标签发布成功后，在本机执行 `make homebrew` 更新 Tap 仓库 `jachy-h/homebrew-jachy-h` 的 `Formula/lancopy.rb`：
 
-需要一个只对 Tap 仓库有写权限的 fine-grained personal access token（Repository access 仅选 `jachy-h/homebrew-jachy-h`，Permissions 选 `Contents: Read and write`），保存为 `jachy-h/lan-copy` 的 Repository secret：
+1. `require-macos` 确认当前系统为 macOS；
+2. `scripts/publish_homebrew.py` 检查 Tap 工作区干净，`git fetch` 后按需 `git merge --ff-only origin/main`；
+3. 从本次 Release 下载 `SHA256SUMS`（默认路径，同时确认附件已上线），或用 `CHECKSUMS=release/SHA256SUMS` 指定本地文件；
+4. 复用 `scripts/update_homebrew_formula.py` 的同一套逻辑，只改写 `url` 与 `sha256`；
+5. 依次执行 `ruby -c`、`brew style`、`brew audit --strict --online --formula jachy-h/jachy-h/lancopy`（`HOMEBREW_AUDIT_ONLINE=0` 时只跑 `--strict`）；任一失败就恢复公式原文，工作区不留脏改动；
+6. 校验通过后提交 `chore: update lancopy v<version>` 并推送。
+
+前置条件：Homebrew 可用、已执行 `brew tap jachy-h/jachy-h`、本机 `git` 对该仓库有推送权限（当前使用 GitHub CLI 的凭据）。旧工作流的 `HOMEBREW_TAP_TOKEN` secret 已作废：它只被 CI 的 `homebrew` job 使用，删除该 job 后不再有任何读取方，可在仓库 Settings 中手动删除。
 
 ```bash
-gh secret set HOMEBREW_TAP_TOKEN --repo jachy-h/lan-copy
+make homebrew-check                          # 只读校验当前 Tap 公式，不提交
+make homebrew DRY_RUN=1                      # 打印将写入的版本与校验和
+make homebrew HOMEBREW_WAIT=900              # Release 未就绪时最多等待 15 分钟
+make homebrew NO_PUSH=1                      # 只在本地提交，不推送
+make homebrew CHECKSUMS=release/SHA256SUMS   # 用本地校验和（离线）
+make homebrew HOMEBREW_AUDIT_ONLINE=0        # 网络受限时跳过 brew audit 的在线 URL 检查
 ```
 
-缺少该 Secret 时 `homebrew` job 跳过并在 Step Summary 告警，不影响 Release 发布；令牌过期或权限不足时 job 会在推送步骤显式失败。`homebrew` job 只声明 `contents: read`，写 Tap 完全依赖该令牌。
+`make publish` 已自动串联这一步：推送标签后按 `PUBLISH_HOMEBREW_WAIT`（默认 900 秒）等待 Release 附件上线，再调用 `make homebrew`。等待超时不会改动 Tap，可稍后单独重跑。Tap 仓库自己的 `validate` 工作流仍会在推送后复核一次。
 
 ## 一键发布：make publish
 
@@ -64,7 +78,8 @@ make publish
 4. 调用签名构建，默认在同一基础版本上把构建号加一；`make publish VERSION=0.9.0` 开始新基础版本并重置为 `0.9.0-build1`，也可用 `VERSION=0.9.0-build3` 指定更高完整版本。测试失败时不会开始构建。
 5. 构建成功后，仅将生成的 `VERSION` 提交为 `chore: release v0.8.1-build4`，再创建同名附注标签。构建期间出现其他改动会停止，不将其带入版本提交。
 6. 将发布提交和版本标签通过一次 `git push --atomic` 推送至 `origin`，两者全部成功或全部拒绝。可通过 `PUBLISH_REMOTE` 指定其他远端。
-7. GitHub Actions 在远端重新测试（Linux、Windows）、构建签名包，全部通过后公开 Release。命令在推送后返回，最终发布状态在 Actions 页面查看。
+7. GitHub Actions 在远端重新测试（Linux、Windows）、构建签名包，全部通过后公开 Release。
+8. 等待该 Release 的 macOS 归档上线（`PUBLISH_HOMEBREW_WAIT`，默认 900 秒）后调用 `make homebrew` 更新并推送 Tap 公式；等待超时不会改动 Tap，可稍后单独执行 `make homebrew HOMEBREW_WAIT=900`。
 
 该命令会实际创建 Git 提交、标签并推送。可以先执行 `make -n publish` 查看计划，预览不会构建或修改版本、提交、标签及远端。
 
@@ -87,7 +102,7 @@ make publish
 
 标签必须严格等于该提交的 `v` + `VERSION`，例如 `VERSION` 为 `0.8.1-build4` 时，标签必须是 `v0.8.1-build4`。标签不匹配会提前失败，防止附件版本与 Release 名称不一致。
 
-发布 job 先核对下载包的校验和，再创建草稿、上传全部附件，最后公开 Release；上传失败时保留草稿以便重跑。已公开的 Release 不会在重跑时覆盖。只有发布 job 拥有 `contents: write` 权限，测试、构建与 Homebrew 更新 job 使用只读权限。
+发布 job 先核对下载包的校验和，再创建草稿、上传全部附件，最后公开 Release；上传失败时保留草稿以便重跑。已公开的 Release 不会在重跑时覆盖。只有发布 job 拥有 `contents: write` 权限，测试与构建 job 使用只读权限。Tap 更新已不在 CI 中执行，写 Tap 完全依赖本机凭据。
 
 ## 工作流启用
 
