@@ -86,9 +86,11 @@ def release_checksums(repo, tag, asset, wait, run=execute, sleep=time.sleep, ech
                 "确认 GitHub Actions 发布完成后再执行 make homebrew，"
                 "或用 HOMEBREW_WAIT=900 让它继续等待。"
             )
-        echo(f"等待 Release {tag} 上线 {asset}…")
-        sleep(min(POLL_SECONDS, wait - waited))
-        waited += min(POLL_SECONDS, wait - waited)
+        if waited % 60 == 0:
+            echo(f"等待 Release {tag} 上线 {asset}…（已等待 {waited} 秒，上限 {wait} 秒）")
+        step = min(POLL_SECONDS, wait - waited)
+        sleep(step)
+        waited += step
     with tempfile.TemporaryDirectory(prefix="lancopy-homebrew-") as directory:
         result = run([
             "gh", "release", "download", tag, "--repo", repo,

@@ -129,6 +129,7 @@ class ReleaseChecksumsTests(unittest.TestCase):
     def test_waits_until_the_asset_is_published(self):
         views = {"count": 0}
         sleeps = []
+        messages = []
 
         def handler(command):
             if command[1:3] == ["release", "view"]:
@@ -144,11 +145,24 @@ class ReleaseChecksumsTests(unittest.TestCase):
 
         text = release_checksums(
             "jachy-h/lan-copy", f"v{VERSION}", ASSET, 90,
-            run=Recorder(handler=handler), sleep=sleeps.append, echo=lambda message: None,
+            run=Recorder(handler=handler), sleep=sleeps.append, echo=messages.append,
         )
         self.assertIn(NEW_SHA, text)
         self.assertEqual(len(sleeps), 2)
         self.assertTrue(all(second <= 15 for second in sleeps))
+        self.assertLessEqual(len(messages), 1)
+
+    def test_waiting_reports_progress_at_most_once_a_minute(self):
+        sleeps = []
+        messages = []
+        run = Recorder(responses={"release view": Result(1, "", "release not found")})
+        with self.assertRaises(ValueError):
+            release_checksums(
+                "jachy-h/lan-copy", f"v{VERSION}", ASSET, 300,
+                run=run, sleep=sleeps.append, echo=messages.append,
+            )
+        self.assertEqual(len(sleeps), 20)
+        self.assertEqual(len(messages), 5)
 
     def test_times_out_without_waiting(self):
         run = Recorder(responses={"release view": Result(1, "", "release not found")})
